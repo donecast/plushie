@@ -129,7 +129,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=9', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=10', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = data.products || [];
@@ -294,6 +294,7 @@ function renderCard(item, kind) {
   if (kind === 'collection') {
     if (item.dateCollected) meta.push(`<span>${formatDate(item.dateCollected)}</span>`);
     if (item.acquiredHow) meta.push(`<span>${escapeHtml(item.acquiredHow)}</span>`);
+    if (item.hasBag === false) meta.push(`<span class="meta-warn">No bag</span>`);
   } else {
     if (item.url) {
       try {
@@ -397,12 +398,15 @@ function openModal(kind, item = null, seed = null) {
   document.getElementById('f-url').value = src.url ?? '';
   document.getElementById('f-retired').checked = !!src.retired;
   document.getElementById('f-oos').checked = !!src.outOfStock;
+  // Has bag defaults to true for new items; preserve whatever an existing record has.
+  document.getElementById('f-bag').checked = item ? (item.hasBag !== false) : true;
 
   // Field visibility per tab
   const isCol = kind === 'collection';
   document.getElementById('field-meaning').classList.remove('hidden');
   document.getElementById('field-date').classList.toggle('hidden', !isCol);
   document.getElementById('field-acquired').classList.toggle('hidden', !isCol);
+  document.getElementById('field-bag').classList.toggle('hidden', !isCol);
   document.getElementById('field-retired').classList.toggle('hidden', !isCol);
   document.getElementById('field-url').classList.toggle('hidden', isCol);
   document.getElementById('field-oos').classList.toggle('hidden', isCol);
@@ -478,6 +482,7 @@ async function submitForm(e) {
       ...base,
       dateCollected: document.getElementById('f-date').value || null,
       acquiredHow: document.getElementById('f-acquired').value || null,
+      hasBag: document.getElementById('f-bag').checked,
       retired: document.getElementById('f-retired').checked,
     };
   } else {
@@ -524,6 +529,7 @@ async function onCardClick(e) {
       catalogId: item.catalogId || null,
       dateCollected: new Date().toISOString().slice(0, 10),
       acquiredHow: null,
+      hasBag: true,
       retired: false,
       addedAt: Date.now(),
       updatedAt: Date.now(),

@@ -423,6 +423,7 @@ main {
 }
 .card-meta span::before { content: '· '; color: var(--ink-mute); }
 .card-meta span:first-child::before { content: ''; }
+.card-meta .meta-warn { color: var(--rose-hi); font-style: italic; }
 
 .card-actions {
   display: flex;
