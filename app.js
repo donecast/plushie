@@ -3,8 +3,10 @@ const state = {
   tab: 'collection',          // 'collection' | 'wishlist' | 'catalog'
   filter: 'all',              // collection: all | active | retired
   catalogFilter: 'all',       // catalog category: all | plush | accessory | other
-  catalogStatuses: new Set(), // empty = any; otherwise OR of: available/sold_out/coming_soon/retired
+  catalogStatuses: new Set(), // empty = any; otherwise OR of: available/sold_out/coming_soon/retired/fyc
   catalogUnowned: false,      // toggle: hide ones already in collection
+  catalogCharmOnly: false,    // toggle: only show items tagged bag charm
+  catalogTheme: 'all',        // tag value to require; 'all' = no constraint
   catalogSort: 'newest',      // newest | oldest | name_asc | name_desc | price_asc | price_desc
   query: '',
   editingId: null,
@@ -29,6 +31,11 @@ function shopifyImageVariant(url, size) {
   if (!url) return null;
   // Shopify CDN: insert _<size>x before extension, e.g. .jpg → _400x.jpg
   return url.replace(/\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i, `_${size}x.$1$2`);
+}
+
+function isCharm(item) {
+  const tags = (item.tags || []).map((t) => t.toLowerCase());
+  return tags.includes('bag charm') || tags.includes('bagcharm');
 }
 
 function isMiniPlushie(item) {
@@ -129,7 +136,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=10', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=11', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = data.products || [];
@@ -192,10 +199,16 @@ function filteredCatalog() {
   const { owned } = catalogIdMap();
   const cat = CATALOG_CATEGORIES.has(state.catalogFilter) ? state.catalogFilter : 'all';
   const statuses = state.catalogStatuses;
+  const theme = state.catalogTheme;
   const items = state.catalog.filter((it) => {
     if (cat !== 'all' && catalogCategory(it) !== cat) return false;
     if (statuses.size > 0 && !statuses.has(itemStatus(it))) return false;
     if (state.catalogUnowned && owned.has(it.id)) return false;
+    if (state.catalogCharmOnly && !isCharm(it)) return false;
+    if (theme && theme !== 'all') {
+      const tags = (it.tags || []).map((t) => t.toLowerCase());
+      if (!tags.includes(theme)) return false;
+    }
     if (!q) return true;
     return (
       it.name.toLowerCase().includes(q) ||
@@ -827,10 +840,21 @@ function wireEvents() {
       if (key === 'unowned') {
         state.catalogUnowned = !state.catalogUnowned;
         c.classList.toggle('active', state.catalogUnowned);
-        render();
+      } else if (key === 'charm') {
+        state.catalogCharmOnly = !state.catalogCharmOnly;
+        c.classList.toggle('active', state.catalogCharmOnly);
       }
+      render();
     });
   });
+
+  const themeEl = document.getElementById('cat-theme');
+  if (themeEl) {
+    themeEl.addEventListener('change', () => {
+      state.catalogTheme = themeEl.value;
+      render();
+    });
+  }
 
   document.getElementById('search').addEventListener('input', (e) => {
     state.query = e.target.value;

@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=10" />
+  <link rel="stylesheet" href="./styles.css?v=11" />
 </head>
 <body>
   <header>
@@ -83,6 +83,24 @@
         <button class="chip chip-toggle" data-cat-status="retired">Retired</button>
         <span class="chip-sep" aria-hidden="true"></span>
         <button class="chip chip-toggle" data-cat-toggle="unowned">Unowned</button>
+        <button class="chip chip-toggle" data-cat-toggle="charm">Bag Charm</button>
+        <select id="cat-theme" class="chip-select" aria-label="Filter by theme">
+          <option value="all">All themes</option>
+          <option value="mental health plushies">Mental Health</option>
+          <option value="emotion and personality plushies">Emotion & Personality</option>
+          <option value="health and illness plushies">Health & Illness</option>
+          <option value="love and romance plushies">Love & Romance</option>
+          <option value="fairy tale plushies">Fairy Tale</option>
+          <option value="cryptids and fantasy creature plushies">Cryptids & Fantasy</option>
+          <option value="celestial and space plushies">Celestial & Space</option>
+          <option value="seasonal and nature plushies">Seasonal & Nature</option>
+          <option value="hair accessories">Hair Accessories</option>
+          <option value="bags and totes">Bags & Totes</option>
+          <option value="jewelry and wearables">Jewelry</option>
+          <option value="home and decor">Home & Decor</option>
+          <option value="bundles and gifts">Bundles & Gifts</option>
+          <option value="stickers and decals">Stickers</option>
+        </select>
         <select id="cat-sort" class="chip-select" aria-label="Sort catalog">
           <option value="newest">Newest first</option>
           <option value="oldest">Oldest first</option>
@@ -207,7 +225,7 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <script src="./db.js?v=10"></script>
-  <script src="./app.js?v=10"></script>
+  <script src="./db.js?v=11"></script>
+  <script src="./app.js?v=11"></script>
 </body>
 </html>
