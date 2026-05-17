@@ -159,11 +159,14 @@ function catalogIdMap() {
   return { owned, wished };
 }
 
+const CATALOG_CATEGORIES = new Set(['all', 'plush', 'accessory', 'other']);
+
 function filteredCatalog() {
   const q = state.query.trim().toLowerCase();
   const { owned } = catalogIdMap();
+  const cat = CATALOG_CATEGORIES.has(state.catalogFilter) ? state.catalogFilter : 'all';
   return state.catalog.filter((it) => {
-    if (state.catalogFilter !== 'all' && catalogCategory(it) !== state.catalogFilter) return false;
+    if (cat !== 'all' && catalogCategory(it) !== cat) return false;
     if (state.catalogAvailable && !isBuyableNow(it)) return false;
     if (state.catalogUnowned && owned.has(it.id)) return false;
     if (!q) return true;
