@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#1a0d26" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Dreadful" />
+  <title>Plushie Dreadful Tracker</title>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="./icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div class="brand">
+        <svg class="bat-logo" viewBox="0 0 120 80" aria-hidden="true">
+          <path d="M60 28
+                   C 55 18, 45 14, 35 16
+                   C 28 8, 18 6, 10 12
+                   C 14 18, 12 26, 18 32
+                   C 12 36, 14 44, 20 46
+                   C 28 44, 36 42, 44 44
+                   C 50 50, 56 52, 60 50
+                   C 64 52, 70 50, 76 44
+                   C 84 42, 92 44, 100 46
+                   C 106 44, 108 36, 102 32
+                   C 108 26, 106 18, 110 12
+                   C 102 6, 92 8, 85 16
+                   C 75 14, 65 18, 60 28 Z"
+                fill="url(#batGrad)"/>
+          <path d="M58 26 L60 36 L62 26 Z" fill="#3a1547"/>
+          <circle cx="55" cy="24" r="1.8" fill="#ff5fa8"/>
+          <circle cx="65" cy="24" r="1.8" fill="#ff5fa8"/>
+          <defs>
+            <linearGradient id="batGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#7a3b8f"/>
+              <stop offset="100%" stop-color="#2a0f3d"/>
+            </linearGradient>
+          </defs>
+        </svg>
+        <h1>Plushie Dreadful</h1>
+      </div>
+      <div class="header-actions">
+        <button id="notify-btn" class="icon-btn" title="Enable reminders" aria-label="Enable reminders">🔔</button>
+      </div>
+    </div>
+    <nav class="tabs">
+      <button class="tab active" data-tab="collection">My Collection</button>
+      <button class="tab" data-tab="wishlist">Wish List</button>
+    </nav>
+  </header>
+
+  <main>
+    <div class="toolbar">
+      <input type="search" id="search" placeholder="Search the crypt…" aria-label="Search" />
+      <div id="collection-filters" class="filters">
+        <button class="chip active" data-filter="all">All</button>
+        <button class="chip" data-filter="active">Active</button>
+        <button class="chip" data-filter="retired">Retired</button>
+      </div>
+      <div id="wishlist-actions" class="filters hidden">
+        <button id="check-restocks" class="chip chip-action">Check All Restocks</button>
+      </div>
+    </div>
+
+    <div class="add-row">
+      <button id="add-btn" class="add-btn">+ Add to <span id="add-target">Collection</span></button>
+      <span class="count" id="count-label">0 items</span>
+    </div>
+
+    <section id="collection-view" class="view">
+      <div id="collection-grid" class="grid"></div>
+      <div id="collection-empty" class="empty hidden">
+        <div class="ghost">🖤</div>
+        <p>Your crypt is empty. Add your first plushie above.</p>
+      </div>
+    </section>
+
+    <section id="wishlist-view" class="view hidden">
+      <div id="wishlist-grid" class="grid"></div>
+      <div id="wishlist-empty" class="empty hidden">
+        <div class="ghost">🦇</div>
+        <p>Nothing haunting your wish list… yet.</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- Add / Edit modal -->
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-card">
+      <button class="modal-close" data-close aria-label="Close">×</button>
+      <h2 id="modal-title">Add Plushie</h2>
+      <form id="plushie-form">
+        <input type="hidden" id="form-id" />
+        <div class="photo-upload">
+          <label for="photo-input" class="photo-label" id="photo-label">
+            <div class="photo-preview" id="photo-preview">
+              <span class="photo-hint">+<br/>Photo</span>
+            </div>
+          </label>
+          <input type="file" id="photo-input" accept="image/*" hidden />
+          <button type="button" id="photo-clear" class="link-btn hidden">Remove photo</button>
+        </div>
+
+        <label class="field">
+          <span>Name</span>
+          <input type="text" id="f-name" required maxlength="100" />
+        </label>
+
+        <label class="field" id="field-meaning">
+          <span>Personal meaning</span>
+          <textarea id="f-meaning" rows="2" maxlength="500" placeholder="What this one means to you…"></textarea>
+        </label>
+
+        <label class="field" id="field-date">
+          <span>Date collected</span>
+          <input type="date" id="f-date" />
+        </label>
+
+        <label class="field" id="field-acquired">
+          <span>How acquired</span>
+          <select id="f-acquired">
+            <option value="">Select…</option>
+            <option>Direct Purchase</option>
+            <option>Mystery Bag</option>
+            <option>Contest</option>
+            <option>Giveaway</option>
+            <option>Trade</option>
+            <option>Gift</option>
+          </select>
+        </label>
+
+        <label class="field" id="field-url">
+          <span>Product URL</span>
+          <input type="url" id="f-url" placeholder="https://…" />
+        </label>
+
+        <label class="checkbox" id="field-retired">
+          <input type="checkbox" id="f-retired" />
+          <span>Retired</span>
+        </label>
+
+        <label class="checkbox" id="field-oos">
+          <input type="checkbox" id="f-oos" />
+          <span>Out of Stock</span>
+        </label>
+
+        <div class="form-actions">
+          <button type="button" class="btn-ghost" data-close>Cancel</button>
+          <button type="submit" class="btn-primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="./db.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

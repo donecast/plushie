@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="35%" r="70%">
+      <stop offset="0%" stop-color="#3d2257"/>
+      <stop offset="60%" stop-color="#1a0d26"/>
+      <stop offset="100%" stop-color="#0a0414"/>
+    </radialGradient>
+    <linearGradient id="bat" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e8c8f5"/>
+      <stop offset="100%" stop-color="#7a3b8f"/>
+    </linearGradient>
+    <radialGradient id="moon" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffe8b8"/>
+      <stop offset="100%" stop-color="#d4a35e"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+  <circle cx="380" cy="140" r="46" fill="url(#moon)" opacity="0.85"/>
+  <circle cx="368" cy="130" r="38" fill="#1a0d26" opacity="0.45"/>
+  <!-- Bat silhouette, centered around (256, 290) -->
+  <path d="M 256 200
+           C 230 168, 188 158, 152 168
+           C 122 130, 78 122, 50 144
+           C 64 168, 56 200, 88 220
+           C 56 232, 64 268, 96 276
+           C 140 268, 188 264, 220 276
+           C 240 296, 252 308, 256 308
+           C 260 308, 272 296, 292 276
+           C 324 264, 372 268, 416 276
+           C 448 268, 456 232, 424 220
+           C 456 200, 448 168, 462 144
+           C 434 122, 390 130, 360 168
+           C 324 158, 282 168, 256 200 Z"
+        fill="url(#bat)" stroke="#2a0f3d" stroke-width="3"/>
+  <!-- Ears -->
+  <path d="M 240 196 L 248 178 L 254 198 Z" fill="#2a0f3d"/>
+  <path d="M 272 196 L 264 178 L 258 198 Z" fill="#2a0f3d"/>
+  <!-- Eyes -->
+  <circle cx="240" cy="232" r="8" fill="#ff5fa8"/>
+  <circle cx="272" cy="232" r="8" fill="#ff5fa8"/>
+  <circle cx="240" cy="230" r="3" fill="#fff"/>
+  <circle cx="272" cy="230" r="3" fill="#fff"/>
+  <!-- Fangs -->
+  <path d="M 248 252 L 252 264 L 254 252 Z" fill="#fff"/>
+  <path d="M 258 252 L 260 264 L 264 252 Z" fill="#fff"/>
+</svg>

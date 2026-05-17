@@ -1,0 +1,507 @@
+// ─── State ────────────────────────────────────────────────────────────
+const state = {
+  tab: 'collection',          // 'collection' | 'wishlist'
+  filter: 'all',              // 'all' | 'active' | 'retired'
+  query: '',
+  editingId: null,            // id when editing existing
+  pendingPhoto: null,         // Blob staged in form
+  collection: [],
+  wishlist: [],
+  blobUrls: new Map(),        // id → object URL (revoked on re-render)
+};
+
+// ─── Photo compression ───────────────────────────────────────────────
+async function compressImage(file, maxDim = 800, quality = 0.82) {
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch (e) {
+    // Fallback via HTMLImageElement for Safari/older browsers
+    bitmap = await new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('image load failed')); };
+      img.src = url;
+    });
+  }
+  let { width, height } = bitmap;
+  if (width > maxDim || height > maxDim) {
+    const ratio = maxDim / Math.max(width, height);
+    width = Math.round(width * ratio);
+    height = Math.round(height * ratio);
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(bitmap, 0, 0, width, height);
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => blob ? resolve(blob) : reject(new Error('toBlob failed')),
+      'image/jpeg',
+      quality
+    );
+  });
+}
+
+// ─── Blob URL management ─────────────────────────────────────────────
+function urlFor(id, blob) {
+  const existing = state.blobUrls.get(id);
+  if (existing) return existing;
+  const url = URL.createObjectURL(blob);
+  state.blobUrls.set(id, url);
+  return url;
+}
+
+function revokeAllBlobUrls() {
+  for (const url of state.blobUrls.values()) URL.revokeObjectURL(url);
+  state.blobUrls.clear();
+}
+
+// ─── Data load ───────────────────────────────────────────────────────
+async function loadAll() {
+  state.collection = (await idb.getAll('collection')).sort(byNewest);
+  state.wishlist = (await idb.getAll('wishlist')).sort(byNewest);
+}
+
+function byNewest(a, b) {
+  return (b.addedAt || 0) - (a.addedAt || 0);
+}
+
+// ─── Rendering ───────────────────────────────────────────────────────
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[c]);
+}
+
+function formatDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function matchesQuery(item, q) {
+  if (!q) return true;
+  const hay = [item.name, item.meaning, item.acquiredHow].filter(Boolean).join(' ').toLowerCase();
+  return hay.includes(q);
+}
+
+function filteredCollection() {
+  const q = state.query.trim().toLowerCase();
+  return state.collection.filter((it) => {
+    if (state.filter === 'active' && it.retired) return false;
+    if (state.filter === 'retired' && !it.retired) return false;
+    return matchesQuery(it, q);
+  });
+}
+
+function filteredWishlist() {
+  const q = state.query.trim().toLowerCase();
+  return state.wishlist.filter((it) => matchesQuery(it, q));
+}
+
+function renderCard(item, kind) {
+  const photoHtml = item.photo
+    ? `<img src="${urlFor(item.id, item.photo)}" alt="${escapeHtml(item.name)}" loading="lazy" />`
+    : `<span class="no-photo">🖤</span>`;
+
+  const meta = [];
+  if (kind === 'collection') {
+    if (item.dateCollected) meta.push(`<span>${formatDate(item.dateCollected)}</span>`);
+    if (item.acquiredHow) meta.push(`<span>${escapeHtml(item.acquiredHow)}</span>`);
+  } else {
+    if (item.url) {
+      try {
+        meta.push(`<span>${escapeHtml(new URL(item.url).hostname.replace(/^www\./, ''))}</span>`);
+      } catch { /* invalid url, skip */ }
+    }
+  }
+
+  const badges = [];
+  if (kind === 'collection' && item.retired) badges.push(`<span class="badge badge-retired">Retired</span>`);
+  if (kind === 'wishlist' && item.outOfStock) badges.push(`<span class="badge badge-oos">Out of Stock</span>`);
+
+  const actions = kind === 'collection'
+    ? `
+      <button data-action="edit" data-id="${item.id}">Edit</button>
+      <button class="btn-danger" data-action="delete" data-id="${item.id}">Delete</button>
+    `
+    : `
+      <button class="btn-got" data-action="got" data-id="${item.id}">Got It! 🖤</button>
+      <button data-action="edit" data-id="${item.id}">Edit</button>
+      ${item.url ? `<a class="btn-link" href="${escapeHtml(item.url)}" target="_blank" rel="noopener" title="Open product page">↗</a>` : ''}
+      <button class="btn-danger" data-action="delete" data-id="${item.id}">Delete</button>
+    `;
+
+  return `
+    <article class="card" data-id="${item.id}">
+      <div class="card-photo">
+        ${photoHtml}
+        ${badges.join('')}
+      </div>
+      <div class="card-body">
+        <h3 class="card-name">${escapeHtml(item.name)}</h3>
+        ${item.meaning ? `<p class="card-meaning">${escapeHtml(item.meaning)}</p>` : ''}
+        ${meta.length ? `<div class="card-meta">${meta.join('')}</div>` : ''}
+      </div>
+      <div class="card-actions">${actions}</div>
+    </article>
+  `;
+}
+
+function render() {
+  revokeAllBlobUrls();
+
+  const isCollection = state.tab === 'collection';
+  document.getElementById('collection-view').classList.toggle('hidden', !isCollection);
+  document.getElementById('wishlist-view').classList.toggle('hidden', isCollection);
+  document.getElementById('collection-filters').classList.toggle('hidden', !isCollection);
+  document.getElementById('wishlist-actions').classList.toggle('hidden', isCollection);
+  document.getElementById('add-target').textContent = isCollection ? 'Collection' : 'Wish List';
+  document.querySelectorAll('.tab').forEach((t) =>
+    t.classList.toggle('active', t.dataset.tab === state.tab)
+  );
+
+  if (isCollection) {
+    const items = filteredCollection();
+    document.getElementById('collection-grid').innerHTML = items.map((i) => renderCard(i, 'collection')).join('');
+    document.getElementById('collection-empty').classList.toggle('hidden', items.length > 0);
+    document.getElementById('count-label').textContent =
+      `${items.length} of ${state.collection.length} item${state.collection.length === 1 ? '' : 's'}`;
+  } else {
+    const items = filteredWishlist();
+    document.getElementById('wishlist-grid').innerHTML = items.map((i) => renderCard(i, 'wishlist')).join('');
+    document.getElementById('wishlist-empty').classList.toggle('hidden', items.length > 0);
+    document.getElementById('count-label').textContent =
+      `${items.length} of ${state.wishlist.length} item${state.wishlist.length === 1 ? '' : 's'}`;
+  }
+}
+
+// ─── Modal / Form ────────────────────────────────────────────────────
+function openModal(kind, item = null) {
+  state.editingId = item ? item.id : null;
+  state.pendingPhoto = item && item.photo ? item.photo : null;
+
+  document.getElementById('modal-title').textContent =
+    item ? 'Edit Plushie' : (kind === 'collection' ? 'Add to Collection' : 'Add to Wish List');
+
+  document.getElementById('f-name').value = item?.name ?? '';
+  document.getElementById('f-meaning').value = item?.meaning ?? '';
+  document.getElementById('f-date').value = item?.dateCollected ?? '';
+  document.getElementById('f-acquired').value = item?.acquiredHow ?? '';
+  document.getElementById('f-url').value = item?.url ?? '';
+  document.getElementById('f-retired').checked = !!item?.retired;
+  document.getElementById('f-oos').checked = !!item?.outOfStock;
+
+  // Field visibility per tab
+  const isCol = kind === 'collection';
+  document.getElementById('field-meaning').classList.remove('hidden');
+  document.getElementById('field-date').classList.toggle('hidden', !isCol);
+  document.getElementById('field-acquired').classList.toggle('hidden', !isCol);
+  document.getElementById('field-retired').classList.toggle('hidden', !isCol);
+  document.getElementById('field-url').classList.toggle('hidden', isCol);
+  document.getElementById('field-oos').classList.toggle('hidden', isCol);
+
+  document.getElementById('modal').dataset.kind = kind;
+  refreshPhotoPreview();
+
+  document.getElementById('modal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('f-name').focus(), 50);
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.add('hidden');
+  document.getElementById('plushie-form').reset();
+  state.editingId = null;
+  state.pendingPhoto = null;
+  const prev = document.getElementById('photo-preview');
+  if (prev._objectUrl) { URL.revokeObjectURL(prev._objectUrl); prev._objectUrl = null; }
+}
+
+function refreshPhotoPreview() {
+  const preview = document.getElementById('photo-preview');
+  const clearBtn = document.getElementById('photo-clear');
+  if (preview._objectUrl) { URL.revokeObjectURL(preview._objectUrl); preview._objectUrl = null; }
+  if (state.pendingPhoto) {
+    const url = URL.createObjectURL(state.pendingPhoto);
+    preview._objectUrl = url;
+    preview.innerHTML = `<img src="${url}" alt="" />`;
+    clearBtn.classList.remove('hidden');
+  } else {
+    preview.innerHTML = `<span class="photo-hint">+<br/>Photo</span>`;
+    clearBtn.classList.add('hidden');
+  }
+}
+
+async function submitForm(e) {
+  e.preventDefault();
+  const kind = document.getElementById('modal').dataset.kind;
+  const name = document.getElementById('f-name').value.trim();
+  if (!name) return;
+
+  const existing = state.editingId
+    ? (kind === 'collection' ? state.collection : state.wishlist).find((x) => x.id === state.editingId)
+    : null;
+
+  const base = {
+    id: existing?.id || crypto.randomUUID(),
+    name,
+    meaning: document.getElementById('f-meaning').value.trim() || null,
+    photo: state.pendingPhoto || null,
+    addedAt: existing?.addedAt ?? Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  let record;
+  if (kind === 'collection') {
+    record = {
+      ...base,
+      dateCollected: document.getElementById('f-date').value || null,
+      acquiredHow: document.getElementById('f-acquired').value || null,
+      retired: document.getElementById('f-retired').checked,
+    };
+  } else {
+    record = {
+      ...base,
+      url: document.getElementById('f-url').value.trim() || null,
+      outOfStock: document.getElementById('f-oos').checked,
+    };
+  }
+
+  await idb.put(kind, record);
+  await loadAll();
+  closeModal();
+  render();
+  toast(existing ? 'Updated.' : 'Added.');
+  scheduleReminderCheck();
+}
+
+// ─── Card actions ────────────────────────────────────────────────────
+async function onCardClick(e) {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const { action, id } = btn.dataset;
+  if (!id) return;
+
+  if (action === 'edit') {
+    const item = state.collection.find((x) => x.id === id) || state.wishlist.find((x) => x.id === id);
+    if (!item) return;
+    openModal(state.tab, item);
+  } else if (action === 'delete') {
+    if (!confirm('Delete this plushie?')) return;
+    const inCol = state.collection.some((x) => x.id === id);
+    await idb.delete(inCol ? 'collection' : 'wishlist', id);
+    await loadAll();
+    render();
+    toast('Removed.');
+  } else if (action === 'got') {
+    const item = state.wishlist.find((x) => x.id === id);
+    if (!item) return;
+    const collected = {
+      id: item.id,
+      name: item.name,
+      meaning: item.meaning || null,
+      photo: item.photo || null,
+      dateCollected: new Date().toISOString().slice(0, 10),
+      acquiredHow: null,
+      retired: false,
+      addedAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    await idb.put('collection', collected);
+    await idb.delete('wishlist', id);
+    await loadAll();
+    render();
+    toast('Moved to collection. 🖤');
+  }
+}
+
+// ─── Restocks ────────────────────────────────────────────────────────
+function checkAllRestocks() {
+  const urls = state.wishlist.map((w) => w.url).filter(Boolean);
+  if (urls.length === 0) {
+    toast('No saved URLs to check.');
+    return;
+  }
+  if (urls.length > 6 && !confirm(`Open ${urls.length} tabs?`)) return;
+  for (const url of urls) {
+    window.open(url, '_blank', 'noopener');
+  }
+}
+
+// ─── Notifications ───────────────────────────────────────────────────
+async function toggleNotifications() {
+  if (!('Notification' in window)) {
+    toast('Notifications not supported on this device.');
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    const wasOn = await idb.getMeta('notify_enabled');
+    await idb.setMeta('notify_enabled', !wasOn);
+    updateNotifyButton();
+    toast(wasOn ? 'Reminders off.' : 'Reminders on.');
+    if (!wasOn) scheduleReminderCheck();
+  } else if (Notification.permission === 'denied') {
+    toast('Notifications blocked in browser settings.');
+  } else {
+    const perm = await Notification.requestPermission();
+    if (perm === 'granted') {
+      await idb.setMeta('notify_enabled', true);
+      updateNotifyButton();
+      toast('Reminders on.');
+      scheduleReminderCheck();
+    }
+  }
+}
+
+async function updateNotifyButton() {
+  const btn = document.getElementById('notify-btn');
+  const enabled = await idb.getMeta('notify_enabled');
+  const granted = 'Notification' in window && Notification.permission === 'granted';
+  btn.classList.toggle('active', !!(enabled && granted));
+  btn.title = (enabled && granted) ? 'Reminders on — click to turn off' : 'Enable reminders';
+}
+
+async function scheduleReminderCheck() {
+  // Check now and every hour while page is open
+  await maybeFireReminder();
+  if (window._reminderTimer) clearInterval(window._reminderTimer);
+  window._reminderTimer = setInterval(maybeFireReminder, 60 * 60 * 1000);
+}
+
+async function maybeFireReminder() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  if (!(await idb.getMeta('notify_enabled'))) return;
+
+  const oos = state.wishlist.filter((w) => w.outOfStock);
+  if (oos.length === 0) return;
+
+  const last = (await idb.getMeta('last_reminder')) || 0;
+  const dayMs = 24 * 60 * 60 * 1000;
+  if (Date.now() - last < dayMs) return;
+
+  const title = '🦇 Plushie Dreadful';
+  const body = oos.length === 1
+    ? `Check on restock: ${oos[0].name}`
+    : `${oos.length} out-of-stock wishlist items waiting…`;
+
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      const reg = await navigator.serviceWorker.ready;
+      reg.showNotification(title, {
+        body,
+        icon: 'icon-192.png',
+        badge: 'icon-192.png',
+        tag: 'restock-reminder',
+      });
+    } else {
+      new Notification(title, { body, icon: 'icon-192.png' });
+    }
+    await idb.setMeta('last_reminder', Date.now());
+  } catch (e) {
+    console.warn('Notification failed', e);
+  }
+}
+
+// ─── Toast ───────────────────────────────────────────────────────────
+let toastTimer = null;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.remove('hidden');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.add('hidden'), 2400);
+}
+
+// ─── Event wiring ────────────────────────────────────────────────────
+function wireEvents() {
+  document.querySelectorAll('.tab').forEach((t) => {
+    t.addEventListener('click', () => {
+      state.tab = t.dataset.tab;
+      state.filter = 'all';
+      document.querySelectorAll('#collection-filters .chip').forEach((c) =>
+        c.classList.toggle('active', c.dataset.filter === 'all')
+      );
+      render();
+    });
+  });
+
+  document.querySelectorAll('#collection-filters .chip').forEach((c) => {
+    c.addEventListener('click', () => {
+      state.filter = c.dataset.filter;
+      document.querySelectorAll('#collection-filters .chip').forEach((x) =>
+        x.classList.toggle('active', x === c)
+      );
+      render();
+    });
+  });
+
+  document.getElementById('search').addEventListener('input', (e) => {
+    state.query = e.target.value;
+    render();
+  });
+
+  document.getElementById('add-btn').addEventListener('click', () => openModal(state.tab));
+  document.getElementById('check-restocks').addEventListener('click', checkAllRestocks);
+  document.getElementById('notify-btn').addEventListener('click', toggleNotifications);
+
+  document.querySelectorAll('[data-close]').forEach((el) =>
+    el.addEventListener('click', closeModal)
+  );
+
+  document.getElementById('plushie-form').addEventListener('submit', submitForm);
+
+  document.getElementById('photo-input').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      state.pendingPhoto = await compressImage(file);
+      refreshPhotoPreview();
+    } catch (err) {
+      console.error(err);
+      toast('Could not load that image.');
+    } finally {
+      e.target.value = '';
+    }
+  });
+
+  document.getElementById('photo-clear').addEventListener('click', () => {
+    state.pendingPhoto = null;
+    refreshPhotoPreview();
+  });
+
+  document.getElementById('collection-grid').addEventListener('click', onCardClick);
+  document.getElementById('wishlist-grid').addEventListener('click', onCardClick);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !document.getElementById('modal').classList.contains('hidden')) {
+      closeModal();
+    }
+  });
+}
+
+// ─── Service worker ──────────────────────────────────────────────────
+function registerSW() {
+  if (!('serviceWorker' in navigator)) return;
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW failed', e));
+  });
+}
+
+// ─── Boot ────────────────────────────────────────────────────────────
+async function boot() {
+  wireEvents();
+  await loadAll();
+  render();
+  updateNotifyButton();
+  registerSW();
+  if (await idb.getMeta('notify_enabled')) scheduleReminderCheck();
+}
+
+boot().catch((e) => {
+  console.error(e);
+  toast('Something went wrong loading the app.');
+});
