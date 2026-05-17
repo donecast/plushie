@@ -143,7 +143,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=12', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=13', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = data.products || [];
@@ -151,6 +151,51 @@ async function loadCatalog() {
     console.warn('catalog load failed', e);
     state.catalog = [];
   }
+}
+
+const LIVE_CATALOG_BASE = 'https://plushiedreadfuls.com/products.json?limit=250';
+
+function normalizeShopifyProduct(p) {
+  const variants = p.variants || [];
+  const available = variants.some((v) => v.available);
+  const priceNums = variants.map((v) => parseFloat(v.price)).filter((n) => !isNaN(n));
+  const tags = p.tags || [];
+  return {
+    id: String(p.id),
+    name: p.title,
+    handle: p.handle,
+    type: p.product_type || '',
+    image: p.images?.[0]?.src || null,
+    price: priceNums.length ? Math.min(...priceNums) : null,
+    available,
+    retired: tags.some((t) => t.toLowerCase() === 'retired'),
+    createdAt: p.created_at,
+    publishedAt: p.published_at,
+    tags,
+  };
+}
+
+async function refreshCatalogLive() {
+  const all = [];
+  try {
+    for (let page = 1; page <= 10; page++) {
+      const r = await fetch(`${LIVE_CATALOG_BASE}&page=${page}`, { mode: 'cors' });
+      if (!r.ok) throw new Error(`page ${page} ${r.status}`);
+      const data = await r.json();
+      const products = data.products || [];
+      if (products.length === 0) break;
+      all.push(...products.map(normalizeShopifyProduct));
+      if (products.length < 250) break;
+    }
+  } catch (e) {
+    console.info('Live catalog refresh skipped:', e.message);
+    return false;
+  }
+  if (all.length === 0) return false;
+  state.catalog = all;
+  await idb.setMeta('last_live_refresh', Date.now());
+  if (state.tab === 'catalog') render();
+  return true;
 }
 
 function byNewest(a, b) {
@@ -936,9 +981,11 @@ async function boot() {
   updateNotifyButton();
   registerSW();
   if (await idb.getMeta('notify_enabled')) scheduleReminderCheck();
-  // Catalog can load lazily — it isn't blocking the first paint.
+  // Catalog: ship the baked copy immediately, then try to refresh from live
+  // Shopify in the background. Falls back silently if CORS or network blocks it.
   loadCatalog().then(() => {
     if (state.tab === 'catalog') render();
+    refreshCatalogLive();
   });
 }
 
