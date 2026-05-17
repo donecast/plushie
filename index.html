@@ -161,6 +161,13 @@
     </div>
   </div>
 
+  <footer class="app-footer">
+    <button id="backup-btn" class="footer-link">↓ Download backup</button>
+    <button id="restore-btn" class="footer-link">↑ Restore from backup</button>
+    <input type="file" id="restore-input" accept="application/json,.json" hidden />
+    <p class="footer-note">Your data lives in this browser. Save a backup to keep it safe or move to another device.</p>
+  </footer>
+
   <div id="toast" class="toast hidden"></div>
 
   <script src="./db.js"></script>

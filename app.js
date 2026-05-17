@@ -406,6 +406,94 @@ async function maybeFireReminder() {
   }
 }
 
+// ─── Backup / Restore ────────────────────────────────────────────────
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+async function dataUrlToBlob(dataUrl) {
+  const resp = await fetch(dataUrl);
+  return resp.blob();
+}
+
+async function exportBackup() {
+  const serialize = (items) => Promise.all(items.map(async (item) => {
+    const out = { ...item };
+    out.photo = item.photo instanceof Blob ? await blobToDataUrl(item.photo) : null;
+    return out;
+  }));
+
+  const data = {
+    app: 'plushie-dreadful',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    collection: await serialize(state.collection),
+    wishlist: await serialize(state.wishlist),
+  };
+
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `plushie-dreadful-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  toast(`Backed up ${data.collection.length + data.wishlist.length} items.`);
+}
+
+async function importBackup(file) {
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch {
+    toast('That file is not valid JSON.');
+    return;
+  }
+  if (!data || data.app !== 'plushie-dreadful' || !Array.isArray(data.collection) || !Array.isArray(data.wishlist)) {
+    toast("That doesn't look like a Dreadful backup.");
+    return;
+  }
+
+  const counts = `${data.collection.length} collection, ${data.wishlist.length} wishlist`;
+  const ok = confirm(
+    `Restore backup (${counts})?\n\n` +
+    `Items with matching IDs will be overwritten. Other existing items are kept.`
+  );
+  if (!ok) return;
+
+  const restore = async (storeName, items) => {
+    for (const raw of items) {
+      const item = { ...raw };
+      if (typeof item.photo === 'string' && item.photo.startsWith('data:')) {
+        try { item.photo = await dataUrlToBlob(item.photo); } catch { item.photo = null; }
+      } else if (!(item.photo instanceof Blob)) {
+        item.photo = null;
+      }
+      if (!item.id) item.id = crypto.randomUUID();
+      if (!item.addedAt) item.addedAt = Date.now();
+      await idb.put(storeName, item);
+    }
+  };
+
+  try {
+    await restore('collection', data.collection);
+    await restore('wishlist', data.wishlist);
+    await loadAll();
+    render();
+    toast('Backup restored. 🖤');
+  } catch (e) {
+    console.error(e);
+    toast('Restore failed. See console.');
+  }
+}
+
 // ─── Toast ───────────────────────────────────────────────────────────
 let toastTimer = null;
 function toast(msg) {
@@ -475,6 +563,16 @@ function wireEvents() {
 
   document.getElementById('collection-grid').addEventListener('click', onCardClick);
   document.getElementById('wishlist-grid').addEventListener('click', onCardClick);
+
+  document.getElementById('backup-btn').addEventListener('click', exportBackup);
+  document.getElementById('restore-btn').addEventListener('click', () =>
+    document.getElementById('restore-input').click()
+  );
+  document.getElementById('restore-input').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (file) await importBackup(file);
+    e.target.value = '';
+  });
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !document.getElementById('modal').classList.contains('hidden')) {

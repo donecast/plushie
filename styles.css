@@ -564,6 +564,39 @@ main {
 }
 .btn-primary:hover { box-shadow: 0 6px 18px rgba(196, 61, 110, 0.6); }
 
+/* ─── Footer ────────────────────────────── */
+.app-footer {
+  max-width: 1100px;
+  margin: 40px auto 0;
+  padding: 24px 20px 8px;
+  border-top: 1px solid rgba(255, 95, 168, 0.12);
+  text-align: center;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+}
+.footer-link {
+  background: transparent;
+  border: 1px solid rgba(255, 95, 168, 0.25);
+  color: var(--ink-dim);
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  font-family: var(--serif);
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.footer-link:hover { color: var(--rose-hi); border-color: var(--rose); background: var(--rose-soft); }
+.footer-note {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  color: var(--ink-mute);
+  font-style: italic;
+  font-size: 0.82rem;
+}
+
 /* ─── Toast ────────────────────────────── */
 .toast {
   position: fixed;
