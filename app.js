@@ -3,7 +3,7 @@ const state = {
   tab: 'collection',          // 'collection' | 'wishlist' | 'catalog'
   filter: 'all',              // collection: all | active | retired
   catalogFilter: 'all',       // catalog category: all | plush | accessory | other
-  catalogAvailable: false,    // toggle: hide sold out + coming soon
+  catalogStatuses: new Set(), // empty = any; otherwise OR of: available/sold_out/coming_soon/retired
   catalogUnowned: false,      // toggle: hide ones already in collection
   query: '',
   editingId: null,
@@ -43,7 +43,14 @@ function isComingSoon(item) {
 }
 
 function isBuyableNow(item) {
-  return !!item.available && !isComingSoon(item);
+  return !!item.available && !isComingSoon(item) && !item.retired;
+}
+
+function itemStatus(item) {
+  if (item.retired) return 'retired';
+  if (isComingSoon(item)) return 'coming_soon';
+  if (!item.available) return 'sold_out';
+  return 'available';
 }
 
 // ─── Photo compression ───────────────────────────────────────────────
@@ -165,9 +172,10 @@ function filteredCatalog() {
   const q = state.query.trim().toLowerCase();
   const { owned } = catalogIdMap();
   const cat = CATALOG_CATEGORIES.has(state.catalogFilter) ? state.catalogFilter : 'all';
+  const statuses = state.catalogStatuses;
   return state.catalog.filter((it) => {
     if (cat !== 'all' && catalogCategory(it) !== cat) return false;
-    if (state.catalogAvailable && !isBuyableNow(it)) return false;
+    if (statuses.size > 0 && !statuses.has(itemStatus(it))) return false;
     if (state.catalogUnowned && owned.has(it.id)) return false;
     if (!q) return true;
     return (
@@ -720,13 +728,23 @@ function wireEvents() {
       render();
     });
   });
+  document.querySelectorAll('#catalog-filters .chip[data-cat-status]').forEach((c) => {
+    c.addEventListener('click', () => {
+      const status = c.dataset.catStatus;
+      if (state.catalogStatuses.has(status)) state.catalogStatuses.delete(status);
+      else state.catalogStatuses.add(status);
+      c.classList.toggle('active', state.catalogStatuses.has(status));
+      render();
+    });
+  });
   document.querySelectorAll('#catalog-filters .chip[data-cat-toggle]').forEach((c) => {
     c.addEventListener('click', () => {
       const key = c.dataset.catToggle;
-      const stateKey = key === 'available' ? 'catalogAvailable' : 'catalogUnowned';
-      state[stateKey] = !state[stateKey];
-      c.classList.toggle('active', state[stateKey]);
-      render();
+      if (key === 'unowned') {
+        state.catalogUnowned = !state.catalogUnowned;
+        c.classList.toggle('active', state.catalogUnowned);
+        render();
+      }
     });
   });
 
