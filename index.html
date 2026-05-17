@@ -54,6 +54,7 @@
     <nav class="tabs">
       <button class="tab active" data-tab="collection">My Collection</button>
       <button class="tab" data-tab="wishlist">Wish List</button>
+      <button class="tab" data-tab="catalog">Catalog</button>
     </nav>
   </header>
 
@@ -67,6 +68,13 @@
       </div>
       <div id="wishlist-actions" class="filters hidden">
         <button id="check-restocks" class="chip chip-action">Check All Restocks</button>
+      </div>
+      <div id="catalog-filters" class="filters hidden">
+        <button class="chip active" data-cat-filter="all">All</button>
+        <button class="chip" data-cat-filter="plush">Plushies</button>
+        <button class="chip" data-cat-filter="accessory">Accessories</button>
+        <button class="chip" data-cat-filter="other">Other</button>
+        <button class="chip" data-cat-filter="unowned">Unowned</button>
       </div>
     </div>
 
@@ -88,6 +96,14 @@
       <div id="wishlist-empty" class="empty hidden">
         <div class="ghost">🦇</div>
         <p>Nothing haunting your wish list… yet.</p>
+      </div>
+    </section>
+
+    <section id="catalog-view" class="view hidden">
+      <div id="catalog-grid" class="grid grid-tight"></div>
+      <div id="catalog-empty" class="empty hidden">
+        <div class="ghost">🕯</div>
+        <p>The catalog is still loading…</p>
       </div>
     </section>
   </main>

@@ -240,6 +240,37 @@ main {
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 18px;
 }
+.grid-tight {
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.card-status {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  font-family: var(--display);
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  background: rgba(8, 4, 14, 0.78);
+  color: var(--ink);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+.card-status.owned { color: #ffd8a8; border-color: var(--gold); }
+.card-status.wished { color: var(--rose-hi); border-color: var(--rose); }
+
+.card-actions .btn-have { color: var(--gold); border-color: rgba(212, 175, 55, 0.4); }
+.card-actions .btn-have:hover { background: rgba(212, 175, 55, 0.15); color: #ffd8a8; }
+.card-actions .btn-want { color: var(--rose-hi); border-color: var(--rose); }
+.card-actions .btn-want:hover { background: var(--rose); color: white; }
+
+.grid-tight .card-name { font-size: 0.95rem; }
+.grid-tight .card-body { padding: 10px 10px 8px; }
+.grid-tight .card-actions { padding: 8px 10px 10px; gap: 4px; }
+.grid-tight .card-actions button { font-size: 0.78rem; padding: 6px 4px; }
 
 .card {
   background: var(--panel);

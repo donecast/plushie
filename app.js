@@ -1,14 +1,37 @@
 // ─── State ────────────────────────────────────────────────────────────
 const state = {
-  tab: 'collection',          // 'collection' | 'wishlist'
-  filter: 'all',              // 'all' | 'active' | 'retired'
+  tab: 'collection',          // 'collection' | 'wishlist' | 'catalog'
+  filter: 'all',              // collection: all | active | retired
+  catalogFilter: 'all',       // catalog: all | plush | accessory | other | unowned
   query: '',
-  editingId: null,            // id when editing existing
-  pendingPhoto: null,         // Blob staged in form
+  editingId: null,
+  editingCatalogId: null,     // catalog id staged through modal
+  pendingPhoto: null,
   collection: [],
   wishlist: [],
-  blobUrls: new Map(),        // id → object URL (revoked on re-render)
+  catalog: [],                // loaded from catalog.json
+  blobUrls: new Map(),
 };
+
+const PRODUCT_URL_BASE = 'https://plushiedreadfuls.com/products/';
+
+function cleanCatalogName(name) {
+  // Strip the "Plushie Dreadfuls -" prefix shoppers see in titles, so cards stay readable.
+  return name.replace(/^Plushie Dreadfuls\s*-?\s*/i, '').trim();
+}
+
+function shopifyImageVariant(url, size) {
+  if (!url) return null;
+  // Shopify CDN: insert _<size>x before extension, e.g. .jpg → _400x.jpg
+  return url.replace(/\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i, `_${size}x.$1$2`);
+}
+
+function catalogCategory(item) {
+  const t = (item.type || '').toLowerCase();
+  if (t === 'plush' || t === 'toy') return 'plush';
+  if (t === 'accessory' || t === 'hair clip' || t === 'keychain' || t === 'patch') return 'accessory';
+  return 'other';
+}
 
 // ─── Photo compression ───────────────────────────────────────────────
 async function compressImage(file, maxDim = 800, quality = 0.82) {
@@ -65,6 +88,18 @@ async function loadAll() {
   state.wishlist = (await idb.getAll('wishlist')).sort(byNewest);
 }
 
+async function loadCatalog() {
+  try {
+    const r = await fetch('./catalog.json', { cache: 'no-cache' });
+    if (!r.ok) throw new Error(`status ${r.status}`);
+    const data = await r.json();
+    state.catalog = data.products || [];
+  } catch (e) {
+    console.warn('catalog load failed', e);
+    state.catalog = [];
+  }
+}
+
 function byNewest(a, b) {
   return (b.addedAt || 0) - (a.addedAt || 0);
 }
@@ -103,9 +138,87 @@ function filteredWishlist() {
   return state.wishlist.filter((it) => matchesQuery(it, q));
 }
 
+function catalogIdMap() {
+  const owned = new Map();
+  const wished = new Map();
+  for (const i of state.collection) if (i.catalogId) owned.set(i.catalogId, i.id);
+  for (const i of state.wishlist) if (i.catalogId) wished.set(i.catalogId, i.id);
+  return { owned, wished };
+}
+
+function filteredCatalog() {
+  const q = state.query.trim().toLowerCase();
+  const { owned } = catalogIdMap();
+  return state.catalog.filter((it) => {
+    if (state.catalogFilter !== 'all') {
+      if (state.catalogFilter === 'unowned') {
+        if (owned.has(it.id)) return false;
+      } else if (catalogCategory(it) !== state.catalogFilter) {
+        return false;
+      }
+    }
+    if (!q) return true;
+    return (
+      it.name.toLowerCase().includes(q) ||
+      (it.tags || []).some((t) => t.toLowerCase().includes(q))
+    );
+  });
+}
+
+function renderCatalogCard(item, owned, wished) {
+  const display = cleanCatalogName(item.name);
+  const thumb = shopifyImageVariant(item.image, 400) || item.image;
+  const photoHtml = thumb
+    ? `<img src="${escapeHtml(thumb)}" alt="${escapeHtml(display)}" loading="lazy" />`
+    : `<span class="no-photo">🖤</span>`;
+
+  const isOwned = owned.has(item.id);
+  const isWished = wished.has(item.id);
+
+  const badges = [];
+  if (item.retired) badges.push(`<span class="badge badge-retired">Retired</span>`);
+  if (!item.available && !item.retired) badges.push(`<span class="badge badge-oos">Sold Out</span>`);
+  if (isOwned) badges.push(`<span class="card-status owned">✓ Owned</span>`);
+  else if (isWished) badges.push(`<span class="card-status wished">★ Wished</span>`);
+
+  const productUrl = PRODUCT_URL_BASE + item.handle;
+  const actions = isOwned
+    ? `
+        <button data-action="cat-edit" data-cid="${item.id}">Edit</button>
+        <a class="btn-link" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener" title="Open product page">↗</a>
+      `
+    : `
+        <button class="btn-have" data-action="cat-have" data-cid="${item.id}">🖤 Have</button>
+        <button class="btn-want" data-action="cat-want" data-cid="${item.id}">🕯 Want</button>
+        <a class="btn-link" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener" title="Open product page">↗</a>
+      `;
+
+  return `
+    <article class="card" data-cid="${item.id}">
+      <div class="card-photo">
+        ${photoHtml}
+        ${badges.join('')}
+      </div>
+      <div class="card-body">
+        <h3 class="card-name">${escapeHtml(display)}</h3>
+        ${item.price ? `<div class="card-meta"><span>$${escapeHtml(item.price)}</span></div>` : ''}
+      </div>
+      <div class="card-actions">${actions}</div>
+    </article>
+  `;
+}
+
+function photoSrc(item) {
+  if (!item.photo) return null;
+  if (item.photo instanceof Blob) return urlFor(item.id, item.photo);
+  if (typeof item.photo === 'string') return item.photo;
+  return null;
+}
+
 function renderCard(item, kind) {
-  const photoHtml = item.photo
-    ? `<img src="${urlFor(item.id, item.photo)}" alt="${escapeHtml(item.name)}" loading="lazy" />`
+  const src = photoSrc(item);
+  const photoHtml = src
+    ? `<img src="${escapeHtml(src)}" alt="${escapeHtml(item.name)}" loading="lazy" />`
     : `<span class="no-photo">🖤</span>`;
 
   const meta = [];
@@ -155,46 +268,64 @@ function renderCard(item, kind) {
 function render() {
   revokeAllBlobUrls();
 
-  const isCollection = state.tab === 'collection';
-  document.getElementById('collection-view').classList.toggle('hidden', !isCollection);
-  document.getElementById('wishlist-view').classList.toggle('hidden', isCollection);
-  document.getElementById('collection-filters').classList.toggle('hidden', !isCollection);
-  document.getElementById('wishlist-actions').classList.toggle('hidden', isCollection);
-  document.getElementById('add-target').textContent = isCollection ? 'Collection' : 'Wish List';
+  const tab = state.tab;
+  document.getElementById('collection-view').classList.toggle('hidden', tab !== 'collection');
+  document.getElementById('wishlist-view').classList.toggle('hidden', tab !== 'wishlist');
+  document.getElementById('catalog-view').classList.toggle('hidden', tab !== 'catalog');
+
+  document.getElementById('collection-filters').classList.toggle('hidden', tab !== 'collection');
+  document.getElementById('wishlist-actions').classList.toggle('hidden', tab !== 'wishlist');
+  document.getElementById('catalog-filters').classList.toggle('hidden', tab !== 'catalog');
+
+  document.getElementById('add-btn').classList.toggle('hidden', tab === 'catalog');
+  document.getElementById('add-target').textContent = tab === 'wishlist' ? 'Wish List' : 'Collection';
+
   document.querySelectorAll('.tab').forEach((t) =>
-    t.classList.toggle('active', t.dataset.tab === state.tab)
+    t.classList.toggle('active', t.dataset.tab === tab)
   );
 
-  if (isCollection) {
+  if (tab === 'collection') {
     const items = filteredCollection();
     document.getElementById('collection-grid').innerHTML = items.map((i) => renderCard(i, 'collection')).join('');
     document.getElementById('collection-empty').classList.toggle('hidden', items.length > 0);
     document.getElementById('count-label').textContent =
       `${items.length} of ${state.collection.length} item${state.collection.length === 1 ? '' : 's'}`;
-  } else {
+  } else if (tab === 'wishlist') {
     const items = filteredWishlist();
     document.getElementById('wishlist-grid').innerHTML = items.map((i) => renderCard(i, 'wishlist')).join('');
     document.getElementById('wishlist-empty').classList.toggle('hidden', items.length > 0);
     document.getElementById('count-label').textContent =
       `${items.length} of ${state.wishlist.length} item${state.wishlist.length === 1 ? '' : 's'}`;
+  } else {
+    const items = filteredCatalog();
+    const { owned, wished } = catalogIdMap();
+    document.getElementById('catalog-grid').innerHTML =
+      items.map((i) => renderCatalogCard(i, owned, wished)).join('');
+    const empty = state.catalog.length === 0;
+    document.getElementById('catalog-empty').classList.toggle('hidden', !empty);
+    document.getElementById('count-label').textContent = state.catalog.length === 0
+      ? 'Loading catalog…'
+      : `${items.length} of ${state.catalog.length} products`;
   }
 }
 
 // ─── Modal / Form ────────────────────────────────────────────────────
-function openModal(kind, item = null) {
+function openModal(kind, item = null, seed = null) {
   state.editingId = item ? item.id : null;
-  state.pendingPhoto = item && item.photo ? item.photo : null;
+  state.editingCatalogId = item?.catalogId || seed?.catalogId || null;
+  state.pendingPhoto = item?.photo ?? seed?.photo ?? null;
 
   document.getElementById('modal-title').textContent =
     item ? 'Edit Plushie' : (kind === 'collection' ? 'Add to Collection' : 'Add to Wish List');
 
-  document.getElementById('f-name').value = item?.name ?? '';
-  document.getElementById('f-meaning').value = item?.meaning ?? '';
-  document.getElementById('f-date').value = item?.dateCollected ?? '';
-  document.getElementById('f-acquired').value = item?.acquiredHow ?? '';
-  document.getElementById('f-url').value = item?.url ?? '';
-  document.getElementById('f-retired').checked = !!item?.retired;
-  document.getElementById('f-oos').checked = !!item?.outOfStock;
+  const src = item ?? seed ?? {};
+  document.getElementById('f-name').value = src.name ?? '';
+  document.getElementById('f-meaning').value = src.meaning ?? '';
+  document.getElementById('f-date').value = src.dateCollected ?? '';
+  document.getElementById('f-acquired').value = src.acquiredHow ?? '';
+  document.getElementById('f-url').value = src.url ?? '';
+  document.getElementById('f-retired').checked = !!src.retired;
+  document.getElementById('f-oos').checked = !!src.outOfStock;
 
   // Field visibility per tab
   const isCol = kind === 'collection';
@@ -216,6 +347,7 @@ function closeModal() {
   document.getElementById('modal').classList.add('hidden');
   document.getElementById('plushie-form').reset();
   state.editingId = null;
+  state.editingCatalogId = null;
   state.pendingPhoto = null;
   const prev = document.getElementById('photo-preview');
   if (prev._objectUrl) { URL.revokeObjectURL(prev._objectUrl); prev._objectUrl = null; }
@@ -226,8 +358,13 @@ function refreshPhotoPreview() {
   const clearBtn = document.getElementById('photo-clear');
   if (preview._objectUrl) { URL.revokeObjectURL(preview._objectUrl); preview._objectUrl = null; }
   if (state.pendingPhoto) {
-    const url = URL.createObjectURL(state.pendingPhoto);
-    preview._objectUrl = url;
+    let url;
+    if (state.pendingPhoto instanceof Blob) {
+      url = URL.createObjectURL(state.pendingPhoto);
+      preview._objectUrl = url;
+    } else {
+      url = state.pendingPhoto;
+    }
     preview.innerHTML = `<img src="${url}" alt="" />`;
     clearBtn.classList.remove('hidden');
   } else {
@@ -251,6 +388,7 @@ async function submitForm(e) {
     name,
     meaning: document.getElementById('f-meaning').value.trim() || null,
     photo: state.pendingPhoto || null,
+    catalogId: state.editingCatalogId || existing?.catalogId || null,
     addedAt: existing?.addedAt ?? Date.now(),
     updatedAt: Date.now(),
   };
@@ -283,8 +421,7 @@ async function submitForm(e) {
 async function onCardClick(e) {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
-  const { action, id } = btn.dataset;
-  if (!id) return;
+  const { action, id, cid } = btn.dataset;
 
   if (action === 'edit') {
     const item = state.collection.find((x) => x.id === id) || state.wishlist.find((x) => x.id === id);
@@ -305,6 +442,7 @@ async function onCardClick(e) {
       name: item.name,
       meaning: item.meaning || null,
       photo: item.photo || null,
+      catalogId: item.catalogId || null,
       dateCollected: new Date().toISOString().slice(0, 10),
       acquiredHow: null,
       retired: false,
@@ -316,7 +454,43 @@ async function onCardClick(e) {
     await loadAll();
     render();
     toast('Moved to collection. 🖤');
+  } else if (action === 'cat-have') {
+    await openModalFromCatalog(cid, 'collection');
+  } else if (action === 'cat-want') {
+    await openModalFromCatalog(cid, 'wishlist');
+  } else if (action === 'cat-edit') {
+    const owned = state.collection.find((x) => x.catalogId === cid);
+    if (owned) openModal('collection', owned);
   }
+}
+
+async function openModalFromCatalog(catalogId, kind) {
+  const cat = state.catalog.find((c) => c.id === catalogId);
+  if (!cat) return;
+
+  // Try to download the product photo so it lives offline. Fall back to URL on CORS errors.
+  let photo = cat.image ? shopifyImageVariant(cat.image, 800) : null;
+  if (photo) {
+    try {
+      const resp = await fetch(photo, { mode: 'cors' });
+      if (resp.ok) {
+        const blob = await resp.blob();
+        photo = await compressImage(blob).catch(() => blob);
+      }
+    } catch {
+      // keep URL string; will display fine via <img> at render time
+    }
+  }
+
+  const seed = {
+    name: cleanCatalogName(cat.name),
+    photo,
+    catalogId: cat.id,
+    url: kind === 'wishlist' ? (PRODUCT_URL_BASE + cat.handle) : undefined,
+    retired: !!cat.retired,
+    outOfStock: kind === 'wishlist' ? !cat.available : undefined,
+  };
+  openModal(kind, null, seed);
 }
 
 // ─── Restocks ────────────────────────────────────────────────────────
@@ -509,10 +683,6 @@ function wireEvents() {
   document.querySelectorAll('.tab').forEach((t) => {
     t.addEventListener('click', () => {
       state.tab = t.dataset.tab;
-      state.filter = 'all';
-      document.querySelectorAll('#collection-filters .chip').forEach((c) =>
-        c.classList.toggle('active', c.dataset.filter === 'all')
-      );
       render();
     });
   });
@@ -521,6 +691,16 @@ function wireEvents() {
     c.addEventListener('click', () => {
       state.filter = c.dataset.filter;
       document.querySelectorAll('#collection-filters .chip').forEach((x) =>
+        x.classList.toggle('active', x === c)
+      );
+      render();
+    });
+  });
+
+  document.querySelectorAll('#catalog-filters .chip').forEach((c) => {
+    c.addEventListener('click', () => {
+      state.catalogFilter = c.dataset.catFilter;
+      document.querySelectorAll('#catalog-filters .chip').forEach((x) =>
         x.classList.toggle('active', x === c)
       );
       render();
@@ -563,6 +743,7 @@ function wireEvents() {
 
   document.getElementById('collection-grid').addEventListener('click', onCardClick);
   document.getElementById('wishlist-grid').addEventListener('click', onCardClick);
+  document.getElementById('catalog-grid').addEventListener('click', onCardClick);
 
   document.getElementById('backup-btn').addEventListener('click', exportBackup);
   document.getElementById('restore-btn').addEventListener('click', () =>
@@ -597,6 +778,10 @@ async function boot() {
   updateNotifyButton();
   registerSW();
   if (await idb.getMeta('notify_enabled')) scheduleReminderCheck();
+  // Catalog can load lazily — it isn't blocking the first paint.
+  loadCatalog().then(() => {
+    if (state.tab === 'catalog') render();
+  });
 }
 
 boot().catch((e) => {

@@ -1,11 +1,12 @@
 // Plushie Dreadful service worker — offline app shell.
-const CACHE = 'plushie-dreadful-v1';
+const CACHE = 'plushie-dreadful-v2';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
   './app.js',
   './db.js',
+  './catalog.json',
   './manifest.json',
   './icon.svg',
   './icon-192.png',
