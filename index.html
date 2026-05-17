@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=5" />
+  <link rel="stylesheet" href="./styles.css?v=6" />
 </head>
 <body>
   <header>
@@ -81,6 +81,14 @@
         <button class="chip chip-toggle" data-cat-status="retired">Retired</button>
         <span class="chip-sep" aria-hidden="true"></span>
         <button class="chip chip-toggle" data-cat-toggle="unowned">Unowned</button>
+        <select id="cat-sort" class="chip-select" aria-label="Sort catalog">
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="name_asc">Name A→Z</option>
+          <option value="name_desc">Name Z→A</option>
+          <option value="price_asc">Price low→high</option>
+          <option value="price_desc">Price high→low</option>
+        </select>
       </div>
     </div>
 
@@ -192,7 +200,7 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <script src="./db.js?v=5"></script>
-  <script src="./app.js?v=5"></script>
+  <script src="./db.js?v=6"></script>
+  <script src="./app.js?v=6"></script>
 </body>
 </html>

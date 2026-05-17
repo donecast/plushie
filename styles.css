@@ -222,6 +222,17 @@ main {
   background: rgba(255, 95, 168, 0.3);
   margin: 0 4px;
 }
+.chip-select {
+  padding: 9px 12px;
+  background: var(--panel);
+  border: 1px solid rgba(255, 95, 168, 0.25);
+  border-radius: 999px;
+  color: var(--ink-dim);
+  font-family: var(--serif);
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+.chip-select:focus { outline: none; border-color: var(--rose-hi); color: var(--ink); }
 
 .add-row {
   display: flex;

@@ -5,6 +5,7 @@ const state = {
   catalogFilter: 'all',       // catalog category: all | plush | accessory | other
   catalogStatuses: new Set(), // empty = any; otherwise OR of: available/sold_out/coming_soon/retired
   catalogUnowned: false,      // toggle: hide ones already in collection
+  catalogSort: 'newest',      // newest | oldest | name_asc | name_desc | price_asc | price_desc
   query: '',
   editingId: null,
   editingCatalogId: null,     // catalog id staged through modal
@@ -173,7 +174,7 @@ function filteredCatalog() {
   const { owned } = catalogIdMap();
   const cat = CATALOG_CATEGORIES.has(state.catalogFilter) ? state.catalogFilter : 'all';
   const statuses = state.catalogStatuses;
-  return state.catalog.filter((it) => {
+  const items = state.catalog.filter((it) => {
     if (cat !== 'all' && catalogCategory(it) !== cat) return false;
     if (statuses.size > 0 && !statuses.has(itemStatus(it))) return false;
     if (state.catalogUnowned && owned.has(it.id)) return false;
@@ -183,6 +184,32 @@ function filteredCatalog() {
       (it.tags || []).some((t) => t.toLowerCase().includes(q))
     );
   });
+  return sortCatalog(items, state.catalogSort);
+}
+
+function sortCatalog(items, mode) {
+  const arr = items.slice();
+  const cmpName = (a, b) => cleanCatalogName(a.name).localeCompare(cleanCatalogName(b.name));
+  const cmpDate = (a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0);
+  const cmpPrice = (a, b) => (a.price ?? Infinity) - (b.price ?? Infinity);
+  switch (mode) {
+    case 'oldest':     arr.sort((a, b) => -cmpDate(a, b)); break;
+    case 'name_asc':   arr.sort(cmpName); break;
+    case 'name_desc':  arr.sort((a, b) => -cmpName(a, b)); break;
+    case 'price_asc':  arr.sort(cmpPrice); break;
+    case 'price_desc': arr.sort((a, b) => -cmpPrice(a, b)); break;
+    case 'newest':
+    default:           arr.sort(cmpDate);
+  }
+  return arr;
+}
+
+function renderCatalogMeta(item) {
+  const parts = [];
+  if (item.price != null) parts.push(`<span>$${Number(item.price).toFixed(2)}</span>`);
+  const year = item.createdAt ? new Date(item.createdAt).getFullYear() : null;
+  if (year && !isNaN(year)) parts.push(`<span>${year}</span>`);
+  return parts.length ? `<div class="card-meta">${parts.join('')}</div>` : '';
 }
 
 function renderCatalogCard(item, owned, wished) {
@@ -223,7 +250,7 @@ function renderCatalogCard(item, owned, wished) {
       </div>
       <div class="card-body">
         <h3 class="card-name">${escapeHtml(display)}</h3>
-        ${item.price ? `<div class="card-meta"><span>$${escapeHtml(item.price)}</span></div>` : ''}
+        ${renderCatalogMeta(item)}
       </div>
       <div class="card-actions">${actions}</div>
     </article>
@@ -737,6 +764,13 @@ function wireEvents() {
       render();
     });
   });
+  const sortEl = document.getElementById('cat-sort');
+  if (sortEl) {
+    sortEl.addEventListener('change', () => {
+      state.catalogSort = sortEl.value;
+      render();
+    });
+  }
   document.querySelectorAll('#catalog-filters .chip[data-cat-toggle]').forEach((c) => {
     c.addEventListener('click', () => {
       const key = c.dataset.catToggle;
