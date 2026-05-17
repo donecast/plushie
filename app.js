@@ -2,7 +2,9 @@
 const state = {
   tab: 'collection',          // 'collection' | 'wishlist' | 'catalog'
   filter: 'all',              // collection: all | active | retired
-  catalogFilter: 'all',       // catalog: all | plush | accessory | other | unowned
+  catalogFilter: 'all',       // catalog category: all | plush | accessory | other
+  catalogAvailable: false,    // toggle: hide sold out + coming soon
+  catalogUnowned: false,      // toggle: hide ones already in collection
   query: '',
   editingId: null,
   editingCatalogId: null,     // catalog id staged through modal
@@ -31,6 +33,17 @@ function catalogCategory(item) {
   if (t === 'plush' || t === 'toy') return 'plush';
   if (t === 'accessory' || t === 'hair clip' || t === 'keychain' || t === 'patch') return 'accessory';
   return 'other';
+}
+
+function isComingSoon(item) {
+  const tags = (item.tags || []).map((t) => t.toLowerCase());
+  if (tags.includes('coming soon') || tags.includes('tba')) return true;
+  const n = item.name.toLowerCase();
+  return n.includes('tba') || n.includes('coming soon') || n.includes('future design');
+}
+
+function isBuyableNow(item) {
+  return !!item.available && !isComingSoon(item);
 }
 
 // ─── Photo compression ───────────────────────────────────────────────
@@ -150,13 +163,9 @@ function filteredCatalog() {
   const q = state.query.trim().toLowerCase();
   const { owned } = catalogIdMap();
   return state.catalog.filter((it) => {
-    if (state.catalogFilter !== 'all') {
-      if (state.catalogFilter === 'unowned') {
-        if (owned.has(it.id)) return false;
-      } else if (catalogCategory(it) !== state.catalogFilter) {
-        return false;
-      }
-    }
+    if (state.catalogFilter !== 'all' && catalogCategory(it) !== state.catalogFilter) return false;
+    if (state.catalogAvailable && !isBuyableNow(it)) return false;
+    if (state.catalogUnowned && owned.has(it.id)) return false;
     if (!q) return true;
     return (
       it.name.toLowerCase().includes(q) ||
@@ -176,8 +185,10 @@ function renderCatalogCard(item, owned, wished) {
   const isWished = wished.has(item.id);
 
   const badges = [];
+  const comingSoon = isComingSoon(item);
   if (item.retired) badges.push(`<span class="badge badge-retired">Retired</span>`);
-  if (!item.available && !item.retired) badges.push(`<span class="badge badge-oos">Sold Out</span>`);
+  else if (comingSoon) badges.push(`<span class="badge badge-soon">Coming Soon</span>`);
+  else if (!item.available) badges.push(`<span class="badge badge-oos">Sold Out</span>`);
   if (isOwned) badges.push(`<span class="card-status owned">✓ Owned</span>`);
   else if (isWished) badges.push(`<span class="card-status wished">★ Wished</span>`);
 
@@ -697,12 +708,21 @@ function wireEvents() {
     });
   });
 
-  document.querySelectorAll('#catalog-filters .chip').forEach((c) => {
+  document.querySelectorAll('#catalog-filters .chip[data-cat-filter]').forEach((c) => {
     c.addEventListener('click', () => {
       state.catalogFilter = c.dataset.catFilter;
-      document.querySelectorAll('#catalog-filters .chip').forEach((x) =>
+      document.querySelectorAll('#catalog-filters .chip[data-cat-filter]').forEach((x) =>
         x.classList.toggle('active', x === c)
       );
+      render();
+    });
+  });
+  document.querySelectorAll('#catalog-filters .chip[data-cat-toggle]').forEach((c) => {
+    c.addEventListener('click', () => {
+      const key = c.dataset.catToggle;
+      const stateKey = key === 'available' ? 'catalogAvailable' : 'catalogUnowned';
+      state[stateKey] = !state[stateKey];
+      c.classList.toggle('active', state[stateKey]);
       render();
     });
   });

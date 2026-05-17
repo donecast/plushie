@@ -204,6 +204,25 @@ main {
 .chip-action { color: var(--rose-hi); border-color: var(--rose); }
 .chip-action:hover { background: var(--rose-soft); color: var(--rose-hi); }
 
+.chip-toggle::before {
+  content: '○';
+  margin-right: 6px;
+  opacity: 0.5;
+}
+.chip-toggle.active::before { content: '●'; opacity: 1; }
+.chip-toggle.active {
+  background: transparent;
+  color: var(--rose-hi);
+  border-color: var(--rose);
+  box-shadow: inset 0 0 0 1px var(--rose);
+}
+.chip-sep {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 95, 168, 0.3);
+  margin: 0 4px;
+}
+
 .add-row {
   display: flex;
   align-items: center;
@@ -331,6 +350,13 @@ main {
   color: var(--rose-hi);
   border: 1px solid var(--rose);
   text-shadow: 0 0 6px rgba(255, 95, 168, 0.5);
+}
+.badge-soon {
+  left: 10px;
+  background: rgba(20, 8, 32, 0.85);
+  color: #74c0ff;
+  border: 1px solid #4a7ab8;
+  text-shadow: 0 0 6px rgba(116, 192, 255, 0.4);
 }
 
 .card-body {
