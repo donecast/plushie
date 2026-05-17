@@ -23,8 +23,15 @@ const state = {
 const PRODUCT_URL_BASE = 'https://plushiedreadfuls.com/products/';
 
 function cleanCatalogName(name) {
-  // Strip the "Plushie Dreadfuls -" prefix shoppers see in titles, so cards stay readable.
-  return name.replace(/^Plushie Dreadfuls\s*-?\s*/i, '').trim();
+  const afterPrefix = name.replace(/^Plushie Dreadfuls\s*-?\s*/i, '').trim() || name;
+  let n = afterPrefix;
+  // Trailing descriptive type suffixes that just repeat "this is a plushie."
+  n = n.replace(/\s*-?\s*Plush\s+(Rabbit\s+)?Stuffed\s+(Cryptid\s+)?Animals?$/i, '').trim();
+  n = n.replace(/\s*-?\s*Stuffed\s+Plush\s+Animals?$/i, '').trim();
+  n = n.replace(/\s*-?\s*Plush\s+Cryptid\s+Stuffed\s+Animals?$/i, '').trim();
+  n = n.replace(/\s*-?\s*(Mini\s+)?Plush\s+Keychain(\s+Accessor(?:y|ies))?$/i, '').trim();
+  n = n.replace(/\s*-\s*$/, '').trim();
+  return n.length >= 3 ? n : afterPrefix;
 }
 
 function shopifyImageVariant(url, size) {
@@ -136,7 +143,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=11', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=12', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = data.products || [];
