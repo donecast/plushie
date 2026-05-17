@@ -6,15 +6,15 @@
   <meta name="theme-color" content="#1a0d26" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Dreadful" />
-  <title>Plushie Dreadful Tracker</title>
+  <meta name="apple-mobile-web-app-title" content="Dreadfuls" />
+  <title>Plushie Dreadfuls Tracker</title>
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="./icon-192.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=8" />
+  <link rel="stylesheet" href="./styles.css?v=9" />
 </head>
 <body>
   <header>
@@ -45,7 +45,7 @@
             </linearGradient>
           </defs>
         </svg>
-        <h1>Plushie Dreadful</h1>
+        <h1>Plushie Dreadfuls</h1>
       </div>
       <div class="header-actions">
         <button id="notify-btn" class="icon-btn" title="Enable reminders" aria-label="Enable reminders">🔔</button>
@@ -72,6 +72,7 @@
       <div id="catalog-filters" class="filters hidden">
         <button class="chip active" data-cat-filter="all">All</button>
         <button class="chip" data-cat-filter="plush">Plushies</button>
+        <button class="chip" data-cat-filter="mini">Minis</button>
         <button class="chip" data-cat-filter="accessory">Accessories</button>
         <button class="chip" data-cat-filter="other">Other</button>
         <span class="chip-sep" aria-hidden="true"></span>
@@ -201,7 +202,7 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <script src="./db.js?v=8"></script>
-  <script src="./app.js?v=8"></script>
+  <script src="./db.js?v=9"></script>
+  <script src="./app.js?v=9"></script>
 </body>
 </html>

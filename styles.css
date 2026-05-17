@@ -376,6 +376,14 @@ main {
   border: 1px solid #8a6fc4;
   text-shadow: 0 0 6px rgba(196, 163, 255, 0.4);
 }
+.badge-mini {
+  top: auto;
+  bottom: 10px;
+  right: 10px;
+  background: linear-gradient(135deg, #5a3a78, #3d2257);
+  color: #f3e6ff;
+  border: 1px solid rgba(255, 95, 168, 0.5);
+}
 
 .card-body {
   padding: 14px 14px 12px;

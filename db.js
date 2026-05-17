@@ -1,4 +1,4 @@
-// IndexedDB wrapper for Plushie Dreadful tracker.
+// IndexedDB wrapper for Plushie Dreadfuls tracker.
 const DB_NAME = 'plushie-dreadful';
 const DB_VERSION = 1;
 const STORES = ['collection', 'wishlist', 'meta'];

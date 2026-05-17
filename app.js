@@ -10,6 +10,8 @@ const state = {
   editingId: null,
   editingCatalogId: null,     // catalog id staged through modal
   pendingPhoto: null,
+  originalPhoto: null,        // photo on the item when modal opened (for fallback on save)
+  photoExplicitlyCleared: false,
   collection: [],
   wishlist: [],
   catalog: [],                // loaded from catalog.json
@@ -29,9 +31,20 @@ function shopifyImageVariant(url, size) {
   return url.replace(/\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i, `_${size}x.$1$2`);
 }
 
+function isMiniPlushie(item) {
+  const tags = (item.tags || []).map((t) => t.toLowerCase());
+  const name = item.name.toLowerCase();
+  const type = (item.type || '').toLowerCase();
+  // Mini-plush keychains: explicitly tagged mini, or keychain-type plushies.
+  if (type === 'keychain' && (tags.includes('plush') || tags.includes('plushie') || name.includes('plush'))) return true;
+  if (tags.includes('mini') && (tags.includes('plush') || tags.includes('plushie'))) return true;
+  return false;
+}
+
 function catalogCategory(item) {
   const t = (item.type || '').toLowerCase();
-  if (t === 'plush' || t === 'toy') return 'plush';
+  if ((t === 'plush' || t === 'toy') && !isMiniPlushie(item)) return 'plush';
+  if (isMiniPlushie(item)) return 'mini';
   if (t === 'accessory' || t === 'hair clip' || t === 'keychain' || t === 'patch') return 'accessory';
   return 'other';
 }
@@ -116,7 +129,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=8', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=9', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = data.products || [];
@@ -172,7 +185,7 @@ function catalogIdMap() {
   return { owned, wished };
 }
 
-const CATALOG_CATEGORIES = new Set(['all', 'plush', 'accessory', 'other']);
+const CATALOG_CATEGORIES = new Set(['all', 'plush', 'mini', 'accessory', 'other']);
 
 function filteredCatalog() {
   const q = state.query.trim().toLowerCase();
@@ -233,6 +246,7 @@ function renderCatalogCard(item, owned, wished) {
   else if (status === 'coming_soon') badges.push(`<span class="badge badge-soon">Coming Soon</span>`);
   else if (status === 'fyc') badges.push(`<span class="badge badge-fyc" title="For Your Consideration — under consideration, doesn't exist yet">FYC</span>`);
   else if (status === 'sold_out') badges.push(`<span class="badge badge-oos">Sold Out</span>`);
+  if (isMiniPlushie(item)) badges.push(`<span class="badge badge-mini">Mini</span>`);
   if (isOwned) badges.push(`<span class="card-status owned">✓ Owned</span>`);
   else if (isWished) badges.push(`<span class="card-status wished">★ Wished</span>`);
 
@@ -369,6 +383,8 @@ function openModal(kind, item = null, seed = null) {
   state.editingId = item ? item.id : null;
   state.editingCatalogId = item?.catalogId || seed?.catalogId || null;
   state.pendingPhoto = item?.photo ?? seed?.photo ?? null;
+  state.originalPhoto = item?.photo ?? null;
+  state.photoExplicitlyCleared = false;
 
   document.getElementById('modal-title').textContent =
     item ? 'Edit Plushie' : (kind === 'collection' ? 'Add to Collection' : 'Add to Wish List');
@@ -404,6 +420,8 @@ function closeModal() {
   state.editingId = null;
   state.editingCatalogId = null;
   state.pendingPhoto = null;
+  state.originalPhoto = null;
+  state.photoExplicitlyCleared = false;
   const prev = document.getElementById('photo-preview');
   if (prev._objectUrl) { URL.revokeObjectURL(prev._objectUrl); prev._objectUrl = null; }
 }
@@ -438,11 +456,17 @@ async function submitForm(e) {
     ? (kind === 'collection' ? state.collection : state.wishlist).find((x) => x.id === state.editingId)
     : null;
 
+  // Photo: keep whatever was already there unless the user explicitly cleared it.
+  // This prevents silent loss if pendingPhoto ever drifted to null mid-flow.
+  const photo = state.photoExplicitlyCleared
+    ? null
+    : (state.pendingPhoto ?? state.originalPhoto ?? existing?.photo ?? null);
+
   const base = {
     id: existing?.id || crypto.randomUUID(),
     name,
     meaning: document.getElementById('f-meaning').value.trim() || null,
-    photo: state.pendingPhoto || null,
+    photo,
     catalogId: state.editingCatalogId || existing?.catalogId || null,
     addedAt: existing?.addedAt ?? Date.now(),
     updatedAt: Date.now(),
@@ -504,11 +528,25 @@ async function onCardClick(e) {
       addedAt: Date.now(),
       updatedAt: Date.now(),
     };
-    await idb.put('collection', collected);
-    await idb.delete('wishlist', id);
-    await loadAll();
-    render();
-    toast('Moved to collection. 🖤');
+    try {
+      await idb.put('collection', collected);
+      await idb.delete('wishlist', id);
+      await loadAll();
+      // Jump to collection so the new card is obviously there, and clear
+      // any filter/search that would hide it.
+      state.tab = 'collection';
+      state.filter = 'all';
+      state.query = '';
+      document.getElementById('search').value = '';
+      document.querySelectorAll('#collection-filters .chip').forEach((x) =>
+        x.classList.toggle('active', x.dataset.filter === 'all')
+      );
+      render();
+      toast(`Moved “${item.name}” to collection. 🖤`);
+    } catch (err) {
+      console.error('Got It! failed', err);
+      toast('Could not move to collection. See console.');
+    }
   } else if (action === 'cat-have') {
     await openModalFromCatalog(cid, 'collection');
   } else if (action === 'cat-want') {
@@ -612,7 +650,7 @@ async function maybeFireReminder() {
   const dayMs = 24 * 60 * 60 * 1000;
   if (Date.now() - last < dayMs) return;
 
-  const title = '🦇 Plushie Dreadful';
+  const title = '🦇 Plushie Dreadfuls';
   const body = oos.length === 1
     ? `Check on restock: ${oos[0].name}`
     : `${oos.length} out-of-stock wishlist items waiting…`;
@@ -808,6 +846,7 @@ function wireEvents() {
     if (!file) return;
     try {
       state.pendingPhoto = await compressImage(file);
+      state.photoExplicitlyCleared = false;
       refreshPhotoPreview();
     } catch (err) {
       console.error(err);
@@ -819,6 +858,7 @@ function wireEvents() {
 
   document.getElementById('photo-clear').addEventListener('click', () => {
     state.pendingPhoto = null;
+    state.photoExplicitlyCleared = true;
     refreshPhotoPreview();
   });
 

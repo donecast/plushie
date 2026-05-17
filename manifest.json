@@ -1,7 +1,7 @@
 {
-  "name": "Plushie Dreadful Tracker",
-  "short_name": "Dreadful",
-  "description": "Track your Plushie Dreadful collection and wish list. Gothic-cute, offline-first.",
+  "name": "Plushie Dreadfuls Tracker",
+  "short_name": "Dreadfuls",
+  "description": "Track your Plushie Dreadfuls collection and wish list. Gothic-cute, offline-first.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

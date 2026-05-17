@@ -1,6 +1,6 @@
-# Plushie Dreadful Tracker
+# Plushie Dreadfuls Tracker
 
-A gothic-cute PWA for tracking your Plushie Dreadful collection and wish list.
+A gothic-cute PWA for tracking your Plushie Dreadfuls collection and wish list.
 
 ## Features
 - **My Collection** — photo, name, personal meaning, date collected, how acquired, retired badge.
