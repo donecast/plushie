@@ -43,13 +43,18 @@ function isComingSoon(item) {
   return n.includes('tba') || n.includes('coming soon') || n.includes('future design');
 }
 
+function isFYC(item) {
+  return (item.tags || []).some((t) => t.toLowerCase() === 'fyc');
+}
+
 function isBuyableNow(item) {
-  return !!item.available && !isComingSoon(item) && !item.retired;
+  return !!item.available && !isComingSoon(item) && !isFYC(item) && !item.retired;
 }
 
 function itemStatus(item) {
   if (item.retired) return 'retired';
   if (isComingSoon(item)) return 'coming_soon';
+  if (isFYC(item)) return 'fyc';
   if (!item.available) return 'sold_out';
   return 'available';
 }
@@ -223,10 +228,11 @@ function renderCatalogCard(item, owned, wished) {
   const isWished = wished.has(item.id);
 
   const badges = [];
-  const comingSoon = isComingSoon(item);
-  if (item.retired) badges.push(`<span class="badge badge-retired">Retired</span>`);
-  else if (comingSoon) badges.push(`<span class="badge badge-soon">Coming Soon</span>`);
-  else if (!item.available) badges.push(`<span class="badge badge-oos">Sold Out</span>`);
+  const status = itemStatus(item);
+  if (status === 'retired') badges.push(`<span class="badge badge-retired">Retired</span>`);
+  else if (status === 'coming_soon') badges.push(`<span class="badge badge-soon">Coming Soon</span>`);
+  else if (status === 'fyc') badges.push(`<span class="badge badge-fyc" title="For Your Consideration — under consideration, doesn't exist yet">FYC</span>`);
+  else if (status === 'sold_out') badges.push(`<span class="badge badge-oos">Sold Out</span>`);
   if (isOwned) badges.push(`<span class="card-status owned">✓ Owned</span>`);
   else if (isWished) badges.push(`<span class="card-status wished">★ Wished</span>`);
 

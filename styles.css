@@ -369,6 +369,13 @@ main {
   border: 1px solid #4a7ab8;
   text-shadow: 0 0 6px rgba(116, 192, 255, 0.4);
 }
+.badge-fyc {
+  left: 10px;
+  background: rgba(20, 8, 32, 0.85);
+  color: #c4a3ff;
+  border: 1px solid #8a6fc4;
+  text-shadow: 0 0 6px rgba(196, 163, 255, 0.4);
+}
 
 .card-body {
   padding: 14px 14px 12px;
