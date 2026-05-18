@@ -416,14 +416,58 @@ main {
 .card-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 10px;
-  font-size: 0.82rem;
-  color: var(--ink-mute);
+  gap: 4px 12px;
+  font-size: 1rem;
+  color: var(--ink-dim);
   margin-top: 2px;
+  font-family: var(--serif);
 }
 .card-meta span::before { content: '· '; color: var(--ink-mute); }
 .card-meta span:first-child::before { content: ''; }
 .card-meta .meta-warn { color: var(--rose-hi); font-style: italic; }
+/* On the tight catalog grid keep the type scale a notch smaller so the cards stay compact. */
+.grid-tight .card-meta { font-size: 0.95rem; }
+
+/* Quantity control on collection cards */
+.qty-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-2);
+  border-radius: 999px;
+  padding: 2px;
+}
+.qty-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.qty-btn:hover { background: var(--panel); color: var(--gold); }
+.qty-display {
+  font-family: var(--display);
+  font-size: 0.95rem;
+  color: var(--gold);
+  min-width: 28px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.badge-qty {
+  background: linear-gradient(135deg, var(--gold), #b88940);
+  color: #2a1500;
+  font-variant-numeric: tabular-nums;
+}
 
 .card-actions {
   display: flex;

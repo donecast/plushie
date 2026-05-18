@@ -215,7 +215,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=24', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=25', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -443,6 +443,9 @@ function renderCard(item, kind) {
   const badges = [];
   if (kind === 'collection' && item.retired) badges.push(`<span class="badge badge-retired">Retired</span>`);
   if (kind === 'wishlist' && item.outOfStock) badges.push(`<span class="badge badge-oos">Out of Stock</span>`);
+  if (kind === 'collection' && (item.quantity || 1) > 1) {
+    badges.push(`<span class="badge badge-qty">×${item.quantity}</span>`);
+  }
 
   // Trade markers: show if this catalog item is already in trade_items
   const tradeMark = tradeMarkerFor(item, kind);
@@ -452,8 +455,17 @@ function renderCard(item, kind) {
     ? `<button data-action="offer-trade" data-id="${item.id}">↻ Offer for trade</button>`
     : `<button data-action="seek-trade" data-id="${item.id}">↺ Seek in trade</button>`;
 
+  const qty = item.quantity || 1;
+  const qtyControl = kind === 'collection' ? `
+    <div class="qty-control" title="How many you have">
+      <button class="qty-btn" data-action="col-dec" data-id="${item.id}" aria-label="One fewer">−</button>
+      <span class="qty-display">×${qty}</span>
+      <button class="qty-btn" data-action="col-inc" data-id="${item.id}" aria-label="One more">+</button>
+    </div>` : '';
+
   const actions = kind === 'collection'
     ? `
+      ${qtyControl}
       ${tradeBtn}
       <button data-action="edit" data-id="${item.id}">Edit</button>
       <button class="btn-danger" data-action="delete" data-id="${item.id}">Delete</button>
@@ -698,15 +710,63 @@ async function onCardClick(e) {
   } else if (action === 'seek-trade') {
     const item = state.wishlist.find((x) => x.id === id);
     if (item) await markForTrade(item, 'seeking');
+  } else if (action === 'col-inc') {
+    const item = state.collection.find((x) => x.id === id);
+    if (!item) return;
+    await data.put('collection', { ...item, quantity: (item.quantity || 1) + 1, updatedAt: Date.now() });
+    await loadAll();
+    render();
+  } else if (action === 'col-dec') {
+    const item = state.collection.find((x) => x.id === id);
+    if (!item) return;
+    const next = (item.quantity || 1) - 1;
+    if (next <= 0) {
+      if (!confirm(`Remove “${item.name}” from your collection?`)) return;
+      await data.delete('collection', id);
+    } else {
+      // Don't drop below the count reserved for trades — that's already promised.
+      const offering = state.myTradeItems.find((t) => t.kind === 'offering' && t.catalogId === item.catalogId);
+      const reserved = offering?.reserved ?? 0;
+      if (next < reserved) {
+        toast(`Can't go below ${reserved} — that count is reserved in an active trade.`);
+        return;
+      }
+      await data.put('collection', { ...item, quantity: next, updatedAt: Date.now() });
+    }
+    await loadAll();
+    render();
   }
 }
 
-// One-tap add from a catalog card. No modal; just commits a record with
-// catalog-sourced fields and sensible defaults. The user can tap the new
-// card later to fill in meaning / date / how-acquired.
+// One-tap add from a catalog card. No modal; commits a record with
+// catalog-sourced fields and sensible defaults. If the user already owns
+// this catalog id (collection only), bumps quantity on the existing row
+// instead of creating a duplicate — duplicates are how trades happen.
 async function addFromCatalog(catalogId, kind) {
   const cat = state.catalog.find((c) => c.id === catalogId);
   if (!cat) return;
+
+  if (kind === 'collection') {
+    const existing = state.collection.find((x) => x.catalogId === cat.id);
+    if (existing) {
+      const next = (existing.quantity || 1) + 1;
+      await data.put('collection', { ...existing, quantity: next, updatedAt: Date.now() });
+      await loadAll();
+      state.tab = 'collection';
+      render();
+      toast(`Now you have ${next} of “${cleanCatalogName(cat.name)}”. 🖤`);
+      return;
+    }
+  } else {
+    // Same idea on wishlist — don't duplicate.
+    const existing = state.wishlist.find((x) => x.catalogId === cat.id);
+    if (existing) {
+      state.tab = 'wishlist';
+      render();
+      toast(`Already on your wish list.`);
+      return;
+    }
+  }
 
   // Pull the product photo so the card stays good if the user goes offline
   // or the Shopify CDN URL ever rots. Fall back to the URL on CORS error.
@@ -740,6 +800,7 @@ async function addFromCatalog(catalogId, kind) {
       acquiredHow: null,
       hasBag: true,
       retired: !!cat.retired,
+      quantity: 1,
     };
   } else {
     record = {

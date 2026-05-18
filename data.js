@@ -231,6 +231,7 @@ const data = {
         acquiredHow: r.acquired_how,
         hasBag: r.has_bag,
         retired: r.retired,
+        quantity: r.quantity ?? 1,
       };
     }
     return {
@@ -258,6 +259,7 @@ const data = {
         acquired_how: item.acquiredHow ?? null,
         has_bag: item.hasBag !== false,
         retired: !!item.retired,
+        quantity: Math.max(1, parseInt(item.quantity, 10) || 1),
       };
     }
     return {
