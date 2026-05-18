@@ -75,6 +75,69 @@ function isCharm(item) {
   return tags.includes('bag charm') || tags.includes('bagcharm');
 }
 
+// Build a visible "you have these filters on" strip below the chip row.
+// Each active filter shows as a removable pill — gives immediate feedback
+// that filters are real and lets the user clear them one at a time.
+function renderActiveFilters(shownCount) {
+  const bar = document.getElementById('active-filters');
+  const total = state.catalog.length;
+  if (total === 0) {
+    bar.innerHTML = '<span class="active-count">Loading catalog…</span>';
+    return;
+  }
+  const pills = [];
+  if (state.catalogFilter !== 'all') {
+    pills.push(`<button class="active-pill" data-clear="filter">Category: ${escapeHtml(state.catalogFilter)} ×</button>`);
+  }
+  for (const s of state.catalogStatuses) {
+    pills.push(`<button class="active-pill" data-clear="status:${s}">${escapeHtml(s.replace('_',' '))} ×</button>`);
+  }
+  if (state.catalogUnowned)  pills.push(`<button class="active-pill" data-clear="unowned">Unowned ×</button>`);
+  if (state.catalogCharmOnly) pills.push(`<button class="active-pill" data-clear="charm">Bag Charm ×</button>`);
+  if (state.catalogTheme && state.catalogTheme !== 'all') {
+    pills.push(`<button class="active-pill" data-clear="theme">Theme: ${escapeHtml(state.catalogTheme)} ×</button>`);
+  }
+  if (state.query) {
+    pills.push(`<button class="active-pill" data-clear="query">"${escapeHtml(state.query)}" ×</button>`);
+  }
+  const countText = `<span class="active-count">${shownCount} of ${total} products</span>`;
+  const clearAll = pills.length > 0
+    ? `<button class="active-clear-all" data-clear="all">Clear filters</button>`
+    : '';
+  bar.innerHTML = countText + pills.join('') + clearAll;
+}
+
+function clearFilter(key) {
+  if (key === 'all') {
+    state.catalogFilter = 'all';
+    state.catalogStatuses = new Set();
+    state.catalogUnowned = false;
+    state.catalogCharmOnly = false;
+    state.catalogTheme = 'all';
+    state.query = '';
+    document.getElementById('search').value = '';
+    const themeEl = document.getElementById('cat-theme');
+    if (themeEl) themeEl.value = 'all';
+  } else if (key === 'filter') {
+    state.catalogFilter = 'all';
+  } else if (key.startsWith('status:')) {
+    state.catalogStatuses.delete(key.slice(7));
+  } else if (key === 'unowned') {
+    state.catalogUnowned = false;
+  } else if (key === 'charm') {
+    state.catalogCharmOnly = false;
+  } else if (key === 'theme') {
+    state.catalogTheme = 'all';
+    const themeEl = document.getElementById('cat-theme');
+    if (themeEl) themeEl.value = 'all';
+  } else if (key === 'query') {
+    state.query = '';
+    document.getElementById('search').value = '';
+  }
+  syncCatalogChips();
+  render();
+}
+
 // Re-apply the .active class on every chip from current state — safe to call
 // after any state mutation. Single source of truth: state.catalogFilter,
 // state.catalogStatuses, state.catalogUnowned, state.catalogCharmOnly.
@@ -215,7 +278,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=27', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=28', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -393,7 +456,7 @@ function renderCatalogCard(item, owned, wished) {
   const canHave = !(status === 'coming_soon' || status === 'fyc');
   const haveBtn  = canHave  ? `<button class="btn-have" data-action="cat-have" data-cid="${item.id}">🖤 Have</button>` : '';
   const wantBtn  = !isWished ? `<button class="btn-want" data-action="cat-want" data-cid="${item.id}">🕯 Want</button>` : '';
-  const linkBtn  = `<a class="btn-link" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener" title="Open product page">↗</a>`;
+  const linkBtn  = `<a class="btn-buy" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener" title="Open product page">Buy</a>`;
   const actions = isOwned
     ? `<button data-action="cat-edit" data-cid="${item.id}">Edit</button> ${haveBtn} ${linkBtn}`
     : `${haveBtn} ${wantBtn} ${linkBtn}`;
@@ -472,7 +535,7 @@ function renderCard(item, kind) {
     : `
       <button class="btn-got" data-action="got" data-id="${item.id}">Got It! 🖤</button>
       ${tradeBtn}
-      ${item.url ? `<a class="btn-link" href="${escapeHtml(item.url)}" target="_blank" rel="noopener" title="Open product page">↗</a>` : ''}
+      ${item.url ? `<a class="btn-buy" href="${escapeHtml(item.url)}" target="_blank" rel="noopener" title="Open product page">Buy</a>` : ''}
       <button class="btn-danger" data-action="delete" data-id="${item.id}">Delete</button>
     `;
 
@@ -511,6 +574,10 @@ function render() {
 
   // Search bar makes sense on item lists, not on the checklist/trade tabs.
   document.getElementById('search').classList.toggle('hidden', tab === 'pens' || tab === 'trade');
+  // Active-filters bar belongs to the catalog.
+  document.getElementById('active-filters').classList.toggle('hidden', tab !== 'catalog');
+  // The plain count-label now only shows for non-catalog tabs (catalog has its own bar).
+  document.getElementById('count-label').classList.toggle('hidden', tab === 'catalog');
 
   document.querySelectorAll('.tab').forEach((t) =>
     t.classList.toggle('active', t.dataset.tab === tab)
@@ -536,9 +603,7 @@ function render() {
       items.map((i) => renderCatalogCard(i, owned, wished)).join('');
     const empty = state.catalog.length === 0;
     document.getElementById('catalog-empty').classList.toggle('hidden', !empty);
-    document.getElementById('count-label').textContent = state.catalog.length === 0
-      ? 'Loading catalog…'
-      : `${items.length} of ${state.catalog.length} products`;
+    renderActiveFilters(items.length);
   } else if (tab === 'pens') {
     renderPens();
     const unique = state.pensOwned.size;
@@ -1002,6 +1067,13 @@ function wireEvents() {
     syncCatalogChips();
     render();
   });
+
+  // Active-filters bar: click any pill to drop that one filter, "Clear filters" to reset.
+  document.getElementById('active-filters').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-clear]');
+    if (btn) clearFilter(btn.dataset.clear);
+  });
+
   const sortEl = document.getElementById('cat-sort');
   if (sortEl) {
     sortEl.addEventListener('change', () => {

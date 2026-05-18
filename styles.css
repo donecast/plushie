@@ -539,6 +539,77 @@ main {
   text-align: center;
 }
 
+.card-actions .btn-buy {
+  flex: 0 0 auto;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #4ec988, #2e8a55);
+  color: #0a2418;
+  font-family: var(--display);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border: 1px solid rgba(110, 255, 168, 0.4);
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  text-transform: uppercase;
+}
+.card-actions .btn-buy:hover {
+  background: linear-gradient(135deg, #6effa6, #45c87a);
+  box-shadow: 0 2px 12px rgba(110, 255, 168, 0.4);
+}
+
+/* ─── Active filters bar ────────────────────────────── */
+.active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid rgba(255, 95, 168, 0.15);
+  border-radius: var(--radius-sm);
+  font-family: var(--serif);
+  font-size: 0.9rem;
+}
+.active-filters.hidden { display: none; }
+.active-filters .active-count {
+  color: var(--ink-dim);
+  margin-right: 6px;
+  font-style: italic;
+}
+.active-pill {
+  background: var(--bg-2);
+  border: 1px solid rgba(255, 215, 142, 0.35);
+  color: var(--gold);
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-family: var(--serif);
+  font-size: 0.82rem;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: all 0.12s ease;
+}
+.active-pill:hover { background: var(--panel-2); border-color: var(--gold); }
+.active-clear-all {
+  background: transparent;
+  border: 0;
+  color: var(--rose-hi);
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 0.85rem;
+  margin-left: auto;
+  cursor: pointer;
+  padding: 3px 6px;
+  text-decoration: underline;
+}
+.active-clear-all:hover { color: var(--rose); }
+
 /* ─── Pens checklist ────────────────────────────── */
 .pens-progress {
   margin-bottom: 24px;
