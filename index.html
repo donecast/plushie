@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=19" />
+  <link rel="stylesheet" href="./styles.css?v=20" />
 </head>
 <body>
   <header>
@@ -304,14 +304,61 @@
 
   <!-- User dropdown menu -->
   <div id="user-menu" class="user-menu hidden">
+    <div id="menu-collections" class="menu-section hidden"></div>
+    <button class="menu-item" id="menu-share">↗ Share this collection</button>
     <button class="menu-item" id="menu-signout">Sign out</button>
   </div>
 
+  <!-- Share collection modal -->
+  <div id="share-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-share></div>
+    <div class="modal-card">
+      <button class="modal-close" data-close-share aria-label="Close">×</button>
+      <h2>Share collection</h2>
+      <p class="modal-name" id="share-collection-name"></p>
+
+      <div class="share-section">
+        <h3>Members</h3>
+        <ul id="share-members" class="member-list"></ul>
+      </div>
+
+      <div class="share-section">
+        <h3>Invite a new member</h3>
+        <p class="share-hint">Generate a one-use link, valid for 7 days. Send it however you like — text, email, carrier raven. They open it while signed in and they're added as an editor.</p>
+        <button class="btn-primary" id="generate-invite">Generate invite link</button>
+        <div id="invite-link-wrap" class="invite-link-wrap hidden">
+          <input id="invite-link" type="text" readonly />
+          <button id="copy-invite" class="btn-ghost">Copy</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Address exchange modal -->
+  <div id="address-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-address></div>
+    <div class="modal-card">
+      <button class="modal-close" data-close-address aria-label="Close">×</button>
+      <h2>Shipping address</h2>
+      <p class="modal-name" id="address-sub"></p>
+      <label class="field">
+        <span>Your address (where they should ship to you)</span>
+        <textarea id="address-input" rows="4" placeholder="Name, street, city, state, postal code, country"></textarea>
+      </label>
+      <div id="address-their" class="address-their hidden"></div>
+      <p id="address-pending" class="auth-hint hidden">Waiting for them to enter their address — once they do, we'll reveal it here.</p>
+      <div class="form-actions">
+        <button type="button" class="btn-ghost" data-close-address>Close</button>
+        <button type="button" class="btn-primary" id="address-save">Save address</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="./config.js?v=19"></script>
-  <script src="./auth.js?v=19"></script>
-  <script src="./db.js?v=19"></script>
-  <script src="./data.js?v=19"></script>
-  <script src="./app.js?v=19"></script>
+  <script src="./config.js?v=20"></script>
+  <script src="./auth.js?v=20"></script>
+  <script src="./db.js?v=20"></script>
+  <script src="./data.js?v=20"></script>
+  <script src="./app.js?v=20"></script>
 </body>
 </html>

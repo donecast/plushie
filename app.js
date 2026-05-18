@@ -75,6 +75,30 @@ function isCharm(item) {
   return tags.includes('bag charm') || tags.includes('bagcharm');
 }
 
+// Catalog products that aren't plushies (or plushie-accessories) shouldn't show
+// up in a plushie tracker. Two filters: a type allowlist-by-exclusion, and a
+// name-based override for items where Shopify tagged a non-plushie as 'plush'.
+const NON_PLUSHIE_TYPES = new Set([
+  'pen',                                                  // handled by the Pens tab
+  'sticker', 'pin', 'patch', 'lanyard',
+  'home decoration',                                      // includes acrylic standees
+  'mouse pad', 'notepad', 'ipad case', 'phone grip',
+  'shopping bag', 'gym bag', 'ita bag', 'crossbody bag', 'leather wallet',
+  'shirts', 'shirts & tops', 'sweater', 'hat', 'sleep mask', 'clothing',
+  'hair clip',
+  'jewelry', 'jewelry sets', 'necklace', 'necklaces', 'earring', 'bracelet', 'coin',
+  'gift card', 'makeup', 'game', 'skull', 'head tube',
+  'car accessory',
+]);
+const NON_PLUSHIE_NAME = /\b(standee|acrylic|coin purse|trading card|enamel)\b/i;
+
+function isPlushieCollectible(item) {
+  const type = (item.type || '').toLowerCase();
+  if (NON_PLUSHIE_TYPES.has(type)) return false;
+  if (NON_PLUSHIE_NAME.test(item.name || '')) return false;
+  return true;
+}
+
 function isMiniPlushie(item) {
   const tags = (item.tags || []).map((t) => t.toLowerCase());
   const name = item.name.toLowerCase();
@@ -173,10 +197,10 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=19', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=20', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
-    state.catalog = data.products || [];
+    state.catalog = (data.products || []).filter(isPlushieCollectible);
   } catch (e) {
     console.warn('catalog load failed', e);
     state.catalog = [];
@@ -222,7 +246,7 @@ async function refreshCatalogLive() {
     return false;
   }
   if (all.length === 0) return false;
-  state.catalog = all;
+  state.catalog = all.filter(isPlushieCollectible);
   await idb.setMeta('last_live_refresh', Date.now());
   if (state.tab === 'catalog') render();
   return true;
@@ -937,15 +961,38 @@ function wireEvents() {
     const rect = e.currentTarget.getBoundingClientRect();
     menu.style.top = `${rect.bottom + 6}px`;
     menu.style.right = `${window.innerWidth - rect.right}px`;
+    renderCollectionMenu();
     menu.classList.toggle('hidden');
   });
   document.getElementById('menu-signout').addEventListener('click', () => {
     document.getElementById('user-menu').classList.add('hidden');
     handleSignOut();
   });
+  document.getElementById('menu-share').addEventListener('click', () => {
+    document.getElementById('user-menu').classList.add('hidden');
+    openShareModal();
+  });
+  document.getElementById('menu-collections').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-switch-cid]');
+    if (btn) switchCollection(btn.dataset.switchCid);
+  });
   document.addEventListener('click', () => {
     document.getElementById('user-menu').classList.add('hidden');
   });
+
+  // Share modal
+  document.querySelectorAll('[data-close-share]').forEach((el) =>
+    el.addEventListener('click', closeShareModal)
+  );
+  document.getElementById('generate-invite').addEventListener('click', generateInvite);
+  document.getElementById('copy-invite').addEventListener('click', copyInviteLink);
+  document.getElementById('share-members').addEventListener('click', onShareClick);
+
+  // Address modal
+  document.querySelectorAll('[data-close-address]').forEach((el) =>
+    el.addEventListener('click', closeAddressModal)
+  );
+  document.getElementById('address-save').addEventListener('click', saveAddress);
 
   document.getElementById('pens-list').addEventListener('click', (e) => {
     const btn = e.target.closest('.pen-btn');
@@ -1331,7 +1378,7 @@ async function onTradeClick(e) {
   else if (action === 'trade-fall-through') await respondToTrade(id, 'cancel');
   else if (action === 'trade-shipped')     await tradeShipped(id, btn.dataset.side);
   else if (action === 'trade-received')    await tradeReceived(id, btn.dataset.side);
-  else if (action === 'trade-address')     await promptAddress(id);
+  else if (action === 'trade-address')     await openAddressModal(id);
   else if (action === 'trade-feedback')    await openFeedbackModal(id);
 }
 
@@ -1394,28 +1441,7 @@ async function tradeReceived(id, side) {
   if (t && t.status === 'completed') await openFeedbackModal(id);
 }
 
-async function promptAddress(tradeId) {
-  const t = state.trades.find((x) => x.id === tradeId);
-  if (!t) return;
-  const addrs = await data.getAddresses(tradeId);
-  const mine = addrs.find((a) => a.user_id === window.currentUser.id);
-  const other = addrs.find((a) => a.user_id !== window.currentUser.id);
-
-  let msg = 'Your shipping address (the other side sees it only when they\'ve also entered theirs):';
-  if (other) msg += `\n\nTheir address:\n${other.address}`;
-  else       msg += `\n\nWaiting for them to enter their address.`;
-
-  const input = prompt(msg, mine?.address || '');
-  if (input === null) return;
-  const trimmed = input.trim();
-  if (!trimmed) return;
-  await data.setAddress(tradeId, trimmed);
-  toast('Address saved.');
-  // If both addresses are now set, re-prompt with the other's address visible
-  const after = await data.getAddresses(tradeId);
-  const o2 = after.find((a) => a.user_id !== window.currentUser.id);
-  if (o2) alert(`Their shipping address:\n\n${o2.address}`);
-}
+// promptAddress is now openAddressModal — defined later with a proper modal.
 
 // ─── Trade: offer builder modal ──────────────────────────────────────
 async function openOfferModal(recipientId, parentTradeId) {
@@ -1585,6 +1611,191 @@ function shortDate(iso) {
 }
 function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s; }
 
+// ─── Collection sharing ──────────────────────────────────────────────
+async function openShareModal() {
+  const myMembership = data.memberships.find((m) => m.collection_id === data.collectionId);
+  document.getElementById('share-collection-name').textContent = myMembership?.name ?? '';
+
+  const members = await data.listMembers();
+  const myId = window.currentUser.id;
+  const iAmOwner = myMembership?.role === 'owner';
+
+  // Resolve usernames
+  document.getElementById('share-members').innerHTML = members.map((m) => {
+    const tag = m.role === 'owner' ? '<span class="role-tag">owner</span>'
+              : m.role === 'editor' ? '<span class="role-tag editor">editor</span>'
+              : '<span class="role-tag viewer">viewer</span>';
+    const canKick = (iAmOwner && m.user_id !== myId) || (m.user_id === myId && m.role !== 'owner');
+    const btn = canKick
+      ? `<button class="btn-danger" data-share-action="remove" data-uid="${m.user_id}">${m.user_id === myId ? 'Leave' : 'Remove'}</button>`
+      : '';
+    return `<li><span>@${escapeHtml(m.username ?? 'unknown')} ${tag}</span> ${btn}</li>`;
+  }).join('');
+
+  document.getElementById('generate-invite').classList.toggle('hidden', !iAmOwner);
+  document.getElementById('invite-link-wrap').classList.add('hidden');
+  document.getElementById('share-modal').classList.remove('hidden');
+}
+
+function closeShareModal() {
+  document.getElementById('share-modal').classList.add('hidden');
+}
+
+async function generateInvite() {
+  try {
+    const token = await data.createInvite('editor');
+    const url = `${window.location.origin}${window.location.pathname}?join=${token}`;
+    document.getElementById('invite-link').value = url;
+    document.getElementById('invite-link-wrap').classList.remove('hidden');
+  } catch (err) {
+    console.error(err);
+    toast('Could not generate invite.');
+  }
+}
+
+async function copyInviteLink() {
+  const input = document.getElementById('invite-link');
+  input.select();
+  try {
+    await navigator.clipboard.writeText(input.value);
+    toast('Link copied. Paste it to your invitee.');
+  } catch {
+    document.execCommand('copy');
+    toast('Link copied.');
+  }
+}
+
+async function onShareClick(e) {
+  const btn = e.target.closest('[data-share-action]');
+  if (!btn) return;
+  const action = btn.dataset.shareAction;
+  const uid = btn.dataset.uid;
+  if (action === 'remove') {
+    const isMe = uid === window.currentUser.id;
+    if (!confirm(isMe ? 'Leave this collection?' : 'Remove this member?')) return;
+    try {
+      await data.removeMember(uid);
+      toast(isMe ? 'You left the collection.' : 'Member removed.');
+      if (isMe) {
+        // Reload memberships and switch active
+        data.memberships = await data.listMyMemberships();
+        const next = data.memberships.find((m) => m.role === 'owner') || data.memberships[0];
+        if (next) {
+          await data.switchActiveCollection(next.collection_id);
+          await loadAll();
+          state.pensOwned = await data.listPens();
+          render();
+        }
+        closeShareModal();
+      } else {
+        openShareModal();   // refresh list
+      }
+    } catch (err) {
+      console.error(err);
+      toast('Couldn’t complete that.');
+    }
+  }
+}
+
+async function switchCollection(collectionId) {
+  await data.switchActiveCollection(collectionId);
+  await loadAll();
+  state.pensOwned = await data.listPens();
+  state.myTradeItems = await data.listMyTradeItems();
+  document.getElementById('user-menu').classList.add('hidden');
+  render();
+  toast('Switched collection.');
+}
+
+function renderCollectionMenu() {
+  const wrap = document.getElementById('menu-collections');
+  if (!data.memberships || data.memberships.length <= 1) {
+    wrap.classList.add('hidden');
+    wrap.innerHTML = '';
+    return;
+  }
+  wrap.classList.remove('hidden');
+  wrap.innerHTML = data.memberships.map((m) => {
+    const active = m.collection_id === data.collectionId;
+    const label = m.role === 'owner' ? `${m.name} (yours)` : m.name;
+    return `<button class="menu-item ${active ? 'active' : ''}" data-switch-cid="${m.collection_id}">${active ? '● ' : '  '}${escapeHtml(label)}</button>`;
+  }).join('') + '<div class="menu-divider"></div>';
+}
+
+// Handle ?join=<token> in URL on boot — accept the invite and clean the URL.
+async function handleJoinToken() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('join');
+  if (!token) return;
+  try {
+    const collectionId = await data.acceptInvite(token);
+    toast('You joined a new collection.');
+    // Refresh memberships and switch in
+    data.memberships = await data.listMyMemberships();
+    await data.switchActiveCollection(collectionId);
+  } catch (err) {
+    console.error('join', err);
+    const msg = err.message || '';
+    if (msg.includes('expired')) toast('That invite expired.');
+    else if (msg.includes('exhausted')) toast('That invite was already used.');
+    else if (msg.includes('invalid')) toast('That invite link is invalid.');
+    else toast('Could not accept invite.');
+  } finally {
+    // Always clean the token from the URL so it doesn't get redeemed on reload.
+    params.delete('join');
+    const newSearch = params.toString();
+    const newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '') + window.location.hash;
+    window.history.replaceState({}, '', newUrl);
+  }
+}
+
+// ─── Address exchange modal ──────────────────────────────────────────
+let addressTradeId = null;
+async function openAddressModal(tradeId) {
+  addressTradeId = tradeId;
+  const t = state.trades.find((x) => x.id === tradeId);
+  const uid = window.currentUser.id;
+  const otherName = t.proposer_id === uid ? t.recipient?.username : t.proposer?.username;
+  document.getElementById('address-sub').textContent = `Trade with @${otherName || 'partner'}`;
+  document.getElementById('address-input').value = '';
+  document.getElementById('address-their').classList.add('hidden');
+  document.getElementById('address-pending').classList.add('hidden');
+
+  const addrs = await data.getAddresses(tradeId);
+  const mine = addrs.find((a) => a.user_id === uid);
+  const other = addrs.find((a) => a.user_id !== uid);
+  if (mine) document.getElementById('address-input').value = mine.address;
+
+  if (mine && other) {
+    const el = document.getElementById('address-their');
+    el.innerHTML = `<h3>Their address (ship here)</h3><pre>${escapeHtml(other.address)}</pre>`;
+    el.classList.remove('hidden');
+  } else if (mine) {
+    document.getElementById('address-pending').classList.remove('hidden');
+  }
+  document.getElementById('address-modal').classList.remove('hidden');
+}
+
+function closeAddressModal() {
+  document.getElementById('address-modal').classList.add('hidden');
+  addressTradeId = null;
+}
+
+async function saveAddress() {
+  if (!addressTradeId) return;
+  const value = document.getElementById('address-input').value.trim();
+  if (!value) { toast('Please enter an address.'); return; }
+  try {
+    await data.setAddress(addressTradeId, value);
+    toast('Address saved.');
+    // Reopen with updated state (will reveal partner's address if both now set)
+    await openAddressModal(addressTradeId);
+  } catch (err) {
+    console.error(err);
+    toast('Could not save address.');
+  }
+}
+
 // ─── Service worker ──────────────────────────────────────────────────
 function registerSW() {
   if (!('serviceWorker' in navigator)) return;
@@ -1597,6 +1808,7 @@ function registerSW() {
 async function boot() {
   wireEvents();
   await data.loadActiveCollection();
+  await handleJoinToken();        // ?join=<token> redeems and switches in
   await data.migrateFromIDB();    // one-time IDB → Supabase upload per account
   await loadAll();
   state.pensOwned = await data.listPens();

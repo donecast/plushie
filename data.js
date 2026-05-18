@@ -17,17 +17,89 @@ const data = {
   _photoUrlCache: new Map(),    // path → signed URL
 
   // ─── Bootstrap ────────────────────────────────────────────────────
+  memberships: [],
+
   async loadActiveCollection() {
+    const userId = window.currentUser.id;
+    const memberships = await data.listMyMemberships();
+    if (memberships.length === 0) throw new Error('no_collection');
+    data.memberships = memberships;
+    const stored = localStorage.getItem(`active_collection_${userId}`);
+    let active = memberships.find((m) => m.collection_id === stored);
+    if (!active) active = memberships.find((m) => m.role === 'owner') || memberships[0];
+    data.collectionId = active.collection_id;
+    return data.collectionId;
+  },
+
+  async switchActiveCollection(collectionId) {
+    data.collectionId = collectionId;
+    localStorage.setItem(`active_collection_${window.currentUser.id}`, collectionId);
+  },
+
+  async listMyMemberships() {
     const userId = window.currentUser.id;
     const { data: rows, error } = await sb
       .from('collection_members')
       .select('collection_id, role')
       .eq('user_id', userId);
     if (error) throw error;
-    if (!rows || rows.length === 0) throw new Error('no_collection');
-    const owned = rows.find((r) => r.role === 'owner') || rows[0];
-    data.collectionId = owned.collection_id;
-    return data.collectionId;
+    if (!rows || rows.length === 0) return [];
+    // Fetch collection metadata separately (owner_id, name)
+    const ids = rows.map((r) => r.collection_id);
+    const { data: cols } = await sb.from('collections').select('id, name, owner_id').in('id', ids);
+    const byId = new Map((cols || []).map((c) => [c.id, c]));
+    return rows.map((r) => ({
+      collection_id: r.collection_id,
+      role: r.role,
+      name: byId.get(r.collection_id)?.name ?? '(collection)',
+      owner_id: byId.get(r.collection_id)?.owner_id,
+    }));
+  },
+
+  async listMembers() {
+    const { data: rows, error } = await sb
+      .from('collection_members')
+      .select('user_id, role, invited_at')
+      .eq('collection_id', data.collectionId);
+    if (error) throw error;
+    const ids = rows.map((r) => r.user_id);
+    let usernames = new Map();
+    if (ids.length) {
+      const { data: profs } = await sb.from('profiles').select('id, username').in('id', ids);
+      usernames = new Map((profs || []).map((p) => [p.id, p.username]));
+    }
+    return rows.map((r) => ({ ...r, username: usernames.get(r.user_id) }));
+  },
+
+  async removeMember(userId) {
+    const { error } = await sb
+      .from('collection_members')
+      .delete()
+      .eq('collection_id', data.collectionId)
+      .eq('user_id', userId);
+    if (error) throw error;
+  },
+
+  async createInvite(role = 'editor') {
+    const { data: row, error } = await sb
+      .from('collection_invites')
+      .insert({
+        collection_id: data.collectionId,
+        created_by: window.currentUser.id,
+        role,
+        expires_at: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString(),
+        uses_remaining: 1,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return row.token;
+  },
+
+  async acceptInvite(token) {
+    const { data: cid, error } = await sb.rpc('accept_collection_invite', { invite_token: token });
+    if (error) throw error;
+    return cid;
   },
 
   // ─── Reads ────────────────────────────────────────────────────────
