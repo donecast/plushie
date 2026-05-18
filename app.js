@@ -215,7 +215,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=25', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=26', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -388,16 +388,14 @@ function renderCatalogCard(item, owned, wished) {
   else if (isWished) badges.push(`<span class="card-status wished">★ Wished</span>`);
 
   const productUrl = PRODUCT_URL_BASE + item.handle;
+  // Coming Soon / FYC items can't be owned yet — they don't physically exist.
+  const canHave = !(status === 'coming_soon' || status === 'fyc');
+  const haveBtn  = canHave  ? `<button class="btn-have" data-action="cat-have" data-cid="${item.id}">🖤 Have</button>` : '';
+  const wantBtn  = !isWished ? `<button class="btn-want" data-action="cat-want" data-cid="${item.id}">🕯 Want</button>` : '';
+  const linkBtn  = `<a class="btn-link" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener" title="Open product page">↗</a>`;
   const actions = isOwned
-    ? `
-        <button data-action="cat-edit" data-cid="${item.id}">Edit</button>
-        <a class="btn-link" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener" title="Open product page">↗</a>
-      `
-    : `
-        <button class="btn-have" data-action="cat-have" data-cid="${item.id}">🖤 Have</button>
-        <button class="btn-want" data-action="cat-want" data-cid="${item.id}">🕯 Want</button>
-        <a class="btn-link" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener" title="Open product page">↗</a>
-      `;
+    ? `<button data-action="cat-edit" data-cid="${item.id}">Edit</button> ${haveBtn} ${linkBtn}`
+    : `${haveBtn} ${wantBtn} ${linkBtn}`;
 
   return `
     <article class="card" data-cid="${item.id}">
@@ -653,6 +651,22 @@ async function submitForm(e) {
 async function onCardClick(e) {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
+  try {
+    await onCardClickInner(btn);
+  } catch (err) {
+    console.error('card action failed', err);
+    const msg = err?.message || '';
+    if (/column.*quantity/i.test(msg)) {
+      toast('Run the latest SQL migration (db/0003_quantity.sql) — the quantity column is missing.');
+    } else if (msg) {
+      toast('Error: ' + msg);
+    } else {
+      toast('Something went wrong. See console.');
+    }
+  }
+}
+
+async function onCardClickInner(btn) {
   const { action, id, cid } = btn.dataset;
 
   if (action === 'edit') {
