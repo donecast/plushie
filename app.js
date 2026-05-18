@@ -17,7 +17,7 @@ const state = {
   collection: [],
   wishlist: [],
   catalog: [],                // loaded from catalog.json
-  pensOwned: new Set(),       // ids from PENS that the user has
+  pensOwned: new Map(),       // id → count (omitted = 0)
   blobUrls: new Map(),
 };
 
@@ -167,7 +167,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=15', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=16', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = data.products || [];
@@ -470,39 +470,49 @@ function render() {
       : `${items.length} of ${state.catalog.length} products`;
   } else {
     renderPens();
+    const unique = state.pensOwned.size;
+    const total = [...state.pensOwned.values()].reduce((a, b) => a + b, 0);
     document.getElementById('count-label').textContent =
-      `${state.pensOwned.size} of ${PENS.length} pens`;
+      `${unique} of ${PENS.length} unique · ${total} pen${total === 1 ? '' : 's'} total`;
   }
 }
 
 function renderPens() {
   const lines = [...new Set(PENS.map((p) => p.line))];
-  const progressPct = Math.round((state.pensOwned.size / PENS.length) * 100);
+  const unique = state.pensOwned.size;
+  const total = [...state.pensOwned.values()].reduce((a, b) => a + b, 0);
+  const progressPct = Math.round((unique / PENS.length) * 100);
   document.getElementById('pens-progress').innerHTML = `
     <div class="pens-progress-text">
-      <span class="pens-count">${state.pensOwned.size}</span>
-      <span class="pens-total">/ ${PENS.length} collected</span>
+      <span class="pens-count">${unique}</span>
+      <span class="pens-total">/ ${PENS.length} unique</span>
+      <span class="pens-total-grand">· ${total} total</span>
     </div>
     <div class="pens-bar"><div class="pens-bar-fill" style="width: ${progressPct}%"></div></div>
   `;
 
   document.getElementById('pens-list').innerHTML = lines.map((line) => {
     const items = PENS.filter((p) => p.line === line);
-    const owned = items.filter((p) => state.pensOwned.has(p.id)).length;
+    const ownedUnique = items.filter((p) => state.pensOwned.has(p.id)).length;
+    const ownedTotal = items.reduce((sum, p) => sum + (state.pensOwned.get(p.id) || 0), 0);
     const rows = items.map((p) => {
-      const isOwned = state.pensOwned.has(p.id);
+      const count = state.pensOwned.get(p.id) || 0;
       return `
-        <label class="pen-row ${isOwned ? 'owned' : ''}">
-          <input type="checkbox" data-pen-id="${p.id}" ${isOwned ? 'checked' : ''} />
+        <div class="pen-row ${count > 0 ? 'owned' : ''}">
           <span class="pen-name">${escapeHtml(p.name)}</span>
-        </label>
+          <div class="pen-qty">
+            <button class="pen-btn" data-pen-id="${p.id}" data-pen-delta="-1" aria-label="Decrease">−</button>
+            <span class="pen-count">${count}</span>
+            <button class="pen-btn" data-pen-id="${p.id}" data-pen-delta="1" aria-label="Increase">+</button>
+          </div>
+        </div>
       `;
     }).join('');
     return `
       <section class="pens-group">
         <h2 class="pens-group-title">
           <span>${escapeHtml(line)}</span>
-          <span class="pens-group-count">${owned} / ${items.length}</span>
+          <span class="pens-group-count">${ownedUnique} / ${items.length} · ${ownedTotal} total</span>
         </h2>
         <div class="pen-rows">${rows}</div>
       </section>
@@ -510,10 +520,12 @@ function renderPens() {
   }).join('');
 }
 
-async function togglePen(id) {
-  if (state.pensOwned.has(id)) state.pensOwned.delete(id);
-  else state.pensOwned.add(id);
-  await idb.setMeta('pens_owned', [...state.pensOwned]);
+async function adjustPen(id, delta) {
+  const current = state.pensOwned.get(id) || 0;
+  const next = Math.max(0, Math.min(99, current + delta));
+  if (next === 0) state.pensOwned.delete(id);
+  else state.pensOwned.set(id, next);
+  await idb.setMeta('pens_owned', [...state.pensOwned.entries()]);
   render();
 }
 
@@ -1021,9 +1033,12 @@ function wireEvents() {
   document.getElementById('wishlist-grid').addEventListener('click', onCardClick);
   document.getElementById('catalog-grid').addEventListener('click', onCardClick);
 
-  document.getElementById('pens-list').addEventListener('change', (e) => {
-    const id = e.target?.dataset?.penId;
-    if (id) togglePen(id);
+  document.getElementById('pens-list').addEventListener('click', (e) => {
+    const btn = e.target.closest('.pen-btn');
+    if (!btn) return;
+    const id = btn.dataset.penId;
+    const delta = parseInt(btn.dataset.penDelta, 10);
+    if (id && delta) adjustPen(id, delta);
   });
 
   document.getElementById('backup-btn').addEventListener('click', exportBackup);
@@ -1056,7 +1071,11 @@ async function boot() {
   wireEvents();
   await loadAll();
   const savedPens = await idb.getMeta('pens_owned');
-  if (Array.isArray(savedPens)) state.pensOwned = new Set(savedPens);
+  if (Array.isArray(savedPens)) {
+    state.pensOwned = new Map(
+      savedPens.map((entry) => Array.isArray(entry) ? entry : [entry, 1])
+    );
+  }
   render();
   updateNotifyButton();
   registerSW();

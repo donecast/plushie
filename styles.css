@@ -519,32 +519,66 @@ main {
 .pen-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px 8px 14px;
   background: var(--panel);
   border: 1px solid rgba(255, 95, 168, 0.12);
   border-radius: var(--radius-sm);
-  cursor: pointer;
   font-family: var(--serif);
   transition: all 0.12s ease;
-  user-select: none;
 }
-.pen-row:hover { border-color: var(--rose); background: var(--panel-2); }
 .pen-row.owned {
   background: linear-gradient(135deg, var(--panel-2), var(--panel));
   border-color: var(--gold);
 }
-.pen-row.owned .pen-name { color: var(--ink); }
-.pen-row input[type=checkbox] {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--gold);
-  cursor: pointer;
-  flex-shrink: 0;
-}
+.pen-row.owned .pen-name { color: var(--ink); font-style: normal; }
 .pen-name {
   font-size: 0.98rem;
   color: var(--ink-dim);
+  font-style: italic;
+  flex: 1;
+  min-width: 0;
+}
+.pen-qty {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.pen-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 95, 168, 0.3);
+  background: var(--bg-2);
+  color: var(--ink);
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: all 0.12s ease;
+}
+.pen-btn:hover { border-color: var(--gold); color: var(--gold); background: var(--panel); }
+.pen-btn:active { transform: scale(0.92); }
+.pen-count {
+  display: inline-block;
+  min-width: 24px;
+  text-align: center;
+  font-family: var(--display);
+  font-size: 1.05rem;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+.pen-row:not(.owned) .pen-count { color: var(--ink-dim); }
+.pens-total-grand {
+  color: var(--gold);
+  font-size: 0.9rem;
+  font-family: var(--serif);
   font-style: italic;
 }
 
