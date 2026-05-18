@@ -215,7 +215,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=23', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=24', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -964,29 +964,29 @@ function wireEvents() {
   });
   document.getElementById('feedback-submit').addEventListener('click', submitFeedback);
 
-  document.getElementById('user-badge').addEventListener('click', (e) => {
-    e.stopPropagation();
-    const menu = document.getElementById('user-menu');
-    const rect = e.currentTarget.getBoundingClientRect();
-    menu.style.top = `${rect.bottom + 6}px`;
-    menu.style.right = `${window.innerWidth - rect.right}px`;
-    renderCollectionMenu();
-    menu.classList.toggle('hidden');
-  });
-  document.getElementById('menu-signout').addEventListener('click', () => {
-    document.getElementById('user-menu').classList.add('hidden');
-    handleSignOut();
-  });
-  document.getElementById('menu-share').addEventListener('click', () => {
-    document.getElementById('user-menu').classList.add('hidden');
+  document.getElementById('user-badge').addEventListener('click', openAccountModal);
+
+  // Account modal
+  document.querySelectorAll('[data-close-account]').forEach((el) =>
+    el.addEventListener('click', closeAccountModal)
+  );
+  document.getElementById('acct-save-username').addEventListener('click', saveUsername);
+  document.getElementById('acct-save-email').addEventListener('click', saveEmail);
+  document.getElementById('acct-save-address').addEventListener('click', saveDefaultAddress);
+  document.getElementById('acct-share').addEventListener('click', () => {
+    closeAccountModal();
     openShareModal();
   });
-  document.getElementById('menu-collections').addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-switch-cid]');
-    if (btn) switchCollection(btn.dataset.switchCid);
+  document.getElementById('acct-signout').addEventListener('click', () => {
+    closeAccountModal();
+    handleSignOut();
   });
-  document.addEventListener('click', () => {
-    document.getElementById('user-menu').classList.add('hidden');
+  document.getElementById('acct-collections').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-switch-cid]');
+    if (btn) {
+      closeAccountModal();
+      switchCollection(btn.dataset.switchCid);
+    }
   });
 
   // Share modal
@@ -1716,19 +1716,84 @@ async function switchCollection(collectionId) {
   toast('Switched collection.');
 }
 
-function renderCollectionMenu() {
-  const wrap = document.getElementById('menu-collections');
-  if (!data.memberships || data.memberships.length <= 1) {
-    wrap.classList.add('hidden');
-    wrap.innerHTML = '';
+// ─── Account modal ───────────────────────────────────────────────────
+async function openAccountModal() {
+  document.getElementById('acct-username').value = window.currentUser?.username ?? '';
+  document.getElementById('acct-email').value    = window.currentUser?.email ?? '';
+  document.getElementById('acct-address').value  = await data.getMyAddress();
+
+  // Feedback summary
+  const fb = state.myFeedback || { good_count: 0, meh_count: 0, bad_count: 0, net_score: 0, total_count: 0 };
+  document.getElementById('acct-feedback').innerHTML = `
+    <div class="fb-cell"><span class="fb-num fb-good">${fb.good_count}</span><span class="fb-label">good</span></div>
+    <div class="fb-cell"><span class="fb-num fb-meh">${fb.meh_count}</span><span class="fb-label">meh</span></div>
+    <div class="fb-cell"><span class="fb-num fb-bad">${fb.bad_count}</span><span class="fb-label">bad</span></div>
+    <div class="fb-cell"><span class="fb-num">${fb.net_score}</span><span class="fb-label">net</span></div>
+    <div class="fb-cell"><span class="fb-num">${fb.total_count}</span><span class="fb-label">total</span></div>
+  `;
+
+  // Collections list
+  const myId = window.currentUser.id;
+  document.getElementById('acct-collections').innerHTML = (data.memberships || []).map((m) => {
+    const active = m.collection_id === data.collectionId;
+    const isOwner = m.owner_id === myId;
+    const tag = isOwner ? '<span class="role-tag">owner</span>' : '<span class="role-tag editor">member</span>';
+    const dot = active ? '<span class="active-dot">●</span>' : '';
+    return `
+      <li>
+        <span>${dot} ${escapeHtml(m.name)} ${tag}</span>
+        ${active ? '<span class="dim">active</span>' : `<button class="btn-ghost" data-switch-cid="${m.collection_id}">Switch</button>`}
+      </li>
+    `;
+  }).join('');
+
+  document.getElementById('account-modal').classList.remove('hidden');
+}
+
+function closeAccountModal() {
+  document.getElementById('account-modal').classList.add('hidden');
+}
+
+async function saveUsername() {
+  const u = document.getElementById('acct-username').value.trim();
+  if (!/^[a-zA-Z0-9_-]{3,20}$/.test(u)) {
+    toast('Username must be 3–20 letters, numbers, _ or -.');
     return;
   }
-  wrap.classList.remove('hidden');
-  wrap.innerHTML = data.memberships.map((m) => {
-    const active = m.collection_id === data.collectionId;
-    const label = m.role === 'owner' ? `${m.name} (yours)` : m.name;
-    return `<button class="menu-item ${active ? 'active' : ''}" data-switch-cid="${m.collection_id}">${active ? '● ' : '  '}${escapeHtml(label)}</button>`;
-  }).join('') + '<div class="menu-divider"></div>';
+  if (u === window.currentUser?.username) return;
+  try {
+    await data.updateUsername(u);
+    document.querySelector('#user-badge .user-name').textContent = '@' + u;
+    toast('Username updated.');
+  } catch (err) {
+    const msg = (err.message || '').toLowerCase();
+    if (msg.includes('duplicate') || msg.includes('unique')) toast('That username is taken.');
+    else toast('Could not update username.');
+  }
+}
+
+async function saveEmail() {
+  const e = document.getElementById('acct-email').value.trim();
+  if (!e || !e.includes('@')) { toast('Please enter a valid email.'); return; }
+  if (e === window.currentUser?.email) return;
+  try {
+    await data.updateEmail(e);
+    toast('Confirmation sent to ' + e + '. The change applies after you confirm.');
+  } catch (err) {
+    console.error(err);
+    toast('Could not update email: ' + (err.message || 'unknown'));
+  }
+}
+
+async function saveDefaultAddress() {
+  const a = document.getElementById('acct-address').value.trim();
+  try {
+    await data.setMyAddress(a);
+    toast(a ? 'Default address saved.' : 'Default address cleared.');
+  } catch (err) {
+    console.error(err);
+    toast('Could not save address.');
+  }
 }
 
 // Handle ?join=<token> in URL on boot — accept the invite and clean the URL.
@@ -1773,7 +1838,13 @@ async function openAddressModal(tradeId) {
   const addrs = await data.getAddresses(tradeId);
   const mine = addrs.find((a) => a.user_id === uid);
   const other = addrs.find((a) => a.user_id !== uid);
-  if (mine) document.getElementById('address-input').value = mine.address;
+  if (mine) {
+    document.getElementById('address-input').value = mine.address;
+  } else {
+    // Fall back to the user's saved default address from their account.
+    const def = await data.getMyAddress();
+    if (def) document.getElementById('address-input').value = def;
+  }
 
   if (mine && other) {
     const el = document.getElementById('address-their');

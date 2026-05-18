@@ -1032,6 +1032,67 @@ main {
   box-shadow: 0 0 12px rgba(255, 215, 142, 0.3);
 }
 
+/* ─── Account modal ────────────────────────────── */
+.account-section {
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(255, 95, 168, 0.12);
+}
+.account-section:last-child { border-bottom: 0; }
+.account-section h3 {
+  font-family: var(--display);
+  font-size: 0.95rem;
+  letter-spacing: 0.05em;
+  color: var(--rose-hi);
+  margin: 0 0 12px;
+}
+.account-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  margin-bottom: 8px;
+}
+.account-row.right { justify-content: flex-end; align-items: center; }
+.account-row .field { flex: 1; margin-bottom: 0; }
+.account-hint {
+  margin: 6px 0 0;
+  color: var(--ink-dim);
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 0.88rem;
+}
+
+.feedback-summary {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  text-align: center;
+}
+.fb-cell {
+  padding: 10px 6px;
+  background: var(--bg-2);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.fb-num {
+  font-family: var(--display);
+  font-size: 1.3rem;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.fb-num.fb-good { color: #6effd8; }
+.fb-num.fb-meh  { color: var(--ink-dim); }
+.fb-num.fb-bad  { color: #ff7a8a; }
+.fb-label {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 0.75rem;
+  color: var(--ink-dim);
+  text-transform: lowercase;
+}
+.active-dot { color: var(--gold); margin-right: 4px; }
+
 /* ─── Share modal & menu ────────────────────────────── */
 .menu-section { padding: 4px 0; }
 .menu-section.hidden { display: none; }

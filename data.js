@@ -462,7 +462,24 @@ data.createTrade = async function ({ recipientId, proposerLines, recipientLines,
     await sb.from('trades').delete().eq('id', t.id);
     throw lineErr;
   }
+  // Auto-share default address if set — saves a manual step later.
+  await data._autoShareAddress(t.id);
   return t;
+};
+
+data._autoShareAddress = async function (tradeId) {
+  try {
+    const addr = await data.getMyAddress();
+    if (addr) {
+      await sb.from('trade_addresses').upsert({
+        trade_id: tradeId,
+        user_id: window.currentUser.id,
+        address: addr,
+      });
+    }
+  } catch (e) {
+    console.warn('autoShareAddress', e);
+  }
 };
 
 // Accept a trade — also marks the parent as 'countered' if this is a counter response,
@@ -501,6 +518,7 @@ data.acceptTrade = async function (tradeId) {
     .update({ status: 'accepted', responded_at: new Date().toISOString() })
     .eq('id', tradeId);
   if (stErr) throw stErr;
+  await data._autoShareAddress(tradeId);
 };
 
 data.rejectTrade = async function (tradeId) {
@@ -588,6 +606,45 @@ data.getAddresses = async function (tradeId) {
     .eq('trade_id', tradeId);
   if (error) throw error;
   return rows;
+};
+
+// ─── User account ───────────────────────────────────────────────────
+data.getMyAddress = async function () {
+  const { data: row, error } = await sb
+    .from('user_addresses')
+    .select('address')
+    .eq('user_id', window.currentUser.id)
+    .maybeSingle();
+  if (error) {
+    // If the migration hasn't run yet, the table doesn't exist; treat as empty.
+    console.warn('getMyAddress', error);
+    return '';
+  }
+  return row?.address ?? '';
+};
+
+data.setMyAddress = async function (address) {
+  const { error } = await sb.from('user_addresses').upsert({
+    user_id: window.currentUser.id,
+    address,
+    updated_at: new Date().toISOString(),
+  });
+  if (error) throw error;
+};
+
+data.updateUsername = async function (username) {
+  const { error } = await sb
+    .from('profiles')
+    .update({ username })
+    .eq('id', window.currentUser.id);
+  if (error) throw error;
+  window.currentUser.username = username;
+};
+
+data.updateEmail = async function (email) {
+  const { error } = await sb.auth.updateUser({ email });
+  if (error) throw error;
+  // Supabase sends a confirmation email; the change takes effect after they click.
 };
 
 data.leaveFeedback = async function (tradeId, rateeId, rating, comment) {

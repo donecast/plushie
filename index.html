@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=23" />
+  <link rel="stylesheet" href="./styles.css?v=24" />
 </head>
 <body>
   <header>
@@ -302,11 +302,62 @@
     </div>
   </div>
 
-  <!-- User dropdown menu -->
-  <div id="user-menu" class="user-menu hidden">
-    <div id="menu-collections" class="menu-section hidden"></div>
-    <button class="menu-item" id="menu-share">↗ Share this collection</button>
-    <button class="menu-item" id="menu-signout">Sign out</button>
+  <!-- Account modal -->
+  <div id="account-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-account></div>
+    <div class="modal-card modal-card-wide">
+      <button class="modal-close" data-close-account aria-label="Close">×</button>
+      <h2>Your account</h2>
+
+      <section class="account-section">
+        <h3>Identity</h3>
+        <div class="account-row">
+          <label class="field">
+            <span>Username</span>
+            <input type="text" id="acct-username" pattern="[a-zA-Z0-9_-]{3,20}" maxlength="20" />
+          </label>
+          <button class="btn-ghost" id="acct-save-username">Save</button>
+        </div>
+        <div class="account-row">
+          <label class="field">
+            <span>Email</span>
+            <input type="email" id="acct-email" autocomplete="email" />
+          </label>
+          <button class="btn-ghost" id="acct-save-email">Save</button>
+        </div>
+        <p class="account-hint">Changing your email sends a confirmation link to the new address. The old address keeps working until you confirm.</p>
+      </section>
+
+      <section class="account-section">
+        <h3>Default shipping address</h3>
+        <p class="account-hint">Pre-fills your address on every trade so you don't have to type it each time. The other side only sees it once they've also entered theirs.</p>
+        <label class="field">
+          <textarea id="acct-address" rows="4" placeholder="Name, street, city, state, postal code, country"></textarea>
+        </label>
+        <div class="account-row right">
+          <button class="btn-ghost" id="acct-save-address">Save address</button>
+        </div>
+      </section>
+
+      <section class="account-section">
+        <h3>Reputation</h3>
+        <div id="acct-feedback" class="feedback-summary"></div>
+      </section>
+
+      <section class="account-section" id="acct-collections-section">
+        <h3>Your collections</h3>
+        <ul id="acct-collections" class="member-list"></ul>
+        <div class="account-row right">
+          <button class="btn-primary" id="acct-share">↗ Share this collection</button>
+        </div>
+      </section>
+
+      <section class="account-section">
+        <div class="account-row right">
+          <button class="btn-danger" id="acct-signout">Sign out</button>
+        </div>
+      </section>
+    </div>
   </div>
 
   <!-- Share collection modal -->
@@ -355,10 +406,10 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="./config.js?v=23"></script>
-  <script src="./auth.js?v=23"></script>
-  <script src="./db.js?v=23"></script>
-  <script src="./data.js?v=23"></script>
-  <script src="./app.js?v=23"></script>
+  <script src="./config.js?v=24"></script>
+  <script src="./auth.js?v=24"></script>
+  <script src="./db.js?v=24"></script>
+  <script src="./data.js?v=24"></script>
+  <script src="./app.js?v=24"></script>
 </body>
 </html>
