@@ -1,6 +1,6 @@
 // ─── State ────────────────────────────────────────────────────────────
 const state = {
-  tab: 'collection',          // 'collection' | 'wishlist' | 'catalog'
+  tab: 'catalog',             // 'catalog' | 'collection' | 'wishlist' | 'pens'
   filter: 'all',              // collection: all | active | retired
   catalogFilter: 'all',       // catalog category: all | plush | accessory | other
   catalogStatuses: new Set(), // empty = any; otherwise OR of: available/sold_out/coming_soon/retired/fyc
@@ -439,7 +439,8 @@ function render() {
 
   // Hide search + add button on pens tab — the checklist is its own world.
   document.getElementById('search').classList.toggle('hidden', tab === 'pens');
-  document.getElementById('add-btn').classList.toggle('hidden', tab === 'catalog' || tab === 'pens');
+  // Add button only on Wishlist — you add to Collection by tapping items in the Catalog.
+  document.getElementById('add-btn').classList.toggle('hidden', tab !== 'wishlist');
   document.getElementById('add-target').textContent = tab === 'wishlist' ? 'Wish List' : 'Collection';
 
   document.querySelectorAll('.tab').forEach((t) =>
