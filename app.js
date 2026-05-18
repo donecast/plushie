@@ -215,7 +215,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=21', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=22', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -403,7 +403,7 @@ function renderCatalogCard(item, owned, wished) {
     <article class="card" data-cid="${item.id}">
       <div class="card-photo">
         ${photoHtml}
-        ${badges.join('')}
+        ${badges.length ? `<div class="badge-stack">${badges.join('')}</div>` : ''}
       </div>
       <div class="card-body">
         <h3 class="card-name">${escapeHtml(display)}</h3>
@@ -469,7 +469,7 @@ function renderCard(item, kind) {
     <article class="card" data-id="${item.id}">
       <div class="card-photo">
         ${photoHtml}
-        ${badges.join('')}
+        ${badges.length ? `<div class="badge-stack">${badges.join('')}</div>` : ''}
       </div>
       <div class="card-body">
         <h3 class="card-name">${escapeHtml(item.name)}</h3>

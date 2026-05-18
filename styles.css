@@ -339,9 +339,17 @@ main {
   opacity: 0.4;
 }
 
-.badge {
+.badge-stack {
   position: absolute;
-  top: 10px;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  pointer-events: none;
+}
+.badge {
   font-family: var(--display);
   font-size: 0.7rem;
   letter-spacing: 0.12em;
@@ -349,37 +357,31 @@ main {
   border-radius: 999px;
   text-transform: uppercase;
   box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  white-space: nowrap;
 }
 .badge-retired {
-  right: 10px;
   background: linear-gradient(135deg, var(--retired), #b88940);
   color: #2a1500;
 }
 .badge-oos {
-  left: 10px;
   background: rgba(20, 8, 32, 0.85);
   color: var(--rose-hi);
   border: 1px solid var(--rose);
   text-shadow: 0 0 6px rgba(255, 95, 168, 0.5);
 }
 .badge-soon {
-  left: 10px;
   background: rgba(20, 8, 32, 0.85);
   color: #74c0ff;
   border: 1px solid #4a7ab8;
   text-shadow: 0 0 6px rgba(116, 192, 255, 0.4);
 }
 .badge-fyc {
-  left: 10px;
   background: rgba(20, 8, 32, 0.85);
   color: #c4a3ff;
   border: 1px solid #8a6fc4;
   text-shadow: 0 0 6px rgba(196, 163, 255, 0.4);
 }
 .badge-mini {
-  top: auto;
-  bottom: 10px;
-  right: 10px;
   background: linear-gradient(135deg, #5a3a78, #3d2257);
   color: #f3e6ff;
   border: 1px solid rgba(255, 95, 168, 0.5);
