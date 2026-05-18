@@ -15,6 +15,16 @@ const state = {
   catalog: [],                // loaded from catalog.json
   pensOwned: new Map(),       // id → count (omitted = 0)
   blobUrls: new Map(),
+
+  // ─── Trade state ──────────────────────────────────────────────────
+  tradeSubTab: 'browse',      // 'browse' | 'trades' | 'items'
+  myTradeItems: [],
+  tradeBrowse: [],
+  trades: [],
+  myFeedback: { good_count: 0, meh_count: 0, bad_count: 0, net_score: 0, total_count: 0 },
+  partnerFeedback: new Map(), // userId → summary
+  offerDraft: null,           // { recipientId, recipientUsername, recipientItems, myItems, parentTradeId? }
+  feedbackDraft: null,        // { tradeId, rateeId, rateeUsername, rating, comment }
 };
 
 const PRODUCT_URL_BASE = 'https://plushiedreadfuls.com/products/';
@@ -163,7 +173,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=18', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=19', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = data.products || [];
@@ -392,14 +402,23 @@ function renderCard(item, kind) {
   if (kind === 'collection' && item.retired) badges.push(`<span class="badge badge-retired">Retired</span>`);
   if (kind === 'wishlist' && item.outOfStock) badges.push(`<span class="badge badge-oos">Out of Stock</span>`);
 
+  // Trade markers: show if this catalog item is already in trade_items
+  const tradeMark = tradeMarkerFor(item, kind);
+  if (tradeMark) badges.push(tradeMark);
+
+  const tradeBtn = kind === 'collection'
+    ? `<button data-action="offer-trade" data-id="${item.id}">↻ Offer for trade</button>`
+    : `<button data-action="seek-trade" data-id="${item.id}">↺ Seek in trade</button>`;
+
   const actions = kind === 'collection'
     ? `
+      ${tradeBtn}
       <button data-action="edit" data-id="${item.id}">Edit</button>
       <button class="btn-danger" data-action="delete" data-id="${item.id}">Delete</button>
     `
     : `
       <button class="btn-got" data-action="got" data-id="${item.id}">Got It! 🖤</button>
-      <button data-action="edit" data-id="${item.id}">Edit</button>
+      ${tradeBtn}
       ${item.url ? `<a class="btn-link" href="${escapeHtml(item.url)}" target="_blank" rel="noopener" title="Open product page">↗</a>` : ''}
       <button class="btn-danger" data-action="delete" data-id="${item.id}">Delete</button>
     `;
@@ -428,13 +447,14 @@ function render() {
   document.getElementById('wishlist-view').classList.toggle('hidden', tab !== 'wishlist');
   document.getElementById('catalog-view').classList.toggle('hidden', tab !== 'catalog');
   document.getElementById('pens-view').classList.toggle('hidden', tab !== 'pens');
+  document.getElementById('trade-view').classList.toggle('hidden', tab !== 'trade');
 
   document.getElementById('collection-filters').classList.toggle('hidden', tab !== 'collection');
   document.getElementById('wishlist-actions').classList.toggle('hidden', tab !== 'wishlist');
   document.getElementById('catalog-filters').classList.toggle('hidden', tab !== 'catalog');
 
-  // Search bar makes sense on item lists, not on the pen checklist.
-  document.getElementById('search').classList.toggle('hidden', tab === 'pens');
+  // Search bar makes sense on item lists, not on the checklist/trade tabs.
+  document.getElementById('search').classList.toggle('hidden', tab === 'pens' || tab === 'trade');
 
   document.querySelectorAll('.tab').forEach((t) =>
     t.classList.toggle('active', t.dataset.tab === tab)
@@ -462,13 +482,17 @@ function render() {
     document.getElementById('count-label').textContent = state.catalog.length === 0
       ? 'Loading catalog…'
       : `${items.length} of ${state.catalog.length} products`;
-  } else {
+  } else if (tab === 'pens') {
     renderPens();
     const unique = state.pensOwned.size;
     const total = [...state.pensOwned.values()].reduce((a, b) => a + b, 0);
     document.getElementById('count-label').textContent =
       `${unique} of ${PENS.length} unique · ${total} pen${total === 1 ? '' : 's'} total`;
+  } else {
+    renderTrade();
+    document.getElementById('count-label').textContent = tradeCountLabel();
   }
+  updateTradeBadge();
 }
 
 function renderPens() {
@@ -625,6 +649,12 @@ async function onCardClick(e) {
   } else if (action === 'cat-edit') {
     const owned = state.collection.find((x) => x.catalogId === cid);
     if (owned) openModal('collection', owned);
+  } else if (action === 'offer-trade') {
+    const item = state.collection.find((x) => x.id === id);
+    if (item) await markForTrade(item, 'offering');
+  } else if (action === 'seek-trade') {
+    const item = state.wishlist.find((x) => x.id === id);
+    if (item) await markForTrade(item, 'seeking');
   }
 }
 
@@ -653,6 +683,7 @@ async function addFromCatalog(catalogId, kind) {
     name: cleanCatalogName(cat.name),
     photo,
     catalogId: cat.id,
+    catalogHandle: cat.handle,
     addedAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -785,8 +816,9 @@ function toast(msg) {
 // ─── Event wiring ────────────────────────────────────────────────────
 function wireEvents() {
   document.querySelectorAll('.tab').forEach((t) => {
-    t.addEventListener('click', () => {
+    t.addEventListener('click', async () => {
       state.tab = t.dataset.tab;
+      if (state.tab === 'trade') await loadTradeData();  // refresh from server on enter
       render();
     });
   });
@@ -866,6 +898,39 @@ function wireEvents() {
   document.getElementById('wishlist-grid').addEventListener('click', onCardClick);
   document.getElementById('catalog-grid').addEventListener('click', onCardClick);
 
+  // Trade tab wiring
+  document.querySelectorAll('.subtab').forEach((s) => {
+    s.addEventListener('click', () => setTradeSubTab(s.dataset.subtab));
+  });
+  document.getElementById('trade-view').addEventListener('click', onTradeClick);
+
+  // Offer modal
+  document.querySelectorAll('[data-close-offer]').forEach((el) =>
+    el.addEventListener('click', closeOfferModal)
+  );
+  document.getElementById('offer-send').addEventListener('click', sendOffer);
+  document.getElementById('offer-builder').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-picker]');
+    if (!btn) return;
+    pickerAdjust(btn.dataset.picker, btn.dataset.id, parseInt(btn.dataset.delta, 10));
+  });
+
+  // Feedback modal
+  document.querySelectorAll('[data-close-feedback]').forEach((el) =>
+    el.addEventListener('click', closeFeedbackModal)
+  );
+  document.querySelectorAll('.feedback-choice').forEach((b) => {
+    b.addEventListener('click', () => {
+      if (!state.feedbackDraft) return;
+      state.feedbackDraft.rating = b.dataset.rating;
+      document.querySelectorAll('.feedback-choice').forEach((x) =>
+        x.classList.toggle('selected', x === b)
+      );
+      document.getElementById('feedback-submit').disabled = false;
+    });
+  });
+  document.getElementById('feedback-submit').addEventListener('click', submitFeedback);
+
   document.getElementById('user-badge').addEventListener('click', (e) => {
     e.stopPropagation();
     const menu = document.getElementById('user-menu');
@@ -897,6 +962,629 @@ function wireEvents() {
   });
 }
 
+// ─── Trade: data load + sub-tab switching ────────────────────────────
+async function loadTradeData() {
+  try {
+    state.myTradeItems = await data.listMyTradeItems();
+    state.tradeBrowse  = await data.browseOfferings();
+    state.trades       = await data.listTrades();
+    state.myFeedback   = await data.getFeedbackSummary(window.currentUser.id);
+
+    // Cache feedback summaries for partners that appear in the trade list.
+    const partnerIds = new Set();
+    for (const t of state.trades) {
+      const other = t.proposer_id === window.currentUser.id ? t.recipient_id : t.proposer_id;
+      partnerIds.add(other);
+    }
+    await Promise.all([...partnerIds].map(async (uid) => {
+      if (!state.partnerFeedback.has(uid)) {
+        state.partnerFeedback.set(uid, await data.getFeedbackSummary(uid));
+      }
+    }));
+  } catch (err) {
+    console.error('loadTradeData', err);
+    toast('Could not load trade data.');
+  }
+}
+
+function setTradeSubTab(name) {
+  state.tradeSubTab = name;
+  document.querySelectorAll('.subtab').forEach((s) =>
+    s.classList.toggle('active', s.dataset.subtab === name)
+  );
+  document.getElementById('subtab-browse').classList.toggle('hidden', name !== 'browse');
+  document.getElementById('subtab-trades').classList.toggle('hidden', name !== 'trades');
+  document.getElementById('subtab-items').classList.toggle('hidden', name !== 'items');
+  renderTrade();
+}
+
+// ─── Trade: marker badge & count label ────────────────────────────────
+function tradeMarkerFor(item, kind) {
+  if (!item.catalogId) return null;
+  const wantedKind = kind === 'collection' ? 'offering' : 'seeking';
+  const match = state.myTradeItems.find((t) => t.kind === wantedKind && t.catalogId === item.catalogId);
+  if (!match) return null;
+  if (wantedKind === 'offering') {
+    const avail = match.quantity - match.reserved;
+    return `<span class="badge badge-trade">Offering ${avail}</span>`;
+  }
+  return `<span class="badge badge-trade">Seeking</span>`;
+}
+
+function pendingForMeCount() {
+  const uid = window.currentUser.id;
+  return state.trades.filter((t) =>
+    t.status === 'pending' && t.recipient_id === uid && !tradeIsExpired(t)
+  ).length;
+}
+
+function activeTradeCount() {
+  const uid = window.currentUser.id;
+  return state.trades.filter((t) =>
+    t.status === 'accepted' && (t.proposer_id === uid || t.recipient_id === uid) && !tradeIsFinished(t)
+  ).length;
+}
+
+function updateTradeBadge() {
+  const n = pendingForMeCount() + activeTradeCount();
+  const b = document.getElementById('trade-badge');
+  if (n > 0) { b.textContent = n; b.classList.remove('hidden'); }
+  else       { b.classList.add('hidden'); }
+  const b2 = document.getElementById('subtab-trades-badge');
+  if (b2) {
+    if (n > 0) { b2.textContent = n; b2.classList.remove('hidden'); }
+    else       { b2.classList.add('hidden'); }
+  }
+}
+
+function tradeIsExpired(t) {
+  return t.status === 'pending' && t.expires_at && new Date(t.expires_at) < new Date();
+}
+function tradeIsFinished(t) {
+  return !!(t.proposer_received_at && t.recipient_received_at);
+}
+function tradeCountLabel() {
+  switch (state.tradeSubTab) {
+    case 'browse': return `${state.tradeBrowse.length} offering${state.tradeBrowse.length === 1 ? '' : 's'} from other collectors`;
+    case 'trades': {
+      const me = pendingForMeCount();
+      const active = activeTradeCount();
+      return `${me} awaiting your reply · ${active} active`;
+    }
+    case 'items': {
+      const off = state.myTradeItems.filter((x) => x.kind === 'offering').length;
+      const seek = state.myTradeItems.filter((x) => x.kind === 'seeking').length;
+      return `Offering ${off} · Seeking ${seek}`;
+    }
+  }
+  return '';
+}
+
+// ─── Trade: mark for trade from a Collection/Wishlist card ────────────
+async function markForTrade(item, kind) {
+  if (!item.catalogId) {
+    toast('Only catalog items can be traded.');
+    return;
+  }
+  const existing = state.myTradeItems.find((t) => t.kind === kind && t.catalogId === item.catalogId);
+  if (existing) {
+    if (kind === 'offering') {
+      const qty = prompt(`You're already offering ${existing.quantity}. New quantity?`, String(existing.quantity));
+      if (qty === null) return;
+      const n = Math.max(existing.reserved, parseInt(qty, 10) || 0);
+      if (n === 0) {
+        await data.deleteTradeItem(existing.id);
+        toast('Removed from offerings.');
+      } else {
+        await data.updateTradeItem(existing.id, { quantity: n });
+        toast('Updated offering.');
+      }
+    } else {
+      await data.deleteTradeItem(existing.id);
+      toast('Removed from seeking.');
+    }
+  } else {
+    let quantity = 1;
+    if (kind === 'offering') {
+      const q = prompt('How many do you have to trade away?', '1');
+      if (q === null) return;
+      quantity = Math.max(1, parseInt(q, 10) || 1);
+    }
+    await data.addTradeItem({
+      kind,
+      catalogId: item.catalogId,
+      catalogHandle: item.catalogHandle ?? null,
+      name: item.name,
+      photoPath: item.photoPath ?? null,
+      quantity,
+    });
+    toast(kind === 'offering' ? 'Listed for trade.' : 'Seeking listed.');
+  }
+  state.myTradeItems = await data.listMyTradeItems();
+  render();
+}
+
+// ─── Trade: render the tab ───────────────────────────────────────────
+function renderTrade() {
+  document.querySelectorAll('.subtab').forEach((s) =>
+    s.classList.toggle('active', s.dataset.subtab === state.tradeSubTab)
+  );
+  document.getElementById('subtab-browse').classList.toggle('hidden', state.tradeSubTab !== 'browse');
+  document.getElementById('subtab-trades').classList.toggle('hidden', state.tradeSubTab !== 'trades');
+  document.getElementById('subtab-items').classList.toggle('hidden', state.tradeSubTab !== 'items');
+
+  if (state.tradeSubTab === 'browse')   renderBrowse();
+  else if (state.tradeSubTab === 'trades') renderMyTrades();
+  else                                  renderMyTradeItems();
+}
+
+function renderBrowse() {
+  const list = state.tradeBrowse;
+  if (list.length === 0) {
+    document.getElementById('subtab-browse').innerHTML = `
+      <div class="empty"><div class="ghost">🕯</div>
+      <p>No active offerings from other collectors right now.</p></div>`;
+    return;
+  }
+  // Group by owner
+  const byOwner = new Map();
+  for (const it of list) {
+    if (!byOwner.has(it.ownerId)) byOwner.set(it.ownerId, { username: it.ownerUsername, items: [] });
+    byOwner.get(it.ownerId).items.push(it);
+  }
+  const groups = [...byOwner.entries()].map(([ownerId, g]) => `
+    <section class="trader-group">
+      <h2 class="trader-head">
+        <span>@${escapeHtml(g.username)}</span>
+        <button class="btn-link" data-action="propose-trade" data-uid="${ownerId}">Propose a trade →</button>
+      </h2>
+      <div class="grid grid-tight">
+        ${g.items.map((it) => renderOfferingCard(it)).join('')}
+      </div>
+    </section>
+  `).join('');
+  document.getElementById('subtab-browse').innerHTML = groups;
+}
+
+function renderOfferingCard(it) {
+  const photo = it.photo ? `<img src="${escapeHtml(it.photo)}" loading="lazy" />` : `<span class="no-photo">🖤</span>`;
+  return `
+    <article class="card card-small">
+      <div class="card-photo">${photo}</div>
+      <div class="card-body">
+        <h3 class="card-name">${escapeHtml(it.name)}</h3>
+        <div class="card-meta"><span>Available: ${it.available}</span></div>
+        ${it.notes ? `<p class="card-meaning">${escapeHtml(it.notes)}</p>` : ''}
+      </div>
+    </article>
+  `;
+}
+
+function renderMyTradeItems() {
+  const offering = state.myTradeItems.filter((t) => t.kind === 'offering');
+  const seeking  = state.myTradeItems.filter((t) => t.kind === 'seeking');
+  const renderSection = (title, items, kind) => `
+    <section class="my-items-section">
+      <h2 class="trader-head"><span>${title}</span></h2>
+      ${items.length === 0 ? `<p class="empty-note">Nothing here yet — tap "${kind === 'offering' ? 'Offer for trade' : 'Seek in trade'}" on a card to add.</p>` : ''}
+      <div class="grid grid-tight">
+        ${items.map((it) => {
+          const photo = it.photo ? `<img src="${escapeHtml(it.photo)}" loading="lazy" />` : `<span class="no-photo">🖤</span>`;
+          return `
+            <article class="card card-small">
+              <div class="card-photo">${photo}</div>
+              <div class="card-body">
+                <h3 class="card-name">${escapeHtml(it.name)}</h3>
+                <div class="card-meta">
+                  ${kind === 'offering' ? `<span>${it.available} available · ${it.reserved} reserved</span>` : ''}
+                </div>
+              </div>
+              <div class="card-actions">
+                ${kind === 'offering' ? `<button data-action="trade-item-adjust" data-id="${it.id}">Adjust</button>` : ''}
+                <button class="btn-danger" data-action="trade-item-remove" data-id="${it.id}">Remove</button>
+              </div>
+            </article>
+          `;
+        }).join('')}
+      </div>
+    </section>
+  `;
+  document.getElementById('subtab-items').innerHTML =
+    renderSection('Offering', offering, 'offering') +
+    renderSection('Seeking', seeking, 'seeking');
+}
+
+function renderMyTrades() {
+  const uid = window.currentUser.id;
+  const buckets = { pending: [], active: [], history: [] };
+  for (const t of state.trades) {
+    if (t.status === 'pending' && !tradeIsExpired(t))   buckets.pending.push(t);
+    else if (t.status === 'accepted' && !tradeIsFinished(t)) buckets.active.push(t);
+    else                                                 buckets.history.push(t);
+  }
+
+  const sec = (title, list) => list.length === 0
+    ? ''
+    : `<section class="trades-section"><h2 class="trader-head"><span>${title}</span></h2>${list.map((t) => renderTradeRow(t, uid)).join('')}</section>`;
+
+  let html = '';
+  html += sec('Pending', buckets.pending);
+  html += sec('Active', buckets.active);
+  html += sec('History', buckets.history.slice(0, 30));
+  if (!html) html = `<div class="empty"><div class="ghost">📜</div><p>No trades yet. Browse offerings to start one.</p></div>`;
+  document.getElementById('subtab-trades').innerHTML = html;
+}
+
+function renderTradeRow(t, uid) {
+  const isMine = t.proposer_id === uid;
+  const otherName = isMine ? t.recipient?.username : t.proposer?.username;
+  const lines = t.trade_line_items || [];
+  const myLines    = lines.filter((l) => (l.side === 'proposer') === isMine);
+  const theirLines = lines.filter((l) => (l.side === 'proposer') !== isMine);
+
+  const lineHtml = (ls) => ls.map((l) =>
+    `<li>${l.quantity}× ${escapeHtml(l.trade_item?.name ?? 'item')}</li>`
+  ).join('');
+
+  const statusText = (() => {
+    if (t.status === 'pending') {
+      const exp = new Date(t.expires_at);
+      const hoursLeft = Math.max(0, Math.round((exp - new Date()) / 3600000));
+      return `Pending · expires in ${hoursLeft}h`;
+    }
+    return capitalize(t.status);
+  })();
+
+  let actions = '';
+  if (t.status === 'pending') {
+    if (!isMine) {
+      actions = `
+        <button class="btn-primary" data-action="trade-accept" data-id="${t.id}">Accept</button>
+        <button data-action="trade-counter" data-id="${t.id}">Counter</button>
+        <button class="btn-danger" data-action="trade-reject" data-id="${t.id}">Reject</button>
+      `;
+    } else {
+      actions = `<button class="btn-danger" data-action="trade-cancel" data-id="${t.id}">Cancel</button>`;
+    }
+  } else if (t.status === 'accepted') {
+    actions = renderAcceptedTradeActions(t, isMine, uid);
+  } else if (t.status === 'completed') {
+    actions = renderCompletedTradeActions(t, isMine, uid);
+  }
+
+  return `
+    <article class="trade-card">
+      <header class="trade-head">
+        <div>
+          <span class="trade-with">${isMine ? 'You → ' : ''}@${escapeHtml(otherName || 'unknown')}${isMine ? '' : ' → You'}</span>
+          <span class="trade-status">${statusText}</span>
+        </div>
+      </header>
+      <div class="trade-lines">
+        <div><h4>You give:</h4><ul>${lineHtml(myLines) || '<li class="dim">(nothing)</li>'}</ul></div>
+        <div><h4>You get:</h4><ul>${lineHtml(theirLines) || '<li class="dim">(nothing)</li>'}</ul></div>
+      </div>
+      ${t.message ? `<p class="trade-message">“${escapeHtml(t.message)}”</p>` : ''}
+      ${t.status === 'accepted' ? renderShipFirstBanner(t, isMine) : ''}
+      ${actions ? `<div class="card-actions">${actions}</div>` : ''}
+    </article>
+  `;
+}
+
+function renderShipFirstBanner(t, isMine) {
+  const otherId = isMine ? t.recipient_id : t.proposer_id;
+  const mine = state.myFeedback || { net_score: 0 };
+  const theirs = state.partnerFeedback.get(otherId) || { net_score: 0 };
+  const result = data.whoShipsFirst(mine.net_score, theirs.net_score);
+  let text;
+  if (result === 'simultaneous') {
+    text = `Ship simultaneously (your net ${mine.net_score} · theirs ${theirs.net_score}).`;
+  } else if (result === 'me') {
+    text = `You ship first — your net is ${mine.net_score} (vs theirs ${theirs.net_score}) and you've got under 20 trades.`;
+  } else {
+    text = `They ship first — their net is ${theirs.net_score} (vs yours ${mine.net_score}) and they've got under 20 trades.`;
+  }
+  return `<div class="ship-first-banner">${text}</div>`;
+}
+
+function renderAcceptedTradeActions(t, isMine, uid) {
+  const mySide = isMine ? 'proposer' : 'recipient';
+  const myShippedAt = isMine ? t.proposer_shipped_at : t.recipient_shipped_at;
+  // "received" tracks what you received from THEM
+  const myReceivedAt = isMine ? t.proposer_received_at : t.recipient_received_at;
+  const otherShippedAt = isMine ? t.recipient_shipped_at : t.proposer_shipped_at;
+
+  const parts = [];
+  parts.push(`<button data-action="trade-address" data-id="${t.id}">Address</button>`);
+  if (!myShippedAt) {
+    parts.push(`<button class="btn-primary" data-action="trade-shipped" data-id="${t.id}" data-side="${mySide}">I shipped mine</button>`);
+  } else {
+    parts.push(`<span class="dim">You shipped ${shortDate(myShippedAt)}</span>`);
+  }
+  if (otherShippedAt && !myReceivedAt) {
+    parts.push(`<button class="btn-primary" data-action="trade-received" data-id="${t.id}" data-side="${mySide}">I received theirs</button>`);
+  } else if (myReceivedAt) {
+    parts.push(`<span class="dim">You received ${shortDate(myReceivedAt)}</span>`);
+  }
+  parts.push(`<button class="btn-danger" data-action="trade-fall-through" data-id="${t.id}">Fell through</button>`);
+  return parts.join(' ');
+}
+
+function renderCompletedTradeActions(t, isMine, uid) {
+  // Feedback availability: did we already submit?
+  const myFb = (t._myFeedback);  // we'd need to look it up; for now just show button
+  return `<button data-action="trade-feedback" data-id="${t.id}">Leave feedback</button>`;
+}
+
+// ─── Trade: card-action dispatchers ──────────────────────────────────
+async function onTradeClick(e) {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const { action, id, uid } = btn.dataset;
+  if (action === 'propose-trade')         await openOfferModal(uid);
+  else if (action === 'trade-item-remove') await removeMyTradeItem(id);
+  else if (action === 'trade-item-adjust') await adjustMyTradeItem(id);
+  else if (action === 'trade-accept')      await respondToTrade(id, 'accept');
+  else if (action === 'trade-reject')      await respondToTrade(id, 'reject');
+  else if (action === 'trade-counter')     await openCounterModal(id);
+  else if (action === 'trade-cancel')      await respondToTrade(id, 'cancel');
+  else if (action === 'trade-fall-through') await respondToTrade(id, 'cancel');
+  else if (action === 'trade-shipped')     await tradeShipped(id, btn.dataset.side);
+  else if (action === 'trade-received')    await tradeReceived(id, btn.dataset.side);
+  else if (action === 'trade-address')     await promptAddress(id);
+  else if (action === 'trade-feedback')    await openFeedbackModal(id);
+}
+
+async function removeMyTradeItem(id) {
+  const it = state.myTradeItems.find((x) => x.id === id);
+  if (!it) return;
+  if (it.reserved > 0) { toast('Cannot remove: reserved in an active trade.'); return; }
+  if (!confirm('Remove this from your trade list?')) return;
+  await data.deleteTradeItem(id);
+  state.myTradeItems = await data.listMyTradeItems();
+  render();
+}
+
+async function adjustMyTradeItem(id) {
+  const it = state.myTradeItems.find((x) => x.id === id);
+  if (!it) return;
+  const q = prompt(`New quantity (minimum ${it.reserved} due to active trades):`, String(it.quantity));
+  if (q === null) return;
+  const n = Math.max(it.reserved, parseInt(q, 10) || 0);
+  if (n === 0) await data.deleteTradeItem(id);
+  else await data.updateTradeItem(id, { quantity: n });
+  state.myTradeItems = await data.listMyTradeItems();
+  render();
+}
+
+async function respondToTrade(id, action) {
+  const t = state.trades.find((x) => x.id === id);
+  if (!t) return;
+  try {
+    if (action === 'accept')         await data.acceptTrade(id);
+    else if (action === 'reject')    await data.rejectTrade(id);
+    else if (action === 'cancel')    await data.cancelTrade(id, t.status === 'pending' ? 'cancelled' : 'cancelled');
+  } catch (err) {
+    console.error(err);
+    if (err.message === 'item_unavailable') {
+      toast('One of those items is no longer available.');
+    } else {
+      toast('Couldn’t complete that action.');
+    }
+    return;
+  }
+  toast(action === 'accept' ? 'Trade accepted.' : action === 'reject' ? 'Trade rejected.' : 'Trade cancelled.');
+  await loadTradeData();
+  render();
+}
+
+async function tradeShipped(id, side) {
+  await data.markShipped(id, side);
+  await loadTradeData();
+  render();
+  toast('Marked as shipped.');
+}
+
+async function tradeReceived(id, side) {
+  await data.markReceived(id, side);
+  await loadTradeData();
+  render();
+  // If it just completed, open feedback
+  const t = state.trades.find((x) => x.id === id);
+  if (t && t.status === 'completed') await openFeedbackModal(id);
+}
+
+async function promptAddress(tradeId) {
+  const t = state.trades.find((x) => x.id === tradeId);
+  if (!t) return;
+  const addrs = await data.getAddresses(tradeId);
+  const mine = addrs.find((a) => a.user_id === window.currentUser.id);
+  const other = addrs.find((a) => a.user_id !== window.currentUser.id);
+
+  let msg = 'Your shipping address (the other side sees it only when they\'ve also entered theirs):';
+  if (other) msg += `\n\nTheir address:\n${other.address}`;
+  else       msg += `\n\nWaiting for them to enter their address.`;
+
+  const input = prompt(msg, mine?.address || '');
+  if (input === null) return;
+  const trimmed = input.trim();
+  if (!trimmed) return;
+  await data.setAddress(tradeId, trimmed);
+  toast('Address saved.');
+  // If both addresses are now set, re-prompt with the other's address visible
+  const after = await data.getAddresses(tradeId);
+  const o2 = after.find((a) => a.user_id !== window.currentUser.id);
+  if (o2) alert(`Their shipping address:\n\n${o2.address}`);
+}
+
+// ─── Trade: offer builder modal ──────────────────────────────────────
+async function openOfferModal(recipientId, parentTradeId) {
+  const recipientItems = state.tradeBrowse.filter((it) => it.ownerId === recipientId);
+  const recipientUsername = recipientItems[0]?.ownerUsername ?? '?';
+
+  state.offerDraft = {
+    recipientId,
+    recipientUsername,
+    recipientItems,
+    myItems: state.myTradeItems.filter((t) => t.kind === 'offering'),
+    proposerPicks: new Map(),    // tradeItemId → qty (my offerings)
+    recipientPicks: new Map(),   // tradeItemId → qty (their offerings)
+    parentTradeId,
+  };
+
+  document.getElementById('offer-title').textContent = parentTradeId ? 'Counter offer' : 'Propose a trade';
+  document.getElementById('offer-sub').textContent = `with @${recipientUsername}`;
+  document.getElementById('offer-message').value = '';
+  renderOfferBuilder();
+  document.getElementById('offer-modal').classList.remove('hidden');
+}
+
+function renderOfferBuilder() {
+  const d = state.offerDraft;
+  const lineRows = (items, picksMap, who) => items.length === 0
+    ? `<p class="dim">${who === 'them' ? '@' + d.recipientUsername + ' isn\'t offering anything right now.' : 'You have nothing listed for trade yet. Add something from your Collection.'}</p>`
+    : items.map((it) => {
+        const avail = (it.quantity ?? 0) - (it.reserved ?? 0);
+        const cur = picksMap.get(it.id) || 0;
+        return `
+          <div class="picker-row">
+            <div class="picker-name">${escapeHtml(it.name)} <span class="dim">(${avail} avail)</span></div>
+            <div class="picker-controls">
+              <button class="pen-btn" data-picker="${who}" data-id="${it.id}" data-delta="-1">−</button>
+              <span class="picker-count">${cur}</span>
+              <button class="pen-btn" data-picker="${who}" data-id="${it.id}" data-delta="1">+</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+  document.getElementById('offer-builder').innerHTML = `
+    <div class="picker-panel">
+      <h3>They give:</h3>
+      ${lineRows(d.recipientItems, d.recipientPicks, 'them')}
+    </div>
+    <div class="picker-panel">
+      <h3>You give:</h3>
+      ${lineRows(d.myItems, d.proposerPicks, 'me')}
+    </div>
+  `;
+}
+
+function pickerAdjust(who, id, delta) {
+  const d = state.offerDraft;
+  const map = who === 'me' ? d.proposerPicks : d.recipientPicks;
+  const pool = who === 'me' ? d.myItems : d.recipientItems;
+  const it = pool.find((x) => x.id === id);
+  if (!it) return;
+  const max = (it.quantity ?? 0) - (it.reserved ?? 0);
+  const cur = map.get(id) || 0;
+  const next = Math.max(0, Math.min(max, cur + delta));
+  if (next === 0) map.delete(id); else map.set(id, next);
+  renderOfferBuilder();
+}
+
+async function sendOffer() {
+  const d = state.offerDraft;
+  if (!d) return;
+  const proposerLines = [...d.proposerPicks.entries()].map(([tradeItemId, quantity]) => ({ tradeItemId, quantity }));
+  const recipientLines = [...d.recipientPicks.entries()].map(([tradeItemId, quantity]) => ({ tradeItemId, quantity }));
+  if (proposerLines.length === 0 && recipientLines.length === 0) {
+    toast('Pick at least one item on each side.');
+    return;
+  }
+  if (proposerLines.length === 0 || recipientLines.length === 0) {
+    if (!confirm('This trade has nothing on one side. Send anyway?')) return;
+  }
+  try {
+    if (d.parentTradeId) await data.markCountered(d.parentTradeId);
+    await data.createTrade({
+      recipientId: d.recipientId,
+      proposerLines,
+      recipientLines,
+      message: document.getElementById('offer-message').value.trim() || null,
+      parentTradeId: d.parentTradeId,
+    });
+    toast('Offer sent.');
+    closeOfferModal();
+    await loadTradeData();
+    render();
+  } catch (err) {
+    console.error(err);
+    toast('Could not send offer.');
+  }
+}
+
+function closeOfferModal() {
+  document.getElementById('offer-modal').classList.add('hidden');
+  state.offerDraft = null;
+}
+
+async function openCounterModal(tradeId) {
+  const t = state.trades.find((x) => x.id === tradeId);
+  if (!t) return;
+  const uid = window.currentUser.id;
+  const otherId = t.proposer_id === uid ? t.recipient_id : t.proposer_id;
+  // Open builder pre-filled with inverse picks
+  await openOfferModal(otherId, tradeId);
+  const d = state.offerDraft;
+  for (const li of (t.trade_line_items || [])) {
+    // If they were giving (their side), it goes into "they give" again; if I was giving, into "I give".
+    const fromMe = (li.side === 'proposer') === (t.proposer_id === uid);
+    const map = fromMe ? d.proposerPicks : d.recipientPicks;
+    if (li.trade_item?.id) map.set(li.trade_item.id, (map.get(li.trade_item.id) || 0) + li.quantity);
+  }
+  renderOfferBuilder();
+}
+
+// ─── Trade: feedback modal ───────────────────────────────────────────
+async function openFeedbackModal(tradeId) {
+  const t = state.trades.find((x) => x.id === tradeId);
+  if (!t) return;
+  const uid = window.currentUser.id;
+  const rateeId = t.proposer_id === uid ? t.recipient_id : t.proposer_id;
+  const rateeName = t.proposer_id === uid ? t.recipient?.username : t.proposer?.username;
+
+  // Already left feedback?
+  const existing = await data.getFeedbackForTrade(tradeId);
+  if (existing.some((f) => f.rater_id === uid)) {
+    toast('You already left feedback for this trade.');
+    return;
+  }
+
+  state.feedbackDraft = { tradeId, rateeId, rateeUsername: rateeName, rating: null, comment: '' };
+  document.getElementById('feedback-sub').textContent = `@${rateeName || 'partner'}`;
+  document.getElementById('feedback-comment').value = '';
+  document.querySelectorAll('.feedback-choice').forEach((b) => b.classList.remove('selected'));
+  document.getElementById('feedback-submit').disabled = true;
+  document.getElementById('feedback-modal').classList.remove('hidden');
+}
+
+function closeFeedbackModal() {
+  document.getElementById('feedback-modal').classList.add('hidden');
+  state.feedbackDraft = null;
+}
+
+async function submitFeedback() {
+  const d = state.feedbackDraft;
+  if (!d || !d.rating) return;
+  try {
+    await data.leaveFeedback(d.tradeId, d.rateeId, d.rating, document.getElementById('feedback-comment').value.trim() || null);
+    toast('Feedback recorded.');
+    closeFeedbackModal();
+    await loadTradeData();
+    render();
+  } catch (err) {
+    console.error(err);
+    toast('Could not save feedback.');
+  }
+}
+
+function shortDate(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString();
+}
+function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s; }
+
 // ─── Service worker ──────────────────────────────────────────────────
 function registerSW() {
   if (!('serviceWorker' in navigator)) return;
@@ -912,6 +1600,7 @@ async function boot() {
   await data.migrateFromIDB();    // one-time IDB → Supabase upload per account
   await loadAll();
   state.pensOwned = await data.listPens();
+  await loadTradeData();
   render();
   updateNotifyButton();
   registerSW();

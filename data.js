@@ -222,18 +222,22 @@ const data = {
 
     toast(`Uploading your local data…`);
 
-    async function prepPhoto(item) {
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    async function prepItem(item) {
+      // Postgres uuid column won't accept anything else.
+      if (!item.id || !UUID_RE.test(item.id)) item.id = crypto.randomUUID();
       if (item.photo instanceof Blob) return; // data.put handles it
       if (typeof item.photo === 'string' && item.photo.startsWith('http')) {
         try {
           const resp = await fetch(item.photo, { mode: 'cors' });
           if (resp.ok) item.photo = await resp.blob();
-        } catch { /* leave URL string; data.put will store it as-is */ }
+        } catch { /* leave URL string; data.put stores it as-is */ }
       }
     }
 
-    for (const it of localCol) { await prepPhoto(it); await data.put('collection', it); }
-    for (const it of localWish) { await prepPhoto(it); await data.put('wishlist', it); }
+    for (const it of localCol)  { await prepItem(it); try { await data.put('collection', it); } catch (e) { console.warn('migrate col', e); } }
+    for (const it of localWish) { await prepItem(it); try { await data.put('wishlist', it);   } catch (e) { console.warn('migrate wish', e); } }
 
     if (Array.isArray(penMeta)) {
       const entries = penMeta.map((e) => Array.isArray(e) ? e : [e, 1]);
@@ -246,6 +250,319 @@ const data = {
     toast('Sync complete.');
     return true;
   },
+};
+
+// ─── Trade items ───────────────────────────────────────────────────
+data.listMyTradeItems = async function () {
+  const { data: rows, error } = await sb
+    .from('trade_items')
+    .select('*')
+    .eq('owner_id', window.currentUser.id)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  const items = rows.map(data._tradeItemFromRow);
+  await Promise.all(items.map(async (it) => {
+    if (it.photoPath) it.photo = await data.photoUrl(it.photoPath);
+  }));
+  return items;
+};
+
+data.addTradeItem = async function ({ kind, catalogId, catalogHandle, name, photoPath, quantity, notes }) {
+  const { data: row, error } = await sb.from('trade_items').insert({
+    owner_id: window.currentUser.id,
+    kind, catalog_id: catalogId, catalog_handle: catalogHandle,
+    name, photo_path: photoPath ?? null,
+    quantity, notes: notes ?? null,
+  }).select().single();
+  if (error) throw error;
+  return data._tradeItemFromRow(row);
+};
+
+data.updateTradeItem = async function (id, patch) {
+  const row = {};
+  if ('quantity' in patch) row.quantity = patch.quantity;
+  if ('notes' in patch) row.notes = patch.notes;
+  row.updated_at = new Date().toISOString();
+  const { error } = await sb.from('trade_items').update(row).eq('id', id);
+  if (error) throw error;
+};
+
+data.deleteTradeItem = async function (id) {
+  const { error } = await sb.from('trade_items').delete().eq('id', id);
+  if (error) throw error;
+};
+
+// ─── Discovery ─────────────────────────────────────────────────────
+data.browseOfferings = async function () {
+  // All offerings except the current user's, where at least one unit is unreserved.
+  const { data: rows, error } = await sb
+    .from('trade_items')
+    .select('id, owner_id, name, catalog_id, catalog_handle, photo_path, quantity, reserved, notes, created_at, kind')
+    .eq('kind', 'offering')
+    .neq('owner_id', window.currentUser.id)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  const available = rows.filter((r) => (r.quantity - r.reserved) > 0);
+  // Resolve usernames separately — there's no FK from trade_items.owner_id to profiles.id.
+  const ownerIds = [...new Set(available.map((r) => r.owner_id))];
+  let usernames = new Map();
+  if (ownerIds.length) {
+    const { data: profs } = await sb.from('profiles').select('id, username').in('id', ownerIds);
+    usernames = new Map((profs || []).map((p) => [p.id, p.username]));
+  }
+  const items = available.map((r) => ({
+    ...data._tradeItemFromRow(r),
+    ownerUsername: usernames.get(r.owner_id) ?? 'unknown',
+  }));
+  await Promise.all(items.map(async (it) => {
+    if (it.photoPath) it.photo = await data.photoUrl(it.photoPath);
+  }));
+  return items;
+};
+
+data.getFeedbackSummary = async function (userId) {
+  const { data: row, error } = await sb
+    .from('user_feedback_summary')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error) throw error;
+  return row || { user_id: userId, good_count: 0, meh_count: 0, bad_count: 0, net_score: 0, total_count: 0 };
+};
+
+// ─── Trades ────────────────────────────────────────────────────────
+data.listTrades = async function () {
+  const uid = window.currentUser.id;
+  const { data: rows, error } = await sb
+    .from('trades')
+    .select(`
+      *,
+      trade_line_items (
+        side, quantity,
+        trade_item:trade_items (id, name, photo_path, catalog_id, owner_id)
+      )
+    `)
+    .or(`proposer_id.eq.${uid},recipient_id.eq.${uid}`)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+
+  // Resolve usernames separately (no FK between trades and profiles).
+  const userIds = new Set();
+  for (const t of rows) { userIds.add(t.proposer_id); userIds.add(t.recipient_id); }
+  let byId = new Map();
+  if (userIds.size) {
+    const { data: profs } = await sb.from('profiles').select('id, username').in('id', [...userIds]);
+    byId = new Map((profs || []).map((p) => [p.id, p]));
+  }
+  for (const t of rows) {
+    t.proposer  = byId.get(t.proposer_id);
+    t.recipient = byId.get(t.recipient_id);
+  }
+
+  // Warm photo cache for line items
+  const photos = new Set();
+  for (const t of rows) {
+    for (const li of (t.trade_line_items || [])) {
+      if (li.trade_item?.photo_path) photos.add(li.trade_item.photo_path);
+    }
+  }
+  await Promise.all([...photos].map((p) => data.photoUrl(p)));
+  return rows;
+};
+
+data.createTrade = async function ({ recipientId, proposerLines, recipientLines, message, parentTradeId }) {
+  const insert = {
+    proposer_id: window.currentUser.id,
+    recipient_id: recipientId,
+    message: message ?? null,
+  };
+  if (parentTradeId) insert.parent_trade_id = parentTradeId;
+  const { data: t, error } = await sb.from('trades').insert(insert).select().single();
+  if (error) throw error;
+
+  const lines = [
+    ...proposerLines.map((l) => ({ trade_id: t.id, side: 'proposer', trade_item_id: l.tradeItemId, quantity: l.quantity })),
+    ...recipientLines.map((l) => ({ trade_id: t.id, side: 'recipient', trade_item_id: l.tradeItemId, quantity: l.quantity })),
+  ];
+  const { error: lineErr } = await sb.from('trade_line_items').insert(lines);
+  if (lineErr) {
+    // Roll back the parent on line-insert failure so we don't leave a dangling pending trade.
+    await sb.from('trades').delete().eq('id', t.id);
+    throw lineErr;
+  }
+  return t;
+};
+
+// Accept a trade — also marks the parent as 'countered' if this is a counter response,
+// and reserves quantities on each line item. Done client-side without a transaction;
+// the reserved check constraint catches over-reservation.
+data.acceptTrade = async function (tradeId) {
+  const { data: lines, error: lineErr } = await sb
+    .from('trade_line_items')
+    .select('trade_item_id, quantity')
+    .eq('trade_id', tradeId);
+  if (lineErr) throw lineErr;
+
+  // Try to reserve each unique item by reading its current values and updating.
+  // If two acceptors race and over-reserve, the check constraint trips.
+  const byItem = new Map();
+  for (const l of lines) byItem.set(l.trade_item_id, (byItem.get(l.trade_item_id) || 0) + l.quantity);
+
+  for (const [itemId, qty] of byItem) {
+    const { data: cur, error } = await sb
+      .from('trade_items')
+      .select('quantity, reserved')
+      .eq('id', itemId)
+      .single();
+    if (error) throw error;
+    const newReserved = cur.reserved + qty;
+    if (newReserved > cur.quantity) throw new Error('item_unavailable');
+    const { error: upErr } = await sb
+      .from('trade_items')
+      .update({ reserved: newReserved })
+      .eq('id', itemId);
+    if (upErr) throw upErr;
+  }
+
+  const { error: stErr } = await sb
+    .from('trades')
+    .update({ status: 'accepted', responded_at: new Date().toISOString() })
+    .eq('id', tradeId);
+  if (stErr) throw stErr;
+};
+
+data.rejectTrade = async function (tradeId) {
+  const { error } = await sb
+    .from('trades')
+    .update({ status: 'rejected', responded_at: new Date().toISOString() })
+    .eq('id', tradeId);
+  if (error) throw error;
+};
+
+data.markCountered = async function (tradeId) {
+  const { error } = await sb
+    .from('trades')
+    .update({ status: 'countered', responded_at: new Date().toISOString() })
+    .eq('id', tradeId);
+  if (error) throw error;
+};
+
+// Free reservations from a trade that didn't complete (rejected after accept, etc.)
+data._releaseReservations = async function (tradeId) {
+  const { data: lines } = await sb.from('trade_line_items').select('trade_item_id, quantity').eq('trade_id', tradeId);
+  const byItem = new Map();
+  for (const l of (lines || [])) byItem.set(l.trade_item_id, (byItem.get(l.trade_item_id) || 0) + l.quantity);
+  for (const [itemId, qty] of byItem) {
+    const { data: cur } = await sb.from('trade_items').select('quantity, reserved').eq('id', itemId).single();
+    if (!cur) continue;
+    const newReserved = Math.max(0, cur.reserved - qty);
+    await sb.from('trade_items').update({ reserved: newReserved }).eq('id', itemId);
+  }
+};
+
+data.cancelTrade = async function (tradeId, status = 'cancelled') {
+  await data._releaseReservations(tradeId);
+  const { error } = await sb.from('trades').update({ status }).eq('id', tradeId);
+  if (error) throw error;
+};
+
+data.markShipped = async function (tradeId, side) {
+  const col = side === 'proposer' ? 'proposer_shipped_at' : 'recipient_shipped_at';
+  const { error } = await sb.from('trades').update({ [col]: new Date().toISOString() }).eq('id', tradeId);
+  if (error) throw error;
+};
+
+data.markReceived = async function (tradeId, side) {
+  // side here is which side RECEIVED. We need the column for the receiver.
+  const col = side === 'proposer' ? 'proposer_received_at' : 'recipient_received_at';
+  const { error } = await sb.from('trades').update({ [col]: new Date().toISOString() }).eq('id', tradeId);
+  if (error) throw error;
+
+  // If both received, mark complete and clear reservations + consume offered qty.
+  const { data: t } = await sb.from('trades').select('*').eq('id', tradeId).single();
+  if (t.proposer_received_at && t.recipient_received_at && t.status === 'accepted') {
+    const { data: lines } = await sb.from('trade_line_items').select('trade_item_id, quantity').eq('trade_id', tradeId);
+    const byItem = new Map();
+    for (const l of (lines || [])) byItem.set(l.trade_item_id, (byItem.get(l.trade_item_id) || 0) + l.quantity);
+    for (const [itemId, qty] of byItem) {
+      const { data: cur } = await sb.from('trade_items').select('quantity, reserved').eq('id', itemId).single();
+      if (!cur) continue;
+      // Burn the qty from both quantity and reserved.
+      const newQty = Math.max(0, cur.quantity - qty);
+      const newRes = Math.max(0, cur.reserved - qty);
+      if (newQty === 0) {
+        await sb.from('trade_items').delete().eq('id', itemId);
+      } else {
+        await sb.from('trade_items').update({ quantity: newQty, reserved: newRes }).eq('id', itemId);
+      }
+    }
+    await sb.from('trades').update({ status: 'completed' }).eq('id', tradeId);
+  }
+};
+
+data.setAddress = async function (tradeId, address) {
+  const { error } = await sb.from('trade_addresses').upsert({
+    trade_id: tradeId,
+    user_id: window.currentUser.id,
+    address,
+  });
+  if (error) throw error;
+};
+
+data.getAddresses = async function (tradeId) {
+  const { data: rows, error } = await sb
+    .from('trade_addresses')
+    .select('*')
+    .eq('trade_id', tradeId);
+  if (error) throw error;
+  return rows;
+};
+
+data.leaveFeedback = async function (tradeId, rateeId, rating, comment) {
+  const { error } = await sb.from('trade_feedback').insert({
+    trade_id: tradeId,
+    rater_id: window.currentUser.id,
+    ratee_id: rateeId,
+    rating,
+    comment: comment ?? null,
+  });
+  if (error) throw error;
+};
+
+data.getFeedbackForTrade = async function (tradeId) {
+  const { data: rows, error } = await sb
+    .from('trade_feedback')
+    .select('*')
+    .eq('trade_id', tradeId);
+  if (error) throw error;
+  return rows;
+};
+
+data._tradeItemFromRow = function (r) {
+  return {
+    id: r.id,
+    ownerId: r.owner_id,
+    kind: r.kind,
+    name: r.name,
+    catalogId: r.catalog_id,
+    catalogHandle: r.catalog_handle,
+    photoPath: r.photo_path || null,
+    photo: null,
+    quantity: r.quantity,
+    reserved: r.reserved,
+    available: r.quantity - r.reserved,
+    notes: r.notes,
+    createdAt: r.created_at ? +new Date(r.created_at) : Date.now(),
+  };
+};
+
+// Ship-first rule: net score gap ≥ 3 AND lower side < 20 → lower ships first.
+data.whoShipsFirst = function (myNet, theirNet) {
+  const gap = Math.abs(myNet - theirNet);
+  if (gap < 3) return 'simultaneous';
+  const lower = Math.min(myNet, theirNet);
+  if (lower >= 20) return 'simultaneous';
+  return myNet < theirNet ? 'me' : 'them';
 };
 
 window.data = data;

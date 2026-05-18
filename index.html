@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=18" />
+  <link rel="stylesheet" href="./styles.css?v=19" />
 </head>
 <body>
   <header>
@@ -60,6 +60,7 @@
       <button class="tab" data-tab="collection">My Collection</button>
       <button class="tab" data-tab="wishlist">Wish List</button>
       <button class="tab" data-tab="pens">Pens</button>
+      <button class="tab" data-tab="trade">Trade <span id="trade-badge" class="tab-badge hidden">0</span></button>
     </nav>
   </header>
 
@@ -149,6 +150,17 @@
       <div id="pens-progress" class="pens-progress"></div>
       <div id="pens-list" class="pens-list"></div>
     </section>
+
+    <section id="trade-view" class="view hidden">
+      <nav class="subtabs">
+        <button class="subtab active" data-subtab="browse">Browse</button>
+        <button class="subtab" data-subtab="trades">My Trades <span id="subtab-trades-badge" class="tab-badge hidden">0</span></button>
+        <button class="subtab" data-subtab="items">My Items</button>
+      </nav>
+      <div id="subtab-browse"  class="subview"></div>
+      <div id="subtab-trades"  class="subview hidden"></div>
+      <div id="subtab-items"   class="subview hidden"></div>
+    </section>
   </main>
 
   <!-- Add / Edit modal -->
@@ -203,6 +215,48 @@
 
   <div id="toast" class="toast hidden"></div>
 
+  <!-- Trade offer builder -->
+  <div id="offer-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-offer></div>
+    <div class="modal-card modal-card-wide">
+      <button class="modal-close" data-close-offer aria-label="Close">×</button>
+      <h2 id="offer-title">Propose a trade</h2>
+      <p id="offer-sub" class="modal-name"></p>
+      <div id="offer-builder"></div>
+      <label class="field">
+        <span>Message (optional)</span>
+        <textarea id="offer-message" rows="2" maxlength="500" placeholder="A note to send with your offer…"></textarea>
+      </label>
+      <div class="form-actions">
+        <button type="button" class="btn-ghost" data-close-offer>Cancel</button>
+        <button type="button" class="btn-primary" id="offer-send">Send Offer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Feedback prompt -->
+  <div id="feedback-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-feedback></div>
+    <div class="modal-card">
+      <button class="modal-close" data-close-feedback aria-label="Close">×</button>
+      <h2>How was the trade?</h2>
+      <p id="feedback-sub" class="modal-name"></p>
+      <div class="feedback-buttons">
+        <button class="feedback-choice" data-rating="good">🖤 Good</button>
+        <button class="feedback-choice" data-rating="meh">😐 Meh</button>
+        <button class="feedback-choice" data-rating="bad">⚠ Bad</button>
+      </div>
+      <label class="field">
+        <span>Note (optional)</span>
+        <textarea id="feedback-comment" rows="2" maxlength="280" placeholder="Anything you'd add…"></textarea>
+      </label>
+      <div class="form-actions">
+        <button type="button" class="btn-ghost" data-close-feedback>Skip for now</button>
+        <button type="button" class="btn-primary" id="feedback-submit" disabled>Submit</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Auth overlay: blocks the app until signed in + profile exists -->
   <div id="auth-overlay" class="auth-overlay hidden">
     <div class="auth-card">
@@ -254,10 +308,10 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="./config.js?v=18"></script>
-  <script src="./auth.js?v=18"></script>
-  <script src="./db.js?v=18"></script>
-  <script src="./data.js?v=18"></script>
-  <script src="./app.js?v=18"></script>
+  <script src="./config.js?v=19"></script>
+  <script src="./auth.js?v=19"></script>
+  <script src="./db.js?v=19"></script>
+  <script src="./data.js?v=19"></script>
+  <script src="./app.js?v=19"></script>
 </body>
 </html>
