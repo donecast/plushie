@@ -393,9 +393,10 @@ data.browseOfferings = async function () {
     ...data._tradeItemFromRow(r),
     ownerUsername: usernames.get(r.owner_id) ?? 'unknown',
   }));
-  await Promise.all(items.map(async (it) => {
-    if (it.photoPath) it.photo = await data.photoUrl(it.photoPath);
-  }));
+  // Don't try to resolve photoPath here — the storage bucket's RLS is
+  // collection-scoped, so other users' photos are unreadable and produce
+  // 400s in the console. The card renderer falls back to the catalog
+  // image (keyed by catalog_id) instead.
   return items;
 };
 

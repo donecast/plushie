@@ -157,21 +157,15 @@ function syncCatalogChips() {
 }
 
 // Catalog products that aren't plushies (or plushie-accessories) shouldn't show
-// up in a plushie tracker. Two filters: a type allowlist-by-exclusion, and a
-// name-based override for items where Shopify tagged a non-plushie as 'plush'.
+// up in a plushie tracker. Conservative — only excluding things that are clearly
+// not plushie-related and the obvious mis-tagged 'plush' items by name regex.
+// (Earlier broader exclusions dropped ~140 legitimate accessories.)
 const NON_PLUSHIE_TYPES = new Set([
   'pen',                                                  // handled by the Pens tab
-  'sticker', 'pin', 'patch', 'lanyard',
-  'home decoration',                                      // includes acrylic standees
   'mouse pad', 'notepad', 'ipad case', 'phone grip',
-  'shopping bag', 'gym bag', 'ita bag', 'crossbody bag', 'leather wallet',
-  'shirts', 'shirts & tops', 'sweater', 'hat', 'sleep mask', 'clothing',
-  'hair clip',
-  'jewelry', 'jewelry sets', 'necklace', 'necklaces', 'earring', 'bracelet', 'coin',
-  'gift card', 'makeup', 'game', 'skull', 'head tube',
-  'car accessory',
+  'gift card',
 ]);
-const NON_PLUSHIE_NAME = /\b(standee|acrylic|coin purse|trading card|enamel)\b/i;
+const NON_PLUSHIE_NAME = /\b(standee|acrylic|trading card|enamel)\b/i;
 
 function isPlushieCollectible(item) {
   const type = (item.type || '').toLowerCase();
@@ -278,7 +272,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=28', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=29', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -1050,7 +1044,15 @@ function wireEvents() {
   // updates the right state and re-syncs all chip active classes.
   document.getElementById('catalog-filters').addEventListener('click', (e) => {
     const chip = e.target.closest('.chip');
-    if (!chip) return;
+    if (!chip) {
+      console.log('[chips] click on filter row but no .chip in path', e.target);
+      return;
+    }
+    const which = chip.dataset.catFilter ? `filter:${chip.dataset.catFilter}`
+               : chip.dataset.catStatus  ? `status:${chip.dataset.catStatus}`
+               : chip.dataset.catToggle  ? `toggle:${chip.dataset.catToggle}`
+               : '?';
+    console.log('[chips] click', which);
 
     if (chip.dataset.catFilter) {
       state.catalogFilter = chip.dataset.catFilter;
@@ -1064,6 +1066,11 @@ function wireEvents() {
     } else {
       return;
     }
+    console.log('[chips] state', {
+      filter: state.catalogFilter,
+      statuses: [...state.catalogStatuses],
+      unowned: state.catalogUnowned, charm: state.catalogCharmOnly,
+    });
     syncCatalogChips();
     render();
   });
@@ -1378,8 +1385,15 @@ function renderBrowse() {
   document.getElementById('subtab-browse').innerHTML = groups;
 }
 
+function catalogImageFor(catalogId) {
+  if (!catalogId) return null;
+  const cat = state.catalog.find((c) => c.id === catalogId);
+  return cat?.image ? shopifyImageVariant(cat.image, 400) : null;
+}
+
 function renderOfferingCard(it) {
-  const photo = it.photo ? `<img src="${escapeHtml(it.photo)}" loading="lazy" />` : `<span class="no-photo">🖤</span>`;
+  const src = it.photo || catalogImageFor(it.catalogId);
+  const photo = src ? `<img src="${escapeHtml(src)}" loading="lazy" />` : `<span class="no-photo">🖤</span>`;
   return `
     <article class="card card-small">
       <div class="card-photo">${photo}</div>
@@ -1401,7 +1415,8 @@ function renderMyTradeItems() {
       ${items.length === 0 ? `<p class="empty-note">Nothing here yet — tap "${kind === 'offering' ? 'Offer for trade' : 'Seek in trade'}" on a card to add.</p>` : ''}
       <div class="grid grid-tight">
         ${items.map((it) => {
-          const photo = it.photo ? `<img src="${escapeHtml(it.photo)}" loading="lazy" />` : `<span class="no-photo">🖤</span>`;
+          const src = it.photo || catalogImageFor(it.catalogId);
+          const photo = src ? `<img src="${escapeHtml(src)}" loading="lazy" />` : `<span class="no-photo">🖤</span>`;
           return `
             <article class="card card-small">
               <div class="card-photo">${photo}</div>
