@@ -157,13 +157,13 @@ function revokeAllBlobUrls() {
 
 // ─── Data load ───────────────────────────────────────────────────────
 async function loadAll() {
-  state.collection = (await idb.getAll('collection')).sort(byNewest);
-  state.wishlist = (await idb.getAll('wishlist')).sort(byNewest);
+  state.collection = (await data.list('collection')).sort(byNewest);
+  state.wishlist = (await data.list('wishlist')).sort(byNewest);
 }
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=17', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=18', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = data.products || [];
@@ -519,7 +519,7 @@ async function adjustPen(id, delta) {
   const next = Math.max(0, Math.min(99, current + delta));
   if (next === 0) state.pensOwned.delete(id);
   else state.pensOwned.set(id, next);
-  await idb.setMeta('pens_owned', [...state.pensOwned.entries()]);
+  await data.setPen(id, state.pensOwned.get(id) || 0);
   render();
 }
 
@@ -562,11 +562,11 @@ async function submitForm(e) {
   };
   const kind = 'collection';
 
-  await idb.put(kind, record);
+  await data.put(kind, record);
   await loadAll();
   closeModal();
   render();
-  toast(existing ? 'Updated.' : 'Added.');
+  toast('Updated.');
   scheduleReminderCheck();
 }
 
@@ -582,7 +582,7 @@ async function onCardClick(e) {
   } else if (action === 'delete') {
     if (!confirm('Remove this plushie?')) return;
     const inCol = state.collection.some((x) => x.id === id);
-    await idb.delete(inCol ? 'collection' : 'wishlist', id);
+    await data.delete(inCol ? 'collection' : 'wishlist', id);
     await loadAll();
     render();
     toast('Removed.');
@@ -603,8 +603,10 @@ async function onCardClick(e) {
       updatedAt: Date.now(),
     };
     try {
-      await idb.put('collection', collected);
-      await idb.delete('wishlist', id);
+      // Reuse the wishlist photo path so we don't re-upload — it's already in storage.
+      collected.photoPath = item.photoPath || null;
+      await data.put('collection', collected);
+      await data.delete('wishlist', id);
       await loadAll();
       state.tab = 'collection';
       state.filter = 'all';
@@ -674,7 +676,7 @@ async function addFromCatalog(catalogId, kind) {
     };
   }
 
-  await idb.put(kind, record);
+  await data.put(kind, record);
   await loadAll();
   state.tab = kind;
   render();
@@ -768,93 +770,7 @@ async function maybeFireReminder() {
   }
 }
 
-// ─── Backup / Restore ────────────────────────────────────────────────
-function blobToDataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.onerror = () => reject(r.error);
-    r.readAsDataURL(blob);
-  });
-}
-
-async function dataUrlToBlob(dataUrl) {
-  const resp = await fetch(dataUrl);
-  return resp.blob();
-}
-
-async function exportBackup() {
-  const serialize = (items) => Promise.all(items.map(async (item) => {
-    const out = { ...item };
-    out.photo = item.photo instanceof Blob ? await blobToDataUrl(item.photo) : null;
-    return out;
-  }));
-
-  const data = {
-    app: 'plushie-dreadful',
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    collection: await serialize(state.collection),
-    wishlist: await serialize(state.wishlist),
-  };
-
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `plushie-dreadful-${new Date().toISOString().slice(0, 10)}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-  toast(`Backed up ${data.collection.length + data.wishlist.length} items.`);
-}
-
-async function importBackup(file) {
-  let data;
-  try {
-    data = JSON.parse(await file.text());
-  } catch {
-    toast('That file is not valid JSON.');
-    return;
-  }
-  if (!data || data.app !== 'plushie-dreadful' || !Array.isArray(data.collection) || !Array.isArray(data.wishlist)) {
-    toast("That doesn't look like a Dreadful backup.");
-    return;
-  }
-
-  const counts = `${data.collection.length} collection, ${data.wishlist.length} wishlist`;
-  const ok = confirm(
-    `Restore backup (${counts})?\n\n` +
-    `Items with matching IDs will be overwritten. Other existing items are kept.`
-  );
-  if (!ok) return;
-
-  const restore = async (storeName, items) => {
-    for (const raw of items) {
-      const item = { ...raw };
-      if (typeof item.photo === 'string' && item.photo.startsWith('data:')) {
-        try { item.photo = await dataUrlToBlob(item.photo); } catch { item.photo = null; }
-      } else if (!(item.photo instanceof Blob)) {
-        item.photo = null;
-      }
-      if (!item.id) item.id = crypto.randomUUID();
-      if (!item.addedAt) item.addedAt = Date.now();
-      await idb.put(storeName, item);
-    }
-  };
-
-  try {
-    await restore('collection', data.collection);
-    await restore('wishlist', data.wishlist);
-    await loadAll();
-    render();
-    toast('Backup restored. 🖤');
-  } catch (e) {
-    console.error(e);
-    toast('Restore failed. See console.');
-  }
-}
+// Backup/restore removed — Supabase syncs your account across devices.
 
 // ─── Toast ───────────────────────────────────────────────────────────
 let toastTimer = null;
@@ -974,16 +890,6 @@ function wireEvents() {
     if (id && delta) adjustPen(id, delta);
   });
 
-  document.getElementById('backup-btn').addEventListener('click', exportBackup);
-  document.getElementById('restore-btn').addEventListener('click', () =>
-    document.getElementById('restore-input').click()
-  );
-  document.getElementById('restore-input').addEventListener('change', async (e) => {
-    const file = e.target.files?.[0];
-    if (file) await importBackup(file);
-    e.target.value = '';
-  });
-
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !document.getElementById('modal').classList.contains('hidden')) {
       closeModal();
@@ -1002,13 +908,10 @@ function registerSW() {
 // ─── Boot ────────────────────────────────────────────────────────────
 async function boot() {
   wireEvents();
+  await data.loadActiveCollection();
+  await data.migrateFromIDB();    // one-time IDB → Supabase upload per account
   await loadAll();
-  const savedPens = await idb.getMeta('pens_owned');
-  if (Array.isArray(savedPens)) {
-    state.pensOwned = new Map(
-      savedPens.map((entry) => Array.isArray(entry) ? entry : [entry, 1])
-    );
-  }
+  state.pensOwned = await data.listPens();
   render();
   updateNotifyButton();
   registerSW();

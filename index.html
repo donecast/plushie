@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=17" />
+  <link rel="stylesheet" href="./styles.css?v=18" />
 </head>
 <body>
   <header>
@@ -198,10 +198,7 @@
   </div>
 
   <footer class="app-footer">
-    <button id="backup-btn" class="footer-link">↓ Download backup</button>
-    <button id="restore-btn" class="footer-link">↑ Restore from backup</button>
-    <input type="file" id="restore-input" accept="application/json,.json" hidden />
-    <p class="footer-note">Your data lives in this browser. Save a backup to keep it safe or move to another device.</p>
+    <p class="footer-note">Your collection is synced to your account. Sign in on any device to see it.</p>
   </footer>
 
   <div id="toast" class="toast hidden"></div>
@@ -257,9 +254,10 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="./config.js?v=17"></script>
-  <script src="./auth.js?v=17"></script>
-  <script src="./db.js?v=17"></script>
-  <script src="./app.js?v=17"></script>
+  <script src="./config.js?v=18"></script>
+  <script src="./auth.js?v=18"></script>
+  <script src="./db.js?v=18"></script>
+  <script src="./data.js?v=18"></script>
+  <script src="./app.js?v=18"></script>
 </body>
 </html>
