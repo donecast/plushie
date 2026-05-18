@@ -276,9 +276,6 @@ main {
 }
 
 .card-status {
-  position: absolute;
-  bottom: 8px;
-  left: 8px;
   font-family: var(--display);
   font-size: 0.65rem;
   letter-spacing: 0.1em;
@@ -288,6 +285,7 @@ main {
   background: rgba(8, 4, 14, 0.78);
   color: var(--ink);
   border: 1px solid rgba(255, 255, 255, 0.15);
+  white-space: nowrap;
 }
 .card-status.owned { color: #ffd8a8; border-color: var(--gold); }
 .card-status.wished { color: var(--rose-hi); border-color: var(--rose); }
