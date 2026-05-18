@@ -2,6 +2,13 @@
 const state = {
   tab: 'catalog',             // 'catalog' | 'collection' | 'wishlist' | 'pens'
   filter: 'all',              // collection: all | active | retired
+  colCategory: 'all',         // collection category chip
+  colDupes: false,            // collection: only quantity > 1
+  colNoBag: false,            // collection: only missing bag
+  colSort: 'acquired_desc',
+  wishCategory: 'all',
+  wishInStock: false,
+  wishSort: 'added_desc',
   catalogFilter: 'all',       // catalog category: all | plush | accessory | other
   catalogStatuses: new Set(), // empty = any; otherwise OR of: available/sold_out/coming_soon/retired/fyc
   catalogUnowned: false,      // toggle: hide ones already in collection
@@ -136,6 +143,29 @@ function clearFilter(key) {
   }
   syncCatalogChips();
   render();
+}
+
+function syncCollectionChips() {
+  document.querySelectorAll('#collection-filters .chip[data-filter]').forEach((c) => {
+    c.classList.toggle('active', c.dataset.filter === state.filter);
+  });
+  document.querySelectorAll('#collection-filters .chip[data-col-cat]').forEach((c) => {
+    c.classList.toggle('active', c.dataset.colCat === state.colCategory);
+  });
+  document.querySelectorAll('#collection-filters .chip[data-col-toggle]').forEach((c) => {
+    const k = c.dataset.colToggle;
+    c.classList.toggle('active', (k === 'dupes' && state.colDupes) || (k === 'nobag' && state.colNoBag));
+  });
+}
+
+function syncWishlistChips() {
+  document.querySelectorAll('#wishlist-actions .chip[data-wish-cat]').forEach((c) => {
+    c.classList.toggle('active', c.dataset.wishCat === state.wishCategory);
+  });
+  document.querySelectorAll('#wishlist-actions .chip[data-wish-toggle]').forEach((c) => {
+    const k = c.dataset.wishToggle;
+    c.classList.toggle('active', k === 'instock' && state.wishInStock);
+  });
 }
 
 // Re-apply the .active class on every chip from current state — safe to call
@@ -286,7 +316,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=30', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=31', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -366,18 +396,67 @@ function matchesQuery(item, q) {
   return hay.includes(q);
 }
 
+// Look up a collection/wishlist item's category by joining to the catalog
+// on catalog_id. Items without a catalog_id fall through to 'other'.
+function itemCategory(item) {
+  if (!item.catalogId) return 'other';
+  const cat = state.catalog.find((c) => c.id === item.catalogId);
+  return cat ? catalogCategory(cat) : 'other';
+}
+
 function filteredCollection() {
   const q = state.query.trim().toLowerCase();
-  return state.collection.filter((it) => {
+  const arr = state.collection.filter((it) => {
     if (state.filter === 'active' && it.retired) return false;
     if (state.filter === 'retired' && !it.retired) return false;
+    if (state.colCategory !== 'all' && itemCategory(it) !== state.colCategory) return false;
+    if (state.colDupes && (it.quantity || 1) <= 1) return false;
+    if (state.colNoBag && it.hasBag !== false) return false;
     return matchesQuery(it, q);
   });
+  return sortCollection(arr, state.colSort);
 }
 
 function filteredWishlist() {
   const q = state.query.trim().toLowerCase();
-  return state.wishlist.filter((it) => matchesQuery(it, q));
+  const arr = state.wishlist.filter((it) => {
+    if (state.wishCategory !== 'all' && itemCategory(it) !== state.wishCategory) return false;
+    if (state.wishInStock && it.outOfStock) return false;
+    return matchesQuery(it, q);
+  });
+  return sortWishlist(arr, state.wishSort);
+}
+
+function sortCollection(items, mode) {
+  const a = items.slice();
+  const cmpName = (x, y) => (x.nickname || x.name || '').localeCompare(y.nickname || y.name || '');
+  const cmpAcquired = (x, y) => (y.dateCollected || '').localeCompare(x.dateCollected || '');
+  const cmpAdded = (x, y) => (y.addedAt || 0) - (x.addedAt || 0);
+  const cmpQty = (x, y) => (y.quantity || 1) - (x.quantity || 1);
+  switch (mode) {
+    case 'acquired_asc':  a.sort((x, y) => -cmpAcquired(x, y)); break;
+    case 'added_desc':    a.sort(cmpAdded); break;
+    case 'name_asc':      a.sort(cmpName); break;
+    case 'name_desc':     a.sort((x, y) => -cmpName(x, y)); break;
+    case 'qty_desc':      a.sort(cmpQty); break;
+    case 'acquired_desc':
+    default:              a.sort(cmpAcquired);
+  }
+  return a;
+}
+
+function sortWishlist(items, mode) {
+  const a = items.slice();
+  const cmpName = (x, y) => (x.name || '').localeCompare(y.name || '');
+  const cmpAdded = (x, y) => (y.addedAt || 0) - (x.addedAt || 0);
+  switch (mode) {
+    case 'added_asc':  a.sort((x, y) => -cmpAdded(x, y)); break;
+    case 'name_asc':   a.sort(cmpName); break;
+    case 'name_desc':  a.sort((x, y) => -cmpName(x, y)); break;
+    case 'added_desc':
+    default:           a.sort(cmpAdded);
+  }
+  return a;
 }
 
 function catalogIdMap() {
@@ -592,12 +671,14 @@ function render() {
   );
 
   if (tab === 'collection') {
+    syncCollectionChips();
     const items = filteredCollection();
     document.getElementById('collection-grid').innerHTML = items.map((i) => renderCard(i, 'collection')).join('');
     document.getElementById('collection-empty').classList.toggle('hidden', items.length > 0);
     document.getElementById('count-label').textContent =
       `${items.length} of ${state.collection.length} item${state.collection.length === 1 ? '' : 's'}`;
   } else if (tab === 'wishlist') {
+    syncWishlistChips();
     const items = filteredWishlist();
     document.getElementById('wishlist-grid').innerHTML = items.map((i) => renderCard(i, 'wishlist')).join('');
     document.getElementById('wishlist-empty').classList.toggle('hidden', items.length > 0);
@@ -931,7 +1012,14 @@ async function addFromCatalog(catalogId, kind) {
   await loadAll();
   state.tab = kind;
   render();
-  toast(kind === 'collection' ? 'Added to collection. 🖤' : 'Added to wish list. 🕯');
+  if (kind === 'collection') {
+    // Open the edit modal on the freshly-added row so the user can fill in
+    // nickname / meaning / how-acquired up front.
+    const newItem = state.collection.find((x) => x.id === base.id);
+    if (newItem) openModal('collection', newItem);
+  } else {
+    toast('Added to wish list. 🕯');
+  }
 }
 
 // ─── Restocks ────────────────────────────────────────────────────────
@@ -1043,14 +1131,51 @@ function wireEvents() {
     });
   });
 
-  document.querySelectorAll('#collection-filters .chip').forEach((c) => {
-    c.addEventListener('click', () => {
+  // Collection chips: status (all/active/retired) + category (all/plush/mini/...)
+  // + multi-select toggles (dupes/nobag). Per-chip listeners are simplest.
+  function handleCollectionChip(c) {
+    if (c.dataset.filter) {
       state.filter = c.dataset.filter;
-      document.querySelectorAll('#collection-filters .chip').forEach((x) =>
-        x.classList.toggle('active', x === c)
-      );
-      render();
-    });
+    } else if (c.dataset.colCat) {
+      state.colCategory = c.dataset.colCat;
+    } else if (c.dataset.colToggle === 'dupes') {
+      state.colDupes = !state.colDupes;
+    } else if (c.dataset.colToggle === 'nobag') {
+      state.colNoBag = !state.colNoBag;
+    } else {
+      return;
+    }
+    syncCollectionChips();
+    render();
+  }
+  document.querySelectorAll('#collection-filters .chip').forEach((c) => {
+    c.addEventListener('click', () => handleCollectionChip(c));
+  });
+  const colSortEl = document.getElementById('col-sort');
+  if (colSortEl) colSortEl.addEventListener('change', () => {
+    state.colSort = colSortEl.value;
+    render();
+  });
+
+  // Wishlist chips: category + in-stock-only toggle.
+  function handleWishlistChip(c) {
+    if (c.dataset.wishCat) {
+      state.wishCategory = c.dataset.wishCat;
+    } else if (c.dataset.wishToggle === 'instock') {
+      state.wishInStock = !state.wishInStock;
+    } else {
+      return;
+    }
+    syncWishlistChips();
+    render();
+  }
+  document.querySelectorAll('#wishlist-actions .chip').forEach((c) => {
+    c.addEventListener('click', () => handleWishlistChip(c));
+  });
+  const wishSortEl = document.getElementById('wish-sort');
+  if (wishSortEl) wishSortEl.addEventListener('change', () => {
+    state.wishSort = wishSortEl.value;
+    render();
   });
 
   // Catalog chips: delegated handler. Each chip declares its purpose via

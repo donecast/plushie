@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=30" />
+  <link rel="stylesheet" href="./styles.css?v=31" />
 </head>
 <body>
   <header>
@@ -71,9 +71,40 @@
         <button class="chip active" data-filter="all">All</button>
         <button class="chip" data-filter="active">Active</button>
         <button class="chip" data-filter="retired">Retired</button>
+        <span class="chip-sep" aria-hidden="true"></span>
+        <button class="chip active" data-col-cat="all">All</button>
+        <button class="chip" data-col-cat="plush">Plushies</button>
+        <button class="chip" data-col-cat="mini">Minis</button>
+        <button class="chip" data-col-cat="accessory">Accessories</button>
+        <button class="chip" data-col-cat="other">Other</button>
+        <span class="chip-sep" aria-hidden="true"></span>
+        <button class="chip chip-toggle" data-col-toggle="dupes">Duplicates</button>
+        <button class="chip chip-toggle" data-col-toggle="nobag">No bag</button>
+        <select id="col-sort" class="chip-select" aria-label="Sort collection">
+          <option value="acquired_desc">Newest acquired</option>
+          <option value="acquired_asc">Oldest acquired</option>
+          <option value="added_desc">Newest added</option>
+          <option value="name_asc">Name A→Z</option>
+          <option value="name_desc">Name Z→A</option>
+          <option value="qty_desc">Most owned</option>
+        </select>
       </div>
       <div id="wishlist-actions" class="filters hidden">
         <button id="check-restocks" class="chip chip-action">Check All Restocks</button>
+        <span class="chip-sep" aria-hidden="true"></span>
+        <button class="chip active" data-wish-cat="all">All</button>
+        <button class="chip" data-wish-cat="plush">Plushies</button>
+        <button class="chip" data-wish-cat="mini">Minis</button>
+        <button class="chip" data-wish-cat="accessory">Accessories</button>
+        <button class="chip" data-wish-cat="other">Other</button>
+        <span class="chip-sep" aria-hidden="true"></span>
+        <button class="chip chip-toggle" data-wish-toggle="instock">In stock only</button>
+        <select id="wish-sort" class="chip-select" aria-label="Sort wishlist">
+          <option value="added_desc">Newest added</option>
+          <option value="added_asc">Oldest added</option>
+          <option value="name_asc">Name A→Z</option>
+          <option value="name_desc">Name Z→A</option>
+        </select>
       </div>
       <div id="catalog-filters" class="filters hidden">
         <button class="chip active" data-cat-filter="all">All</button>
@@ -412,10 +443,10 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="./config.js?v=30"></script>
-  <script src="./auth.js?v=30"></script>
-  <script src="./db.js?v=30"></script>
-  <script src="./data.js?v=30"></script>
-  <script src="./app.js?v=30"></script>
+  <script src="./config.js?v=31"></script>
+  <script src="./auth.js?v=31"></script>
+  <script src="./db.js?v=31"></script>
+  <script src="./data.js?v=31"></script>
+  <script src="./app.js?v=31"></script>
 </body>
 </html>
