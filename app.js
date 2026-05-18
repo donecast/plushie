@@ -10,10 +10,6 @@ const state = {
   catalogSort: 'newest',      // newest | oldest | name_asc | name_desc | price_asc | price_desc
   query: '',
   editingId: null,
-  editingCatalogId: null,     // catalog id staged through modal
-  pendingPhoto: null,
-  originalPhoto: null,        // photo on the item when modal opened (for fallback on save)
-  photoExplicitlyCleared: false,
   collection: [],
   wishlist: [],
   catalog: [],                // loaded from catalog.json
@@ -437,11 +433,8 @@ function render() {
   document.getElementById('wishlist-actions').classList.toggle('hidden', tab !== 'wishlist');
   document.getElementById('catalog-filters').classList.toggle('hidden', tab !== 'catalog');
 
-  // Hide search + add button on pens tab — the checklist is its own world.
+  // Search bar makes sense on item lists, not on the pen checklist.
   document.getElementById('search').classList.toggle('hidden', tab === 'pens');
-  // Add button only on Wishlist — you add to Collection by tapping items in the Catalog.
-  document.getElementById('add-btn').classList.toggle('hidden', tab !== 'wishlist');
-  document.getElementById('add-target').textContent = tab === 'wishlist' ? 'Wish List' : 'Collection';
 
   document.querySelectorAll('.tab').forEach((t) =>
     t.classList.toggle('active', t.dataset.tab === tab)
@@ -530,117 +523,44 @@ async function adjustPen(id, delta) {
   render();
 }
 
-// ─── Modal / Form ────────────────────────────────────────────────────
-function openModal(kind, item = null, seed = null) {
-  state.editingId = item ? item.id : null;
-  state.editingCatalogId = item?.catalogId || seed?.catalogId || null;
-  state.pendingPhoto = item?.photo ?? seed?.photo ?? null;
-  state.originalPhoto = item?.photo ?? null;
-  state.photoExplicitlyCleared = false;
+// ─── Edit modal (collection items only — name & photo are catalog-sourced) ──
+function openModal(kind, item) {
+  if (kind !== 'collection' || !item) return; // wishlist has no editable fields
+  state.editingId = item.id;
 
-  document.getElementById('modal-title').textContent =
-    item ? 'Edit Plushie' : (kind === 'collection' ? 'Add to Collection' : 'Add to Wish List');
+  document.getElementById('modal-title').textContent = 'Edit Plushie';
+  document.getElementById('modal-name').textContent = item.name || '';
 
-  const src = item ?? seed ?? {};
-  document.getElementById('f-name').value = src.name ?? '';
-  document.getElementById('f-meaning').value = src.meaning ?? '';
-  document.getElementById('f-date').value = src.dateCollected ?? '';
-  document.getElementById('f-acquired').value = src.acquiredHow ?? '';
-  document.getElementById('f-url').value = src.url ?? '';
-  document.getElementById('f-oos').checked = !!src.outOfStock;
-  // Has bag defaults to true for new items; preserve whatever an existing record has.
-  document.getElementById('f-bag').checked = item ? (item.hasBag !== false) : true;
+  document.getElementById('f-meaning').value = item.meaning ?? '';
+  document.getElementById('f-date').value = item.dateCollected ?? '';
+  document.getElementById('f-acquired').value = item.acquiredHow ?? '';
+  document.getElementById('f-bag').checked = item.hasBag !== false;
 
-  // Field visibility per tab
-  const isCol = kind === 'collection';
-  document.getElementById('field-meaning').classList.remove('hidden');
-  document.getElementById('field-date').classList.toggle('hidden', !isCol);
-  document.getElementById('field-acquired').classList.toggle('hidden', !isCol);
-  document.getElementById('field-bag').classList.toggle('hidden', !isCol);
-  document.getElementById('field-url').classList.toggle('hidden', isCol);
-  document.getElementById('field-oos').classList.toggle('hidden', isCol);
-
-  document.getElementById('modal').dataset.kind = kind;
-  refreshPhotoPreview();
-
+  document.getElementById('modal').dataset.kind = 'collection';
   document.getElementById('modal').classList.remove('hidden');
-  setTimeout(() => document.getElementById('f-name').focus(), 50);
+  setTimeout(() => document.getElementById('f-meaning').focus(), 50);
 }
 
 function closeModal() {
   document.getElementById('modal').classList.add('hidden');
   document.getElementById('plushie-form').reset();
   state.editingId = null;
-  state.editingCatalogId = null;
-  state.pendingPhoto = null;
-  state.originalPhoto = null;
-  state.photoExplicitlyCleared = false;
-  const prev = document.getElementById('photo-preview');
-  if (prev._objectUrl) { URL.revokeObjectURL(prev._objectUrl); prev._objectUrl = null; }
-}
-
-function refreshPhotoPreview() {
-  const preview = document.getElementById('photo-preview');
-  const clearBtn = document.getElementById('photo-clear');
-  if (preview._objectUrl) { URL.revokeObjectURL(preview._objectUrl); preview._objectUrl = null; }
-  if (state.pendingPhoto) {
-    let url;
-    if (state.pendingPhoto instanceof Blob) {
-      url = URL.createObjectURL(state.pendingPhoto);
-      preview._objectUrl = url;
-    } else {
-      url = state.pendingPhoto;
-    }
-    preview.innerHTML = `<img src="${url}" alt="" />`;
-    clearBtn.classList.remove('hidden');
-  } else {
-    preview.innerHTML = `<span class="photo-hint">+<br/>Photo</span>`;
-    clearBtn.classList.add('hidden');
-  }
 }
 
 async function submitForm(e) {
   e.preventDefault();
-  const kind = document.getElementById('modal').dataset.kind;
-  const name = document.getElementById('f-name').value.trim();
-  if (!name) return;
+  const existing = state.collection.find((x) => x.id === state.editingId);
+  if (!existing) { closeModal(); return; }
 
-  const existing = state.editingId
-    ? (kind === 'collection' ? state.collection : state.wishlist).find((x) => x.id === state.editingId)
-    : null;
-
-  // Photo: keep whatever was already there unless the user explicitly cleared it.
-  // This prevents silent loss if pendingPhoto ever drifted to null mid-flow.
-  const photo = state.photoExplicitlyCleared
-    ? null
-    : (state.pendingPhoto ?? state.originalPhoto ?? existing?.photo ?? null);
-
-  const base = {
-    id: existing?.id || crypto.randomUUID(),
-    name,
+  const record = {
+    ...existing,
     meaning: document.getElementById('f-meaning').value.trim() || null,
-    photo,
-    catalogId: state.editingCatalogId || existing?.catalogId || null,
-    addedAt: existing?.addedAt ?? Date.now(),
+    dateCollected: document.getElementById('f-date').value || null,
+    acquiredHow: document.getElementById('f-acquired').value || null,
+    hasBag: document.getElementById('f-bag').checked,
     updatedAt: Date.now(),
   };
-
-  let record;
-  if (kind === 'collection') {
-    record = {
-      ...base,
-      dateCollected: document.getElementById('f-date').value || null,
-      acquiredHow: document.getElementById('f-acquired').value || null,
-      hasBag: document.getElementById('f-bag').checked,
-      retired: !!existing?.retired,  // sourced from catalog at add-time; not user-editable
-    };
-  } else {
-    record = {
-      ...base,
-      url: document.getElementById('f-url').value.trim() || null,
-      outOfStock: document.getElementById('f-oos').checked,
-    };
-  }
+  const kind = 'collection';
 
   await idb.put(kind, record);
   await loadAll();
@@ -657,11 +577,10 @@ async function onCardClick(e) {
   const { action, id, cid } = btn.dataset;
 
   if (action === 'edit') {
-    const item = state.collection.find((x) => x.id === id) || state.wishlist.find((x) => x.id === id);
-    if (!item) return;
-    openModal(state.tab, item);
+    const item = state.collection.find((x) => x.id === id);
+    if (item) openModal('collection', item);
   } else if (action === 'delete') {
-    if (!confirm('Delete this plushie?')) return;
+    if (!confirm('Remove this plushie?')) return;
     const inCol = state.collection.some((x) => x.id === id);
     await idb.delete(inCol ? 'collection' : 'wishlist', id);
     await loadAll();
@@ -671,15 +590,15 @@ async function onCardClick(e) {
     const item = state.wishlist.find((x) => x.id === id);
     if (!item) return;
     const collected = {
-      id: item.id,
+      id: crypto.randomUUID(),
       name: item.name,
-      meaning: item.meaning || null,
       photo: item.photo || null,
       catalogId: item.catalogId || null,
+      meaning: null,
       dateCollected: new Date().toISOString().slice(0, 10),
       acquiredHow: null,
       hasBag: true,
-      retired: false,
+      retired: !!item.retired,
       addedAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -687,36 +606,35 @@ async function onCardClick(e) {
       await idb.put('collection', collected);
       await idb.delete('wishlist', id);
       await loadAll();
-      // Jump to collection so the new card is obviously there, and clear
-      // any filter/search that would hide it.
       state.tab = 'collection';
       state.filter = 'all';
       state.query = '';
       document.getElementById('search').value = '';
-      document.querySelectorAll('#collection-filters .chip').forEach((x) =>
-        x.classList.toggle('active', x.dataset.filter === 'all')
-      );
       render();
       toast(`Moved “${item.name}” to collection. 🖤`);
     } catch (err) {
       console.error('Got It! failed', err);
-      toast('Could not move to collection. See console.');
+      toast('Could not move to collection.');
     }
   } else if (action === 'cat-have') {
-    await openModalFromCatalog(cid, 'collection');
+    await addFromCatalog(cid, 'collection');
   } else if (action === 'cat-want') {
-    await openModalFromCatalog(cid, 'wishlist');
+    await addFromCatalog(cid, 'wishlist');
   } else if (action === 'cat-edit') {
     const owned = state.collection.find((x) => x.catalogId === cid);
     if (owned) openModal('collection', owned);
   }
 }
 
-async function openModalFromCatalog(catalogId, kind) {
+// One-tap add from a catalog card. No modal; just commits a record with
+// catalog-sourced fields and sensible defaults. The user can tap the new
+// card later to fill in meaning / date / how-acquired.
+async function addFromCatalog(catalogId, kind) {
   const cat = state.catalog.find((c) => c.id === catalogId);
   if (!cat) return;
 
-  // Try to download the product photo so it lives offline. Fall back to URL on CORS errors.
+  // Pull the product photo so the card stays good if the user goes offline
+  // or the Shopify CDN URL ever rots. Fall back to the URL on CORS error.
   let photo = cat.image ? shopifyImageVariant(cat.image, 800) : null;
   if (photo) {
     try {
@@ -725,20 +643,42 @@ async function openModalFromCatalog(catalogId, kind) {
         const blob = await resp.blob();
         photo = await compressImage(blob).catch(() => blob);
       }
-    } catch {
-      // keep URL string; will display fine via <img> at render time
-    }
+    } catch { /* keep URL */ }
   }
 
-  const seed = {
+  const base = {
+    id: crypto.randomUUID(),
     name: cleanCatalogName(cat.name),
     photo,
     catalogId: cat.id,
-    url: kind === 'wishlist' ? (PRODUCT_URL_BASE + cat.handle) : undefined,
-    retired: !!cat.retired,
-    outOfStock: kind === 'wishlist' ? !cat.available : undefined,
+    addedAt: Date.now(),
+    updatedAt: Date.now(),
   };
-  openModal(kind, null, seed);
+
+  let record;
+  if (kind === 'collection') {
+    record = {
+      ...base,
+      meaning: null,
+      dateCollected: new Date().toISOString().slice(0, 10),
+      acquiredHow: null,
+      hasBag: true,
+      retired: !!cat.retired,
+    };
+  } else {
+    record = {
+      ...base,
+      url: PRODUCT_URL_BASE + cat.handle,
+      outOfStock: !cat.available,
+      retired: !!cat.retired,
+    };
+  }
+
+  await idb.put(kind, record);
+  await loadAll();
+  state.tab = kind;
+  render();
+  toast(kind === 'collection' ? 'Added to collection. 🖤' : 'Added to wish list. 🕯');
 }
 
 // ─── Restocks ────────────────────────────────────────────────────────
@@ -997,7 +937,6 @@ function wireEvents() {
     render();
   });
 
-  document.getElementById('add-btn').addEventListener('click', () => openModal(state.tab));
   document.getElementById('check-restocks').addEventListener('click', checkAllRestocks);
   document.getElementById('notify-btn').addEventListener('click', toggleNotifications);
 
@@ -1006,27 +945,6 @@ function wireEvents() {
   );
 
   document.getElementById('plushie-form').addEventListener('submit', submitForm);
-
-  document.getElementById('photo-input').addEventListener('change', async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      state.pendingPhoto = await compressImage(file);
-      state.photoExplicitlyCleared = false;
-      refreshPhotoPreview();
-    } catch (err) {
-      console.error(err);
-      toast('Could not load that image.');
-    } finally {
-      e.target.value = '';
-    }
-  });
-
-  document.getElementById('photo-clear').addEventListener('click', () => {
-    state.pendingPhoto = null;
-    state.photoExplicitlyCleared = true;
-    refreshPhotoPreview();
-  });
 
   document.getElementById('collection-grid').addEventListener('click', onCardClick);
   document.getElementById('wishlist-grid').addEventListener('click', onCardClick);

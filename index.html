@@ -118,7 +118,6 @@
     </div>
 
     <div class="add-row">
-      <button id="add-btn" class="add-btn">+ Add to <span id="add-target">Collection</span></button>
       <span class="count" id="count-label">0 items</span>
     </div>
 
@@ -157,27 +156,14 @@
     <div class="modal-backdrop" data-close></div>
     <div class="modal-card">
       <button class="modal-close" data-close aria-label="Close">×</button>
-      <h2 id="modal-title">Add Plushie</h2>
+      <h2 id="modal-title">Edit Plushie</h2>
+      <p id="modal-name" class="modal-name"></p>
       <form id="plushie-form">
         <input type="hidden" id="form-id" />
-        <div class="photo-upload">
-          <label for="photo-input" class="photo-label" id="photo-label">
-            <div class="photo-preview" id="photo-preview">
-              <span class="photo-hint">+<br/>Photo</span>
-            </div>
-          </label>
-          <input type="file" id="photo-input" accept="image/*" hidden />
-          <button type="button" id="photo-clear" class="link-btn hidden">Remove photo</button>
-        </div>
-
-        <label class="field">
-          <span>Name</span>
-          <input type="text" id="f-name" required maxlength="100" />
-        </label>
 
         <label class="field" id="field-meaning">
           <span>Personal meaning</span>
-          <textarea id="f-meaning" rows="2" maxlength="500" placeholder="What this one means to you…"></textarea>
+          <textarea id="f-meaning" rows="3" maxlength="500" placeholder="What this one means to you…"></textarea>
         </label>
 
         <label class="field" id="field-date">
@@ -198,19 +184,9 @@
           </select>
         </label>
 
-        <label class="field" id="field-url">
-          <span>Product URL</span>
-          <input type="url" id="f-url" placeholder="https://…" />
-        </label>
-
         <label class="checkbox" id="field-bag">
           <input type="checkbox" id="f-bag" />
           <span>Has bag</span>
-        </label>
-
-        <label class="checkbox" id="field-oos">
-          <input type="checkbox" id="f-oos" />
-          <span>Out of Stock</span>
         </label>
 
         <div class="form-actions">

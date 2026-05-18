@@ -650,10 +650,17 @@ main {
 .modal-close:hover { color: var(--rose-hi); }
 .modal-card h2 {
   font-family: var(--display);
-  margin: 0 0 18px;
+  margin: 0 0 6px;
   font-size: 1.4rem;
   letter-spacing: 0.04em;
   color: var(--rose-hi);
+}
+.modal-name {
+  margin: 0 0 18px;
+  font-family: var(--serif);
+  font-style: italic;
+  color: var(--gold);
+  font-size: 1.05rem;
 }
 
 /* ─── Form ────────────────────────────── */
