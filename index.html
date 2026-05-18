@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=26" />
+  <link rel="stylesheet" href="./styles.css?v=27" />
 </head>
 <body>
   <header>
@@ -123,7 +123,7 @@
     </div>
 
     <section id="collection-view" class="view">
-      <div id="collection-grid" class="grid"></div>
+      <div id="collection-grid" class="grid grid-list"></div>
       <div id="collection-empty" class="empty hidden">
         <div class="ghost">🖤</div>
         <p>Your crypt is empty. Add your first plushie above.</p>
@@ -172,6 +172,11 @@
       <p id="modal-name" class="modal-name"></p>
       <form id="plushie-form">
         <input type="hidden" id="form-id" />
+
+        <label class="field" id="field-nickname">
+          <span>Your name for it (optional)</span>
+          <input type="text" id="f-nickname" maxlength="60" placeholder="e.g. Anxious Andy, Sir Floof…" />
+        </label>
 
         <label class="field" id="field-meaning">
           <span>Personal meaning</span>
@@ -406,10 +411,10 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="./config.js?v=26"></script>
-  <script src="./auth.js?v=26"></script>
-  <script src="./db.js?v=26"></script>
-  <script src="./data.js?v=26"></script>
-  <script src="./app.js?v=26"></script>
+  <script src="./config.js?v=27"></script>
+  <script src="./auth.js?v=27"></script>
+  <script src="./db.js?v=27"></script>
+  <script src="./data.js?v=27"></script>
+  <script src="./app.js?v=27"></script>
 </body>
 </html>

@@ -147,12 +147,15 @@ const data = {
     if (error) throw error;
   },
 
-  async delete(kind, id) {
+  async delete(kind, id, { keepPhoto = false } = {}) {
     const table = kind === 'collection' ? 'plushies' : 'wishlist';
-    // Best-effort photo cleanup
-    const { data: row } = await sb.from(table).select('photo_path').eq('id', id).maybeSingle();
-    if (row?.photo_path && !row.photo_path.startsWith('http')) {
-      await data.deletePhoto(row.photo_path).catch(() => {});
+    // Best-effort photo cleanup unless the caller wants to keep it
+    // (e.g. moving a wishlist row to collection — same photo path).
+    if (!keepPhoto) {
+      const { data: row } = await sb.from(table).select('photo_path').eq('id', id).maybeSingle();
+      if (row?.photo_path && !row.photo_path.startsWith('http')) {
+        await data.deletePhoto(row.photo_path).catch(() => {});
+      }
     }
     const { error } = await sb.from(table).delete().eq('id', id);
     if (error) throw error;
@@ -226,6 +229,7 @@ const data = {
     if (kind === 'collection') {
       return {
         ...base,
+        nickname: r.nickname,
         meaning: r.meaning,
         dateCollected: r.date_collected,
         acquiredHow: r.acquired_how,
@@ -254,6 +258,7 @@ const data = {
     if (kind === 'collection') {
       return {
         ...base,
+        nickname: item.nickname ?? null,
         meaning: item.meaning ?? null,
         date_collected: item.dateCollected ?? null,
         acquired_how: item.acquiredHow ?? null,

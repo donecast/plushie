@@ -215,7 +215,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=26', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=27', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -290,7 +290,8 @@ function formatDate(iso) {
 
 function matchesQuery(item, q) {
   if (!q) return true;
-  const hay = [item.name, item.meaning, item.acquiredHow].filter(Boolean).join(' ').toLowerCase();
+  const hay = [item.name, item.nickname, item.meaning, item.acquiredHow]
+    .filter(Boolean).join(' ').toLowerCase();
   return hay.includes(q);
 }
 
@@ -482,7 +483,10 @@ function renderCard(item, kind) {
         ${badges.length ? `<div class="badge-stack">${badges.join('')}</div>` : ''}
       </div>
       <div class="card-body">
-        <h3 class="card-name">${escapeHtml(item.name)}</h3>
+        ${kind === 'collection' && item.nickname
+          ? `<h3 class="card-name">${escapeHtml(item.nickname)}</h3>
+             <p class="card-product">${escapeHtml(item.name)}</p>`
+          : `<h3 class="card-name">${escapeHtml(item.name)}</h3>`}
         ${item.meaning ? `<p class="card-meaning">${escapeHtml(item.meaning)}</p>` : ''}
         ${meta.length ? `<div class="card-meta">${meta.join('')}</div>` : ''}
       </div>
@@ -591,13 +595,26 @@ function renderPens() {
   }).join('');
 }
 
-async function adjustPen(id, delta) {
+// iOS hybrid devices fire both touchend → click in rapid succession; without
+// a guard a single tap registers as 2-3 increments. 150ms is short enough
+// that intentional rapid tapping still works (you can tap 6 times a second).
+let _lastPenTap = 0;
+let _lastQtyTap = 0;
+function adjustPen(id, delta) {
+  const now = Date.now();
+  if (now - _lastPenTap < 150) return;
+  _lastPenTap = now;
+
   const current = state.pensOwned.get(id) || 0;
   const next = Math.max(0, Math.min(99, current + delta));
+  if (next === current) return;
   if (next === 0) state.pensOwned.delete(id);
   else state.pensOwned.set(id, next);
-  await data.setPen(id, state.pensOwned.get(id) || 0);
-  render();
+  render();   // optimistic — UI updates immediately, sync runs in the background
+  data.setPen(id, next).catch((e) => {
+    console.error('setPen', e);
+    toast('Could not save pen count.');
+  });
 }
 
 // ─── Edit modal (collection items only — name & photo are catalog-sourced) ──
@@ -608,6 +625,7 @@ function openModal(kind, item) {
   document.getElementById('modal-title').textContent = 'Edit Plushie';
   document.getElementById('modal-name').textContent = item.name || '';
 
+  document.getElementById('f-nickname').value = item.nickname ?? '';
   document.getElementById('f-meaning').value = item.meaning ?? '';
   document.getElementById('f-date').value = item.dateCollected ?? '';
   document.getElementById('f-acquired').value = item.acquiredHow ?? '';
@@ -631,6 +649,7 @@ async function submitForm(e) {
 
   const record = {
     ...existing,
+    nickname: document.getElementById('f-nickname').value.trim() || null,
     meaning: document.getElementById('f-meaning').value.trim() || null,
     dateCollected: document.getElementById('f-date').value || null,
     acquiredHow: document.getElementById('f-acquired').value || null,
@@ -697,9 +716,10 @@ async function onCardClickInner(btn) {
     };
     try {
       // Reuse the wishlist photo path so we don't re-upload — it's already in storage.
+      // Pass keepPhoto:true so delete() doesn't sweep the file (collection still references it).
       collected.photoPath = item.photoPath || null;
       await data.put('collection', collected);
-      await data.delete('wishlist', id);
+      await data.delete('wishlist', id, { keepPhoto: true });
       await loadAll();
       state.tab = 'collection';
       state.filter = 'all';
@@ -725,12 +745,19 @@ async function onCardClickInner(btn) {
     const item = state.wishlist.find((x) => x.id === id);
     if (item) await markForTrade(item, 'seeking');
   } else if (action === 'col-inc') {
+    if (Date.now() - _lastQtyTap < 150) return;
+    _lastQtyTap = Date.now();
     const item = state.collection.find((x) => x.id === id);
     if (!item) return;
-    await data.put('collection', { ...item, quantity: (item.quantity || 1) + 1, updatedAt: Date.now() });
+    const next = (item.quantity || 1) + 1;
+    item.quantity = next;
+    render();   // optimistic
+    await data.put('collection', { ...item, updatedAt: Date.now() });
     await loadAll();
     render();
   } else if (action === 'col-dec') {
+    if (Date.now() - _lastQtyTap < 150) return;
+    _lastQtyTap = Date.now();
     const item = state.collection.find((x) => x.id === id);
     if (!item) return;
     const next = (item.quantity || 1) - 1;
@@ -745,7 +772,9 @@ async function onCardClickInner(btn) {
         toast(`Can't go below ${reserved} — that count is reserved in an active trade.`);
         return;
       }
-      await data.put('collection', { ...item, quantity: next, updatedAt: Date.now() });
+      item.quantity = next;
+      render();   // optimistic
+      await data.put('collection', { ...item, updatedAt: Date.now() });
     }
     await loadAll();
     render();
