@@ -75,6 +75,24 @@ function isCharm(item) {
   return tags.includes('bag charm') || tags.includes('bagcharm');
 }
 
+// Re-apply the .active class on every chip from current state — safe to call
+// after any state mutation. Single source of truth: state.catalogFilter,
+// state.catalogStatuses, state.catalogUnowned, state.catalogCharmOnly.
+function syncCatalogChips() {
+  document.querySelectorAll('#catalog-filters .chip[data-cat-filter]').forEach((c) => {
+    c.classList.toggle('active', c.dataset.catFilter === state.catalogFilter);
+  });
+  document.querySelectorAll('#catalog-filters .chip[data-cat-status]').forEach((c) => {
+    c.classList.toggle('active', state.catalogStatuses.has(c.dataset.catStatus));
+  });
+  document.querySelectorAll('#catalog-filters .chip[data-cat-toggle]').forEach((c) => {
+    const key = c.dataset.catToggle;
+    const on = (key === 'unowned' && state.catalogUnowned)
+            || (key === 'charm'   && state.catalogCharmOnly);
+    c.classList.toggle('active', on);
+  });
+}
+
 // Catalog products that aren't plushies (or plushie-accessories) shouldn't show
 // up in a plushie tracker. Two filters: a type allowlist-by-exclusion, and a
 // name-based override for items where Shopify tagged a non-plushie as 'plush'.
@@ -197,7 +215,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=20', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=21', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -497,6 +515,7 @@ function render() {
     document.getElementById('count-label').textContent =
       `${items.length} of ${state.wishlist.length} item${state.wishlist.length === 1 ? '' : 's'}`;
   } else if (tab === 'catalog') {
+    syncCatalogChips();
     const items = filteredCatalog();
     const { owned, wished } = catalogIdMap();
     document.getElementById('catalog-grid').innerHTML =
@@ -857,23 +876,27 @@ function wireEvents() {
     });
   });
 
-  document.querySelectorAll('#catalog-filters .chip[data-cat-filter]').forEach((c) => {
-    c.addEventListener('click', () => {
-      state.catalogFilter = c.dataset.catFilter;
-      document.querySelectorAll('#catalog-filters .chip[data-cat-filter]').forEach((x) =>
-        x.classList.toggle('active', x === c)
-      );
-      render();
-    });
-  });
-  document.querySelectorAll('#catalog-filters .chip[data-cat-status]').forEach((c) => {
-    c.addEventListener('click', () => {
-      const status = c.dataset.catStatus;
-      if (state.catalogStatuses.has(status)) state.catalogStatuses.delete(status);
-      else state.catalogStatuses.add(status);
-      c.classList.toggle('active', state.catalogStatuses.has(status));
-      render();
-    });
+  // Catalog chips: delegated handler. Each chip declares its purpose via
+  // data-cat-filter / data-cat-status / data-cat-toggle and the dispatcher
+  // updates the right state and re-syncs all chip active classes.
+  document.getElementById('catalog-filters').addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+
+    if (chip.dataset.catFilter) {
+      state.catalogFilter = chip.dataset.catFilter;
+    } else if (chip.dataset.catStatus) {
+      const s = chip.dataset.catStatus;
+      if (state.catalogStatuses.has(s)) state.catalogStatuses.delete(s);
+      else state.catalogStatuses.add(s);
+    } else if (chip.dataset.catToggle) {
+      if (chip.dataset.catToggle === 'unowned') state.catalogUnowned = !state.catalogUnowned;
+      else if (chip.dataset.catToggle === 'charm') state.catalogCharmOnly = !state.catalogCharmOnly;
+    } else {
+      return;
+    }
+    syncCatalogChips();
+    render();
   });
   const sortEl = document.getElementById('cat-sort');
   if (sortEl) {
@@ -882,20 +905,6 @@ function wireEvents() {
       render();
     });
   }
-  document.querySelectorAll('#catalog-filters .chip[data-cat-toggle]').forEach((c) => {
-    c.addEventListener('click', () => {
-      const key = c.dataset.catToggle;
-      if (key === 'unowned') {
-        state.catalogUnowned = !state.catalogUnowned;
-        c.classList.toggle('active', state.catalogUnowned);
-      } else if (key === 'charm') {
-        state.catalogCharmOnly = !state.catalogCharmOnly;
-        c.classList.toggle('active', state.catalogCharmOnly);
-      }
-      render();
-    });
-  });
-
   const themeEl = document.getElementById('cat-theme');
   if (themeEl) {
     themeEl.addEventListener('change', () => {
