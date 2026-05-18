@@ -143,8 +143,23 @@ const data = {
 
     const row = data._itemToRow(item, kind);
     row.photo_path = photoPath;
-    const { error } = await sb.from(table).upsert(row);
-    if (error) throw error;
+
+    // First attempt with the full row. If a migration hasn't been run yet,
+    // PostgREST returns "Could not find the 'X' column of 'Y' in the schema
+    // cache" — strip the missing column and retry, up to a few times. Keeps
+    // the app functional even when a new column hasn't been applied yet.
+    let attempts = 0;
+    while (attempts++ < 4) {
+      const { error } = await sb.from(table).upsert(row);
+      if (!error) return;
+      const missing = /Could not find the '(\w+)' column/i.exec(error.message || '');
+      if (missing && missing[1] in row) {
+        console.warn(`[data.put] missing column ${missing[1]}; retrying without it`);
+        delete row[missing[1]];
+        continue;
+      }
+      throw error;
+    }
   },
 
   async delete(kind, id, { keepPhoto = false } = {}) {

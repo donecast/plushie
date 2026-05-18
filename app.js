@@ -156,21 +156,31 @@ function syncCatalogChips() {
   });
 }
 
-// Catalog products that aren't plushies (or plushie-accessories) shouldn't show
-// up in a plushie tracker. Conservative — only excluding things that are clearly
-// not plushie-related and the obvious mis-tagged 'plush' items by name regex.
-// (Earlier broader exclusions dropped ~140 legitimate accessories.)
+// Catalog products that aren't plushies. Only the truly off-topic types are
+// excluded outright — everything else stays browseable; the "Other" category
+// chip on the catalog tab is where stickers, ita bags, ipad cases, jewelry,
+// and other plushie-adjacent merchandise live.
 const NON_PLUSHIE_TYPES = new Set([
   'pen',                                                  // handled by the Pens tab
-  'mouse pad', 'notepad', 'ipad case', 'phone grip',
   'gift card',
+]);
+// These types are shop merch, but they're still on the storefront and people
+// may want to browse them — route them to the 'other' category instead of
+// the default plush/accessory buckets.
+const OTHER_CATEGORY_TYPES = new Set([
+  'sticker', 'pin', 'lanyard',
+  'home decoration', 'mouse pad', 'notepad', 'ipad case', 'phone grip',
+  'shopping bag', 'gym bag', 'ita bag', 'crossbody bag', 'leather wallet',
+  'shirts', 'shirts & tops', 'sweater', 'hat', 'sleep mask', 'clothing',
+  'jewelry', 'jewelry sets', 'necklace', 'necklaces', 'earring', 'bracelet', 'coin',
+  'makeup', 'game', 'skull', 'head tube',
+  'car accessory',
 ]);
 const NON_PLUSHIE_NAME = /\b(standee|acrylic|trading card|enamel)\b/i;
 
 function isPlushieCollectible(item) {
   const type = (item.type || '').toLowerCase();
   if (NON_PLUSHIE_TYPES.has(type)) return false;
-  if (NON_PLUSHIE_NAME.test(item.name || '')) return false;
   return true;
 }
 
@@ -186,9 +196,13 @@ function isMiniPlushie(item) {
 
 function catalogCategory(item) {
   const t = (item.type || '').toLowerCase();
-  if ((t === 'plush' || t === 'toy') && !isMiniPlushie(item)) return 'plush';
+  if (NON_PLUSHIE_NAME.test(item.name || '')) return 'other';     // standees, etc. tagged as 'plush'
+  if (OTHER_CATEGORY_TYPES.has(t)) return 'other';                // store merch
   if (isMiniPlushie(item)) return 'mini';
-  if (t === 'accessory' || t === 'hair clip' || t === 'keychain' || t === 'patch') return 'accessory';
+  if (t === 'plush' || t === 'toy' || t === 'stuffed toy') return 'plush';
+  if (t === 'accessory' || t === 'plush accessory' || t === 'hair clip'
+      || t === 'keychain' || t === 'patch' || t === 'plush backpack'
+      || t === 'charms' || t === 'grab bag') return 'accessory';
   return 'other';
 }
 
@@ -272,7 +286,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=29', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=30', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -1042,18 +1056,10 @@ function wireEvents() {
   // Catalog chips: delegated handler. Each chip declares its purpose via
   // data-cat-filter / data-cat-status / data-cat-toggle and the dispatcher
   // updates the right state and re-syncs all chip active classes.
-  document.getElementById('catalog-filters').addEventListener('click', (e) => {
-    const chip = e.target.closest('.chip');
-    if (!chip) {
-      console.log('[chips] click on filter row but no .chip in path', e.target);
-      return;
-    }
-    const which = chip.dataset.catFilter ? `filter:${chip.dataset.catFilter}`
-               : chip.dataset.catStatus  ? `status:${chip.dataset.catStatus}`
-               : chip.dataset.catToggle  ? `toggle:${chip.dataset.catToggle}`
-               : '?';
-    console.log('[chips] click', which);
-
+  // Belt-and-suspenders: also attach a direct click handler to each chip.
+  // The delegated one should work, but if anything intercepts the bubbling
+  // path the per-chip listener still fires.
+  function handleChipClick(chip) {
     if (chip.dataset.catFilter) {
       state.catalogFilter = chip.dataset.catFilter;
     } else if (chip.dataset.catStatus) {
@@ -1066,13 +1072,12 @@ function wireEvents() {
     } else {
       return;
     }
-    console.log('[chips] state', {
-      filter: state.catalogFilter,
-      statuses: [...state.catalogStatuses],
-      unowned: state.catalogUnowned, charm: state.catalogCharmOnly,
-    });
     syncCatalogChips();
     render();
+  }
+
+  document.querySelectorAll('#catalog-filters .chip').forEach((c) => {
+    c.addEventListener('click', () => handleChipClick(c));
   });
 
   // Active-filters bar: click any pill to drop that one filter, "Clear filters" to reset.
