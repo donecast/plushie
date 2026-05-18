@@ -546,7 +546,6 @@ function openModal(kind, item = null, seed = null) {
   document.getElementById('f-date').value = src.dateCollected ?? '';
   document.getElementById('f-acquired').value = src.acquiredHow ?? '';
   document.getElementById('f-url').value = src.url ?? '';
-  document.getElementById('f-retired').checked = !!src.retired;
   document.getElementById('f-oos').checked = !!src.outOfStock;
   // Has bag defaults to true for new items; preserve whatever an existing record has.
   document.getElementById('f-bag').checked = item ? (item.hasBag !== false) : true;
@@ -557,7 +556,6 @@ function openModal(kind, item = null, seed = null) {
   document.getElementById('field-date').classList.toggle('hidden', !isCol);
   document.getElementById('field-acquired').classList.toggle('hidden', !isCol);
   document.getElementById('field-bag').classList.toggle('hidden', !isCol);
-  document.getElementById('field-retired').classList.toggle('hidden', !isCol);
   document.getElementById('field-url').classList.toggle('hidden', isCol);
   document.getElementById('field-oos').classList.toggle('hidden', isCol);
 
@@ -633,7 +631,7 @@ async function submitForm(e) {
       dateCollected: document.getElementById('f-date').value || null,
       acquiredHow: document.getElementById('f-acquired').value || null,
       hasBag: document.getElementById('f-bag').checked,
-      retired: document.getElementById('f-retired').checked,
+      retired: !!existing?.retired,  // sourced from catalog at add-time; not user-editable
     };
   } else {
     record = {
