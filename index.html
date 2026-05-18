@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=16" />
+  <link rel="stylesheet" href="./styles.css?v=17" />
 </head>
 <body>
   <header>
@@ -48,6 +48,10 @@
         <h1>Plushie Dreadfuls</h1>
       </div>
       <div class="header-actions">
+        <button id="user-badge" class="user-badge hidden" title="Account">
+          <span class="user-name">@user</span>
+          <span class="user-caret">▾</span>
+        </button>
         <button id="notify-btn" class="icon-btn" title="Enable reminders" aria-label="Enable reminders">🔔</button>
       </div>
     </div>
@@ -231,7 +235,60 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <script src="./db.js?v=16"></script>
-  <script src="./app.js?v=16"></script>
+  <!-- Auth overlay: blocks the app until signed in + profile exists -->
+  <div id="auth-overlay" class="auth-overlay hidden">
+    <div class="auth-card">
+      <div class="auth-step hidden" data-step="loading">
+        <div class="auth-spinner">⋯</div>
+      </div>
+
+      <div class="auth-step hidden" data-step="login">
+        <div class="auth-mark">🦇</div>
+        <h1 class="auth-title">The Plushie Crypt</h1>
+        <p class="auth-sub">Sign in to keep your collection safe, share it with someone you love, and trade with other collectors.</p>
+        <form id="auth-login-form">
+          <label class="field">
+            <span class="field-label">Email</span>
+            <input type="email" id="auth-email" required autocomplete="email" placeholder="you@example.com" />
+          </label>
+          <button type="submit" class="btn primary">Send magic link</button>
+        </form>
+        <p class="auth-hint">No passwords. We email you a one-tap link. Open it on the same device to come right back.</p>
+        <p id="auth-error" class="auth-error hidden"></p>
+      </div>
+
+      <div class="auth-step hidden" data-step="sent">
+        <div class="auth-mark">✉</div>
+        <h1 class="auth-title">Check your inbox</h1>
+        <p class="auth-sub">A link is on its way to <strong><span id="auth-sent-email"></span></strong>. Tap it on this device to come right back.</p>
+        <button class="btn" id="auth-back" type="button">Use a different email</button>
+      </div>
+
+      <div class="auth-step hidden" data-step="username">
+        <div class="auth-mark">✎</div>
+        <h1 class="auth-title">Pick a username</h1>
+        <p class="auth-sub">Other collectors will see this when you trade. 3–20 characters; letters, numbers, <code>_</code> and <code>-</code> only.</p>
+        <form id="auth-username-form">
+          <label class="field">
+            <span class="field-label">Username</span>
+            <input type="text" id="auth-username" required pattern="[a-zA-Z0-9_-]{3,20}" autocomplete="off" autocapitalize="none" spellcheck="false" />
+          </label>
+          <button type="submit" class="btn primary">Continue</button>
+        </form>
+        <p id="auth-username-error" class="auth-error hidden"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- User dropdown menu -->
+  <div id="user-menu" class="user-menu hidden">
+    <button class="menu-item" id="menu-signout">Sign out</button>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="./config.js?v=17"></script>
+  <script src="./auth.js?v=17"></script>
+  <script src="./db.js?v=17"></script>
+  <script src="./app.js?v=17"></script>
 </body>
 </html>

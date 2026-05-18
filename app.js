@@ -167,7 +167,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=16', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=17', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = data.products || [];
@@ -1033,6 +1033,22 @@ function wireEvents() {
   document.getElementById('wishlist-grid').addEventListener('click', onCardClick);
   document.getElementById('catalog-grid').addEventListener('click', onCardClick);
 
+  document.getElementById('user-badge').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const menu = document.getElementById('user-menu');
+    const rect = e.currentTarget.getBoundingClientRect();
+    menu.style.top = `${rect.bottom + 6}px`;
+    menu.style.right = `${window.innerWidth - rect.right}px`;
+    menu.classList.toggle('hidden');
+  });
+  document.getElementById('menu-signout').addEventListener('click', () => {
+    document.getElementById('user-menu').classList.add('hidden');
+    handleSignOut();
+  });
+  document.addEventListener('click', () => {
+    document.getElementById('user-menu').classList.add('hidden');
+  });
+
   document.getElementById('pens-list').addEventListener('click', (e) => {
     const btn = e.target.closest('.pen-btn');
     if (!btn) return;
@@ -1088,7 +1104,13 @@ async function boot() {
   });
 }
 
-boot().catch((e) => {
-  console.error(e);
-  toast('Something went wrong loading the app.');
+// Gate the app behind sign-in + profile. The auth overlay handles its own UI;
+// once both exist, runAuthGate's callback fires and the app boots normally.
+runAuthGate(() => {
+  boot().catch((e) => {
+    console.error(e);
+    toast('Something went wrong loading the app.');
+  });
+}).catch((e) => {
+  console.error('auth bootstrap', e);
 });
