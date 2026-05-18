@@ -17,10 +17,34 @@ const state = {
   collection: [],
   wishlist: [],
   catalog: [],                // loaded from catalog.json
+  pensOwned: new Set(),       // ids from PENS that the user has
   blobUrls: new Map(),
 };
 
 const PRODUCT_URL_BASE = 'https://plushiedreadfuls.com/products/';
+
+const PENS = [
+  { line: 'Plushie Dreadfuls', id: 'pd-bpd',         name: 'Borderline Personality Disorder' },
+  { line: 'Plushie Dreadfuls', id: 'pd-ptsd',        name: 'PTSD' },
+  { line: 'Plushie Dreadfuls', id: 'pd-nb',          name: 'Non-Binary' },
+  { line: 'Plushie Dreadfuls', id: 'pd-love',        name: 'Love' },
+  { line: 'Plushie Dreadfuls', id: 'pd-autism',      name: 'Autism' },
+  { line: 'Plushie Dreadfuls', id: 'pd-dissociation',name: 'Dissociation' },
+  { line: 'Plushie Dreadfuls', id: 'pd-depression',  name: 'Depression' },
+  { line: 'Plushie Dreadfuls', id: 'pd-gd',          name: 'Gender Dysphoria' },
+  { line: 'Plushie Dreadfuls', id: 'pd-anxiety',     name: 'Anxiety' },
+  { line: 'Plushie Dreadfuls', id: 'pd-adhd',        name: 'ADHD' },
+  { line: 'Plushie Dreadfuls', id: 'pd-ouchie',      name: 'Ouchie' },
+  { line: 'Plushie Dreadfuls', id: 'pd-numb',        name: 'Numb' },
+  { line: 'Plushie Dreadfuls', id: 'pd-bone',        name: 'Bone Organ Izer' },
+  { line: 'Victorian McGee',   id: 'vm-alice',       name: 'Alice' },
+  { line: 'Victorian McGee',   id: 'vm-wr',          name: 'White Rabbit' },
+  { line: 'Victorian McGee',   id: 'vm-cc',          name: 'Cheshire Cat' },
+  { line: 'Victorian McGee',   id: 'vm-mt',          name: 'Mock Turtle' },
+  { line: 'Victorian McGee',   id: 'vm-dor',         name: 'Dormouse' },
+  { line: 'Victorian McGee',   id: 'vm-rrh',         name: 'Red Riding Hood' },
+  { line: 'Victorian McGee',   id: 'vm-hyst',        name: 'Hysteria' },
+];
 
 function cleanCatalogName(name) {
   const afterPrefix = name.replace(/^Plushie Dreadfuls\s*-?\s*/i, '').trim() || name;
@@ -143,7 +167,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=14', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=15', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = data.products || [];
@@ -407,12 +431,15 @@ function render() {
   document.getElementById('collection-view').classList.toggle('hidden', tab !== 'collection');
   document.getElementById('wishlist-view').classList.toggle('hidden', tab !== 'wishlist');
   document.getElementById('catalog-view').classList.toggle('hidden', tab !== 'catalog');
+  document.getElementById('pens-view').classList.toggle('hidden', tab !== 'pens');
 
   document.getElementById('collection-filters').classList.toggle('hidden', tab !== 'collection');
   document.getElementById('wishlist-actions').classList.toggle('hidden', tab !== 'wishlist');
   document.getElementById('catalog-filters').classList.toggle('hidden', tab !== 'catalog');
 
-  document.getElementById('add-btn').classList.toggle('hidden', tab === 'catalog');
+  // Hide search + add button on pens tab — the checklist is its own world.
+  document.getElementById('search').classList.toggle('hidden', tab === 'pens');
+  document.getElementById('add-btn').classList.toggle('hidden', tab === 'catalog' || tab === 'pens');
   document.getElementById('add-target').textContent = tab === 'wishlist' ? 'Wish List' : 'Collection';
 
   document.querySelectorAll('.tab').forEach((t) =>
@@ -431,7 +458,7 @@ function render() {
     document.getElementById('wishlist-empty').classList.toggle('hidden', items.length > 0);
     document.getElementById('count-label').textContent =
       `${items.length} of ${state.wishlist.length} item${state.wishlist.length === 1 ? '' : 's'}`;
-  } else {
+  } else if (tab === 'catalog') {
     const items = filteredCatalog();
     const { owned, wished } = catalogIdMap();
     document.getElementById('catalog-grid').innerHTML =
@@ -441,7 +468,53 @@ function render() {
     document.getElementById('count-label').textContent = state.catalog.length === 0
       ? 'Loading catalog…'
       : `${items.length} of ${state.catalog.length} products`;
+  } else {
+    renderPens();
+    document.getElementById('count-label').textContent =
+      `${state.pensOwned.size} of ${PENS.length} pens`;
   }
+}
+
+function renderPens() {
+  const lines = [...new Set(PENS.map((p) => p.line))];
+  const progressPct = Math.round((state.pensOwned.size / PENS.length) * 100);
+  document.getElementById('pens-progress').innerHTML = `
+    <div class="pens-progress-text">
+      <span class="pens-count">${state.pensOwned.size}</span>
+      <span class="pens-total">/ ${PENS.length} collected</span>
+    </div>
+    <div class="pens-bar"><div class="pens-bar-fill" style="width: ${progressPct}%"></div></div>
+  `;
+
+  document.getElementById('pens-list').innerHTML = lines.map((line) => {
+    const items = PENS.filter((p) => p.line === line);
+    const owned = items.filter((p) => state.pensOwned.has(p.id)).length;
+    const rows = items.map((p) => {
+      const isOwned = state.pensOwned.has(p.id);
+      return `
+        <label class="pen-row ${isOwned ? 'owned' : ''}">
+          <input type="checkbox" data-pen-id="${p.id}" ${isOwned ? 'checked' : ''} />
+          <span class="pen-name">${escapeHtml(p.name)}</span>
+        </label>
+      `;
+    }).join('');
+    return `
+      <section class="pens-group">
+        <h2 class="pens-group-title">
+          <span>${escapeHtml(line)}</span>
+          <span class="pens-group-count">${owned} / ${items.length}</span>
+        </h2>
+        <div class="pen-rows">${rows}</div>
+      </section>
+    `;
+  }).join('');
+}
+
+async function togglePen(id) {
+  if (state.pensOwned.has(id)) state.pensOwned.delete(id);
+  else state.pensOwned.add(id);
+  await idb.setMeta('pens_owned', [...state.pensOwned]);
+  render();
 }
 
 // ─── Modal / Form ────────────────────────────────────────────────────
@@ -948,6 +1021,11 @@ function wireEvents() {
   document.getElementById('wishlist-grid').addEventListener('click', onCardClick);
   document.getElementById('catalog-grid').addEventListener('click', onCardClick);
 
+  document.getElementById('pens-list').addEventListener('change', (e) => {
+    const id = e.target?.dataset?.penId;
+    if (id) togglePen(id);
+  });
+
   document.getElementById('backup-btn').addEventListener('click', exportBackup);
   document.getElementById('restore-btn').addEventListener('click', () =>
     document.getElementById('restore-input').click()
@@ -977,6 +1055,8 @@ function registerSW() {
 async function boot() {
   wireEvents();
   await loadAll();
+  const savedPens = await idb.getMeta('pens_owned');
+  if (Array.isArray(savedPens)) state.pensOwned = new Set(savedPens);
   render();
   updateNotifyButton();
   registerSW();

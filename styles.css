@@ -457,6 +457,97 @@ main {
   text-align: center;
 }
 
+/* ─── Pens checklist ────────────────────────────── */
+.pens-progress {
+  margin-bottom: 24px;
+  padding: 16px 18px;
+  background: var(--panel);
+  border: 1px solid rgba(255, 95, 168, 0.2);
+  border-radius: var(--radius);
+}
+.pens-progress-text {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-family: var(--display);
+  letter-spacing: 0.05em;
+}
+.pens-count { font-size: 1.7rem; color: var(--gold); font-weight: 700; }
+.pens-total { color: var(--ink-dim); font-size: 0.9rem; }
+.pens-bar {
+  height: 8px;
+  background: var(--bg-2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.pens-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--rose), var(--gold));
+  transition: width 0.3s ease;
+  box-shadow: 0 0 8px rgba(255, 95, 168, 0.4);
+}
+
+.pens-list { display: flex; flex-direction: column; gap: 24px; }
+.pens-group { }
+.pens-group-title {
+  font-family: var(--display);
+  font-size: 1.05rem;
+  letter-spacing: 0.08em;
+  color: var(--rose-hi);
+  margin: 0 0 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 1px solid rgba(255, 95, 168, 0.15);
+  padding-bottom: 6px;
+}
+.pens-group-count {
+  font-size: 0.8rem;
+  color: var(--ink-dim);
+  font-family: var(--serif);
+  font-style: italic;
+  letter-spacing: 0.02em;
+}
+
+.pen-rows {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 6px;
+}
+
+.pen-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid rgba(255, 95, 168, 0.12);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--serif);
+  transition: all 0.12s ease;
+  user-select: none;
+}
+.pen-row:hover { border-color: var(--rose); background: var(--panel-2); }
+.pen-row.owned {
+  background: linear-gradient(135deg, var(--panel-2), var(--panel));
+  border-color: var(--gold);
+}
+.pen-row.owned .pen-name { color: var(--ink); }
+.pen-row input[type=checkbox] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--gold);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.pen-name {
+  font-size: 0.98rem;
+  color: var(--ink-dim);
+  font-style: italic;
+}
+
 /* ─── Empty ────────────────────────────── */
 .empty {
   text-align: center;
