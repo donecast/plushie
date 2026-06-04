@@ -14,6 +14,7 @@ const state = {
   catalogUnowned: false,      // toggle: hide ones already in collection
   catalogCharmOnly: false,    // toggle: only show items tagged bag charm
   catalogTheme: 'all',        // tag value to require; 'all' = no constraint
+  catalogColor: 'all',        // color tag substring match; 'all' = no constraint
   catalogSort: 'newest',      // newest | oldest | name_asc | name_desc | price_asc | price_desc
   query: '',
   editingId: null,
@@ -104,6 +105,9 @@ function renderActiveFilters(shownCount) {
   if (state.catalogTheme && state.catalogTheme !== 'all') {
     pills.push(`<button class="active-pill" data-clear="theme">Theme: ${escapeHtml(state.catalogTheme)} ×</button>`);
   }
+  if (state.catalogColor && state.catalogColor !== 'all') {
+    pills.push(`<button class="active-pill" data-clear="color">Color: ${escapeHtml(state.catalogColor)} ×</button>`);
+  }
   if (state.query) {
     pills.push(`<button class="active-pill" data-clear="query">"${escapeHtml(state.query)}" ×</button>`);
   }
@@ -121,10 +125,13 @@ function clearFilter(key) {
     state.catalogUnowned = false;
     state.catalogCharmOnly = false;
     state.catalogTheme = 'all';
+    state.catalogColor = 'all';
     state.query = '';
     document.getElementById('search').value = '';
     const themeEl = document.getElementById('cat-theme');
     if (themeEl) themeEl.value = 'all';
+    const colorEl = document.getElementById('cat-color');
+    if (colorEl) colorEl.value = 'all';
   } else if (key === 'filter') {
     state.catalogFilter = 'all';
   } else if (key.startsWith('status:')) {
@@ -137,6 +144,10 @@ function clearFilter(key) {
     state.catalogTheme = 'all';
     const themeEl = document.getElementById('cat-theme');
     if (themeEl) themeEl.value = 'all';
+  } else if (key === 'color') {
+    state.catalogColor = 'all';
+    const colorEl = document.getElementById('cat-color');
+    if (colorEl) colorEl.value = 'all';
   } else if (key === 'query') {
     state.query = '';
     document.getElementById('search').value = '';
@@ -316,7 +327,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=31', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=32', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -483,6 +494,11 @@ function filteredCatalog() {
     if (theme && theme !== 'all') {
       const tags = (it.tags || []).map((t) => t.toLowerCase());
       if (!tags.includes(theme)) return false;
+    }
+    if (state.catalogColor && state.catalogColor !== 'all') {
+      const tags = (it.tags || []).map((t) => t.toLowerCase());
+      // Substring match so 'pink' catches 'hot pink', 'light pink', etc.
+      if (!tags.some((t) => t.includes(state.catalogColor))) return false;
     }
     if (!q) return true;
     return (
@@ -1185,18 +1201,28 @@ function wireEvents() {
   // The delegated one should work, but if anything intercepts the bubbling
   // path the per-chip listener still fires.
   function handleChipClick(chip) {
+    let label = '';
     if (chip.dataset.catFilter) {
       state.catalogFilter = chip.dataset.catFilter;
+      label = `Category → ${chip.dataset.catFilter}`;
     } else if (chip.dataset.catStatus) {
       const s = chip.dataset.catStatus;
       if (state.catalogStatuses.has(s)) state.catalogStatuses.delete(s);
       else state.catalogStatuses.add(s);
+      label = `Status → ${[...state.catalogStatuses].join(', ') || '(none)'}`;
     } else if (chip.dataset.catToggle) {
       if (chip.dataset.catToggle === 'unowned') state.catalogUnowned = !state.catalogUnowned;
       else if (chip.dataset.catToggle === 'charm') state.catalogCharmOnly = !state.catalogCharmOnly;
+      label = `Toggle → ${chip.dataset.catToggle}`;
     } else {
       return;
     }
+    console.log('[chips]', label, 'state=', {
+      filter: state.catalogFilter,
+      statuses: [...state.catalogStatuses],
+      unowned: state.catalogUnowned, charm: state.catalogCharmOnly,
+    });
+    toast(label);
     syncCatalogChips();
     render();
   }
@@ -1222,6 +1248,13 @@ function wireEvents() {
   if (themeEl) {
     themeEl.addEventListener('change', () => {
       state.catalogTheme = themeEl.value;
+      render();
+    });
+  }
+  const colorEl = document.getElementById('cat-color');
+  if (colorEl) {
+    colorEl.addEventListener('change', () => {
+      state.catalogColor = colorEl.value;
       render();
     });
   }
