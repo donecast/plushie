@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=35" />
+  <link rel="stylesheet" href="./styles.css?v=36" />
 </head>
 <body>
   <header>
@@ -69,19 +69,26 @@
     <div class="toolbar">
       <input type="search" id="search" placeholder="Search the crypt…" aria-label="Search" />
       <div id="collection-filters" class="filters">
-        <button class="chip active" data-filter="all">All</button>
-        <button class="chip" data-filter="active">Active</button>
-        <button class="chip" data-filter="retired">Retired</button>
-        <span class="chip-sep" aria-hidden="true"></span>
-        <button class="chip active" data-col-cat="all">All</button>
-        <button class="chip" data-col-cat="plush">Plushies</button>
-        <button class="chip" data-col-cat="mini">Minis</button>
-        <button class="chip" data-col-cat="accessory">Accessories</button>
-        <button class="chip" data-col-cat="other">Other</button>
-        <span class="chip-sep" aria-hidden="true"></span>
-        <button class="chip chip-toggle" data-col-toggle="dupes">Duplicates</button>
-        <button class="chip chip-toggle" data-col-toggle="nobag">No bag</button>
-        <select id="col-sort" class="chip-select" aria-label="Sort collection">
+        <select id="col-state" class="filter-select" aria-label="Active or retired">
+          <option value="all">All states</option>
+          <option value="active">Active only</option>
+          <option value="retired">Retired only</option>
+        </select>
+        <select id="col-cat" class="filter-select" aria-label="Category">
+          <option value="all">All categories</option>
+          <option value="plush">Plushies</option>
+          <option value="mini">Minis</option>
+          <option value="accessory">Accessories</option>
+          <option value="other">Other</option>
+        </select>
+        <details class="filter-multi" id="col-extras">
+          <summary><span class="filter-label">Extras</span><span class="filter-summary" data-empty="None">None</span></summary>
+          <div class="filter-options">
+            <label><input type="checkbox" data-col-toggle="dupes" /> Duplicates only</label>
+            <label><input type="checkbox" data-col-toggle="nobag" /> No bag</label>
+          </div>
+        </details>
+        <select id="col-sort" class="filter-select" aria-label="Sort collection">
           <option value="acquired_desc">Newest acquired</option>
           <option value="acquired_asc">Oldest acquired</option>
           <option value="added_desc">Newest added</option>
@@ -89,40 +96,57 @@
           <option value="name_desc">Name Z→A</option>
           <option value="qty_desc">Most owned</option>
         </select>
+        <button class="filter-clear" data-clear-tab="collection">Clear filters</button>
       </div>
       <div id="wishlist-actions" class="filters hidden">
-        <button id="check-restocks" class="chip chip-action">Check All Restocks</button>
-        <span class="chip-sep" aria-hidden="true"></span>
-        <button class="chip active" data-wish-cat="all">All</button>
-        <button class="chip" data-wish-cat="plush">Plushies</button>
-        <button class="chip" data-wish-cat="mini">Minis</button>
-        <button class="chip" data-wish-cat="accessory">Accessories</button>
-        <button class="chip" data-wish-cat="other">Other</button>
-        <span class="chip-sep" aria-hidden="true"></span>
-        <button class="chip chip-toggle" data-wish-toggle="instock">In stock only</button>
-        <select id="wish-sort" class="chip-select" aria-label="Sort wishlist">
+        <select id="wish-cat" class="filter-select" aria-label="Category">
+          <option value="all">All categories</option>
+          <option value="plush">Plushies</option>
+          <option value="mini">Minis</option>
+          <option value="accessory">Accessories</option>
+          <option value="other">Other</option>
+        </select>
+        <details class="filter-multi" id="wish-extras">
+          <summary><span class="filter-label">Extras</span><span class="filter-summary" data-empty="None">None</span></summary>
+          <div class="filter-options">
+            <label><input type="checkbox" data-wish-toggle="instock" /> In stock only</label>
+          </div>
+        </details>
+        <select id="wish-sort" class="filter-select" aria-label="Sort wishlist">
           <option value="added_desc">Newest added</option>
           <option value="added_asc">Oldest added</option>
           <option value="name_asc">Name A→Z</option>
           <option value="name_desc">Name Z→A</option>
         </select>
+        <button id="check-restocks" class="filter-action">Check restocks</button>
+        <button class="filter-clear" data-clear-tab="wishlist">Clear filters</button>
       </div>
       <div id="catalog-filters" class="filters hidden">
-        <button class="chip active" data-cat-filter="all">All</button>
-        <button class="chip" data-cat-filter="plush">Plushies</button>
-        <button class="chip" data-cat-filter="mini">Minis</button>
-        <button class="chip" data-cat-filter="accessory">Accessories</button>
-        <button class="chip" data-cat-filter="other">Other</button>
-        <span class="chip-sep" aria-hidden="true"></span>
-        <button class="chip chip-toggle" data-cat-status="available">Available</button>
-        <button class="chip chip-toggle" data-cat-status="sold_out">Sold Out</button>
-        <button class="chip chip-toggle" data-cat-status="coming_soon">Coming Soon</button>
-        <button class="chip chip-toggle" data-cat-status="fyc">FYC</button>
-        <button class="chip chip-toggle" data-cat-status="retired">Retired</button>
-        <span class="chip-sep" aria-hidden="true"></span>
-        <button class="chip chip-toggle" data-cat-toggle="unowned">Unowned</button>
-        <button class="chip chip-toggle" data-cat-toggle="charm">Bag Charm</button>
-        <select id="cat-theme" class="chip-select" aria-label="Filter by theme">
+        <select id="cat-category-sel" class="filter-select" aria-label="Category">
+          <option value="all">All categories</option>
+          <option value="plush">Plushies</option>
+          <option value="mini">Minis</option>
+          <option value="accessory">Accessories</option>
+          <option value="other">Other</option>
+        </select>
+        <details class="filter-multi" id="cat-status-multi">
+          <summary><span class="filter-label">Status</span><span class="filter-summary" data-empty="Any">Any</span></summary>
+          <div class="filter-options">
+            <label><input type="checkbox" data-cat-status="available" /> Available</label>
+            <label><input type="checkbox" data-cat-status="sold_out" /> Sold Out</label>
+            <label><input type="checkbox" data-cat-status="coming_soon" /> Coming Soon</label>
+            <label><input type="checkbox" data-cat-status="fyc" /> FYC</label>
+            <label><input type="checkbox" data-cat-status="retired" /> Retired</label>
+          </div>
+        </details>
+        <details class="filter-multi" id="cat-extras">
+          <summary><span class="filter-label">Extras</span><span class="filter-summary" data-empty="None">None</span></summary>
+          <div class="filter-options">
+            <label><input type="checkbox" data-cat-toggle="unowned" /> Unowned</label>
+            <label><input type="checkbox" data-cat-toggle="charm" /> Bag Charm</label>
+          </div>
+        </details>
+        <select id="cat-theme" class="filter-select" aria-label="Filter by theme">
           <option value="all">All themes</option>
           <option value="mental health plushies">Mental Health</option>
           <option value="emotion and personality plushies">Emotion & Personality</option>
@@ -139,7 +163,7 @@
           <option value="bundles and gifts">Bundles & Gifts</option>
           <option value="stickers and decals">Stickers</option>
         </select>
-        <select id="cat-color" class="chip-select" aria-label="Filter by color">
+        <select id="cat-color" class="filter-select" aria-label="Filter by color">
           <option value="all">Any color</option>
           <option value="pink">Pink</option>
           <option value="purple">Purple</option>
@@ -160,7 +184,7 @@
           <option value="rainbow">Rainbow</option>
           <option value="pastel">Pastel</option>
         </select>
-        <select id="cat-sort" class="chip-select" aria-label="Sort catalog">
+        <select id="cat-sort" class="filter-select" aria-label="Sort catalog">
           <option value="newest">Newest first</option>
           <option value="oldest">Oldest first</option>
           <option value="name_asc">Name A→Z</option>
@@ -168,6 +192,7 @@
           <option value="price_asc">Price low→high</option>
           <option value="price_desc">Price high→low</option>
         </select>
+        <button class="filter-clear" data-clear-tab="catalog">Clear filters</button>
       </div>
     </div>
 
@@ -469,10 +494,10 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="./config.js?v=35"></script>
-  <script src="./auth.js?v=35"></script>
-  <script src="./db.js?v=35"></script>
-  <script src="./data.js?v=35"></script>
-  <script src="./app.js?v=35"></script>
+  <script src="./config.js?v=36"></script>
+  <script src="./auth.js?v=36"></script>
+  <script src="./db.js?v=36"></script>
+  <script src="./data.js?v=36"></script>
+  <script src="./app.js?v=36"></script>
 </body>
 </html>

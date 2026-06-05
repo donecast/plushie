@@ -240,6 +240,118 @@ main {
 }
 .chip-select:focus { outline: none; border-color: var(--rose-hi); color: var(--ink); }
 
+/* ─── Filter widgets ──────────────────────────────
+   Replacements for the old chip rows. Native <select> for single-value
+   filters; <details>/<summary> + checkboxes for multi-value. */
+.filter-select {
+  padding: 9px 30px 9px 14px;
+  background: var(--panel) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%23ff5fa8' d='M5 6 0 0h10z'/></svg>") no-repeat right 12px center;
+  border: 1px solid rgba(255, 95, 168, 0.25);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 0.92rem;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  min-width: 130px;
+}
+.filter-select:focus { outline: none; border-color: var(--rose-hi); }
+
+.filter-multi {
+  position: relative;
+}
+.filter-multi summary {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  background: var(--panel);
+  border: 1px solid rgba(255, 95, 168, 0.25);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 0.92rem;
+  cursor: pointer;
+  min-width: 130px;
+}
+.filter-multi summary::-webkit-details-marker { display: none; }
+.filter-multi summary::after {
+  content: '▾';
+  margin-left: auto;
+  color: var(--rose-hi);
+  font-size: 0.7rem;
+}
+.filter-multi[open] summary { border-color: var(--rose-hi); }
+.filter-multi .filter-label {
+  color: var(--ink-dim);
+  font-style: italic;
+}
+.filter-multi .filter-summary {
+  color: var(--gold);
+  font-weight: 600;
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.filter-options {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 5;
+  background: var(--panel);
+  border: 1px solid rgba(255, 95, 168, 0.3);
+  border-radius: var(--radius-sm);
+  padding: 6px;
+  min-width: 180px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.filter-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.filter-options label:hover { background: var(--bg-2); }
+.filter-options input[type=checkbox] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--rose-hi);
+  cursor: pointer;
+}
+
+.filter-clear, .filter-action {
+  background: transparent;
+  border: 1px solid rgba(255, 95, 168, 0.25);
+  color: var(--ink-dim);
+  font-family: var(--serif);
+  font-size: 0.88rem;
+  padding: 9px 14px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-style: italic;
+  margin-left: auto;
+}
+.filter-clear:hover, .filter-action:hover {
+  border-color: var(--rose-hi);
+  color: var(--rose-hi);
+}
+.filter-action {
+  color: var(--gold);
+  border-color: rgba(255, 215, 142, 0.4);
+  margin-left: 0;
+}
+
 .add-row {
   display: flex;
   align-items: center;
@@ -276,16 +388,16 @@ main {
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 18px;
 }
-/* List view: one card per row, photo on the left, full-width text on the right.
-   Used for My Collection because filled-in fields (nickname, meaning, etc)
-   need real room to breathe. */
+/* List view: one card per row, small photo on the left, body on the right.
+   Used for My Collection so filled-in fields have room and the photo doesn't
+   dominate. */
 .grid-list {
   grid-template-columns: 1fr;
-  gap: 12px;
+  gap: 10px;
 }
 .grid-list .card {
   display: grid;
-  grid-template-columns: 140px 1fr;
+  grid-template-columns: 88px 1fr;
   grid-template-rows: auto auto;
   align-items: stretch;
 }
@@ -294,9 +406,9 @@ main {
   aspect-ratio: 1 / 1;
   height: 100%;
 }
-.grid-list .card-body { padding: 12px 16px 6px; }
+.grid-list .card-body { padding: 10px 14px 4px; }
 .grid-list .card-actions {
-  padding: 6px 16px 12px;
+  padding: 4px 14px 10px;
   border-top: 0;
   flex-wrap: wrap;
 }
@@ -989,6 +1101,39 @@ main {
   to { opacity: 1; transform: translate(-50%, 0); }
 }
 
+.card-clickable {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.card-clickable:hover { background: rgba(255, 95, 168, 0.04); }
+.card-clickable::after {
+  content: '›';
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ink-dim);
+  font-size: 1.4rem;
+  pointer-events: none;
+}
+.grid-list .card-body.card-clickable { position: relative; padding-right: 28px; }
+
+.trade-history-toggle {
+  margin: 14px 0;
+  text-align: center;
+}
+.trade-history-toggle button {
+  background: transparent;
+  border: 1px dashed rgba(255, 95, 168, 0.3);
+  color: var(--ink-dim);
+  font-family: var(--serif);
+  font-style: italic;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.trade-history-toggle button:hover { color: var(--rose-hi); border-color: var(--rose); }
+
 /* ─── Trade tab ────────────────────────────── */
 .tab-badge {
   display: inline-block;
@@ -1529,31 +1674,30 @@ body.locked { overflow: hidden; }
   /* Main padding */
   main { padding: 14px 12px; }
 
-  /* Search bar: stacks above the filter row */
+  /* Search bar: full width, then filters wrap below */
   .toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
   #search { min-width: 0; padding: 10px 14px; font-size: 0.95rem; }
 
-  /* Filter chip rows: horizontal scroll instead of wrapping */
-  .filters {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
-    padding-bottom: 4px;
-    margin: 0 -12px;
-    padding-left: 12px;
-    padding-right: 12px;
-  }
-  .filters::-webkit-scrollbar { display: none; }
-  .filters > * { flex-shrink: 0; }
-  .chip {
-    padding: 8px 12px;
+  /* Filter widgets: shrink and wrap to multiple short rows */
+  .filters { flex-wrap: wrap; gap: 6px; }
+  .filter-select, .filter-multi summary {
+    padding: 8px 28px 8px 12px;
     font-size: 0.85rem;
-    letter-spacing: 0.02em;
+    min-width: 0;
+    flex: 1 1 calc(50% - 6px);
   }
-  .chip-toggle::before { margin-right: 4px; }
-  .chip-select { padding: 8px 30px 8px 12px; font-size: 0.85rem; }
-  .chip-sep { display: none; }
+  .filter-multi summary { padding-right: 12px; }
+  .filter-clear, .filter-action {
+    padding: 8px 12px;
+    font-size: 0.82rem;
+    margin-left: 0;
+    flex: 1 1 100%;
+  }
+  .filter-options {
+    left: 0;
+    right: 0;
+    min-width: 0;
+  }
 
   /* Active filters bar — wrap normally, smaller text */
   .active-filters { padding: 6px 10px; font-size: 0.82rem; }

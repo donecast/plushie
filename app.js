@@ -31,6 +31,7 @@ const state = {
   trades: [],
   myFeedback: { good_count: 0, meh_count: 0, bad_count: 0, net_score: 0, total_count: 0 },
   partnerFeedback: new Map(), // userId → summary
+  tradeShowHistory: false,    // include completed/cancelled/expired/rejected bucket?
   offerDraft: null,           // { recipientId, recipientUsername, recipientItems, myItems, parentTradeId? }
   feedbackDraft: null,        // { tradeId, rateeId, rateeUsername, rating, comment }
 
@@ -122,6 +123,37 @@ function renderActiveFilters(shownCount) {
   bar.innerHTML = countText + pills.join('') + clearAll;
 }
 
+// Reset every filter for one tab back to defaults. Called by the per-tab
+// 'Clear filters' button in the toolbar.
+function clearTabFilters(tab) {
+  if (tab === 'catalog') {
+    state.catalogFilter = 'all';
+    state.catalogStatuses = new Set();
+    state.catalogUnowned = false;
+    state.catalogCharmOnly = false;
+    state.catalogTheme = 'all';
+    state.catalogColor = 'all';
+    state.catalogSort = 'newest';
+    syncCatalogChips();
+  } else if (tab === 'collection') {
+    state.filter = 'all';
+    state.colCategory = 'all';
+    state.colDupes = false;
+    state.colNoBag = false;
+    state.colSort = 'acquired_desc';
+    syncCollectionChips();
+  } else if (tab === 'wishlist') {
+    state.wishCategory = 'all';
+    state.wishInStock = false;
+    state.wishSort = 'added_desc';
+    syncWishlistChips();
+  }
+  state.query = '';
+  const s = document.getElementById('search');
+  if (s) s.value = '';
+  render();
+}
+
 function clearFilter(key) {
   if (key === 'all') {
     state.catalogFilter = 'all';
@@ -160,45 +192,66 @@ function clearFilter(key) {
   render();
 }
 
+function setMultiSummary(detailsEl, labels) {
+  const el = detailsEl?.querySelector('.filter-summary');
+  if (!el) return;
+  el.textContent = labels.length === 0 ? (el.dataset.empty || 'Any') : labels.join(', ');
+}
+
 function syncCollectionChips() {
-  document.querySelectorAll('#collection-filters .chip[data-filter]').forEach((c) => {
-    c.classList.toggle('active', c.dataset.filter === state.filter);
-  });
-  document.querySelectorAll('#collection-filters .chip[data-col-cat]').forEach((c) => {
-    c.classList.toggle('active', c.dataset.colCat === state.colCategory);
-  });
-  document.querySelectorAll('#collection-filters .chip[data-col-toggle]').forEach((c) => {
-    const k = c.dataset.colToggle;
-    c.classList.toggle('active', (k === 'dupes' && state.colDupes) || (k === 'nobag' && state.colNoBag));
-  });
+  const stateEl = document.getElementById('col-state');
+  if (stateEl) stateEl.value = state.filter;
+  const catEl = document.getElementById('col-cat');
+  if (catEl) catEl.value = state.colCategory;
+  const dupes = document.querySelector('#col-extras input[data-col-toggle="dupes"]');
+  const nobag = document.querySelector('#col-extras input[data-col-toggle="nobag"]');
+  if (dupes) dupes.checked = state.colDupes;
+  if (nobag) nobag.checked = state.colNoBag;
+  const labels = [];
+  if (state.colDupes) labels.push('Duplicates');
+  if (state.colNoBag) labels.push('No bag');
+  setMultiSummary(document.getElementById('col-extras'), labels);
+  const sortEl = document.getElementById('col-sort');
+  if (sortEl) sortEl.value = state.colSort;
 }
 
 function syncWishlistChips() {
-  document.querySelectorAll('#wishlist-actions .chip[data-wish-cat]').forEach((c) => {
-    c.classList.toggle('active', c.dataset.wishCat === state.wishCategory);
-  });
-  document.querySelectorAll('#wishlist-actions .chip[data-wish-toggle]').forEach((c) => {
-    const k = c.dataset.wishToggle;
-    c.classList.toggle('active', k === 'instock' && state.wishInStock);
-  });
+  const catEl = document.getElementById('wish-cat');
+  if (catEl) catEl.value = state.wishCategory;
+  const instock = document.querySelector('#wish-extras input[data-wish-toggle="instock"]');
+  if (instock) instock.checked = state.wishInStock;
+  setMultiSummary(document.getElementById('wish-extras'), state.wishInStock ? ['In stock'] : []);
+  const sortEl = document.getElementById('wish-sort');
+  if (sortEl) sortEl.value = state.wishSort;
 }
 
-// Re-apply the .active class on every chip from current state — safe to call
-// after any state mutation. Single source of truth: state.catalogFilter,
-// state.catalogStatuses, state.catalogUnowned, state.catalogCharmOnly.
+// Single source of truth: state.catalogFilter, state.catalogStatuses,
+// state.catalogUnowned, state.catalogCharmOnly, theme, color, sort.
 function syncCatalogChips() {
-  document.querySelectorAll('#catalog-filters .chip[data-cat-filter]').forEach((c) => {
-    c.classList.toggle('active', c.dataset.catFilter === state.catalogFilter);
+  const catEl = document.getElementById('cat-category-sel');
+  if (catEl) catEl.value = state.catalogFilter;
+  document.querySelectorAll('#cat-status-multi input[data-cat-status]').forEach((c) => {
+    c.checked = state.catalogStatuses.has(c.dataset.catStatus);
   });
-  document.querySelectorAll('#catalog-filters .chip[data-cat-status]').forEach((c) => {
-    c.classList.toggle('active', state.catalogStatuses.has(c.dataset.catStatus));
+  const STATUS_LABELS = { available: 'Available', sold_out: 'Sold Out', coming_soon: 'Coming Soon', fyc: 'FYC', retired: 'Retired' };
+  setMultiSummary(
+    document.getElementById('cat-status-multi'),
+    [...state.catalogStatuses].map((s) => STATUS_LABELS[s] || s),
+  );
+  document.querySelectorAll('#cat-extras input[data-cat-toggle]').forEach((c) => {
+    c.checked = (c.dataset.catToggle === 'unowned' && state.catalogUnowned)
+             || (c.dataset.catToggle === 'charm'   && state.catalogCharmOnly);
   });
-  document.querySelectorAll('#catalog-filters .chip[data-cat-toggle]').forEach((c) => {
-    const key = c.dataset.catToggle;
-    const on = (key === 'unowned' && state.catalogUnowned)
-            || (key === 'charm'   && state.catalogCharmOnly);
-    c.classList.toggle('active', on);
-  });
+  const exLabels = [];
+  if (state.catalogUnowned) exLabels.push('Unowned');
+  if (state.catalogCharmOnly) exLabels.push('Bag Charm');
+  setMultiSummary(document.getElementById('cat-extras'), exLabels);
+  const themeEl = document.getElementById('cat-theme');
+  if (themeEl) themeEl.value = state.catalogTheme;
+  const colorEl = document.getElementById('cat-color');
+  if (colorEl) colorEl.value = state.catalogColor;
+  const sortEl = document.getElementById('cat-sort');
+  if (sortEl) sortEl.value = state.catalogSort;
 }
 
 // Catalog products that aren't plushies. Only the truly off-topic types are
@@ -331,7 +384,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=35', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=36', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -636,7 +689,6 @@ function renderCard(item, kind) {
     ? `
       ${qtyControl}
       ${tradeBtn}
-      <button data-action="edit" data-id="${item.id}">Edit</button>
       <button class="btn-danger" data-action="delete" data-id="${item.id}">Delete</button>
     `
     : `
@@ -646,19 +698,34 @@ function renderCard(item, kind) {
       <button class="btn-danger" data-action="delete" data-id="${item.id}">Delete</button>
     `;
 
+  // Body content. On the collection (list view) we keep things compact —
+  // nickname/name only — and tapping the card opens the detail modal with
+  // meaning, date, acquired-how, has-bag, etc. The Edit button is gone in
+  // that mode because the card body IS the entry point.
+  const collectionBody = `
+    ${item.nickname
+      ? `<h3 class="card-name">${escapeHtml(item.nickname)}</h3>
+         <p class="card-product">${escapeHtml(item.name)}</p>`
+      : `<h3 class="card-name">${escapeHtml(item.name)}</h3>`}
+    ${meta.length ? `<div class="card-meta">${meta.join('')}</div>` : ''}
+  `;
+  const otherBody = `
+    <h3 class="card-name">${escapeHtml(item.name)}</h3>
+    ${item.meaning ? `<p class="card-meaning">${escapeHtml(item.meaning)}</p>` : ''}
+    ${meta.length ? `<div class="card-meta">${meta.join('')}</div>` : ''}
+  `;
+  const bodyOpen = kind === 'collection'
+    ? `<div class="card-body card-clickable" data-action="open-detail" data-id="${item.id}">`
+    : `<div class="card-body">`;
+
   return `
     <article class="card" data-id="${item.id}">
       <div class="card-photo">
         ${photoHtml}
         ${badges.length ? `<div class="badge-stack">${badges.join('')}</div>` : ''}
       </div>
-      <div class="card-body">
-        ${kind === 'collection' && item.nickname
-          ? `<h3 class="card-name">${escapeHtml(item.nickname)}</h3>
-             <p class="card-product">${escapeHtml(item.name)}</p>`
-          : `<h3 class="card-name">${escapeHtml(item.name)}</h3>`}
-        ${item.meaning ? `<p class="card-meaning">${escapeHtml(item.meaning)}</p>` : ''}
-        ${meta.length ? `<div class="card-meta">${meta.join('')}</div>` : ''}
+      ${bodyOpen}
+        ${kind === 'collection' ? collectionBody : otherBody}
       </div>
       <div class="card-actions">${actions}</div>
     </article>
@@ -870,7 +937,7 @@ async function onCardClick(e) {
 async function onCardClickInner(btn) {
   const { action, id, cid } = btn.dataset;
 
-  if (action === 'edit') {
+  if (action === 'edit' || action === 'open-detail') {
     const item = state.collection.find((x) => x.id === id);
     if (item) openModal('collection', item);
   } else if (action === 'delete') {
@@ -1163,93 +1230,68 @@ function wireEvents() {
     });
   });
 
-  // Collection chips: status (all/active/retired) + category (all/plush/mini/...)
-  // + multi-select toggles (dupes/nobag). Per-chip listeners are simplest.
-  function handleCollectionChip(c) {
-    if (c.dataset.filter) {
-      state.filter = c.dataset.filter;
-    } else if (c.dataset.colCat) {
-      state.colCategory = c.dataset.colCat;
-    } else if (c.dataset.colToggle === 'dupes') {
-      state.colDupes = !state.colDupes;
-    } else if (c.dataset.colToggle === 'nobag') {
-      state.colNoBag = !state.colNoBag;
-    } else {
-      return;
-    }
-    syncCollectionChips();
-    render();
-  }
-  document.querySelectorAll('#collection-filters .chip').forEach((c) => {
-    c.addEventListener('click', () => handleCollectionChip(c));
-  });
-  const colSortEl = document.getElementById('col-sort');
-  if (colSortEl) colSortEl.addEventListener('change', () => {
-    state.colSort = colSortEl.value;
-    render();
+  // Collection filters: native selects + a details/checkbox group for the
+  // multi-select toggles. Each select fires 'change'; each checkbox fires
+  // 'change' too.
+  const wireSelect = (id, target) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => { state[target] = el.value; render(); });
+  };
+  wireSelect('col-state', 'filter');
+  wireSelect('col-cat', 'colCategory');
+  wireSelect('col-sort', 'colSort');
+  document.querySelectorAll('#col-extras input[data-col-toggle]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      if (cb.dataset.colToggle === 'dupes') state.colDupes = cb.checked;
+      else if (cb.dataset.colToggle === 'nobag') state.colNoBag = cb.checked;
+      syncCollectionChips();
+      render();
+    });
   });
 
-  // Wishlist chips: category + in-stock-only toggle.
-  function handleWishlistChip(c) {
-    if (c.dataset.wishCat) {
-      state.wishCategory = c.dataset.wishCat;
-    } else if (c.dataset.wishToggle === 'instock') {
-      state.wishInStock = !state.wishInStock;
-    } else {
-      return;
-    }
-    syncWishlistChips();
-    render();
-  }
-  document.querySelectorAll('#wishlist-actions .chip').forEach((c) => {
-    c.addEventListener('click', () => handleWishlistChip(c));
-  });
-  const wishSortEl = document.getElementById('wish-sort');
-  if (wishSortEl) wishSortEl.addEventListener('change', () => {
-    state.wishSort = wishSortEl.value;
-    render();
+  // Wishlist filters
+  wireSelect('wish-cat', 'wishCategory');
+  wireSelect('wish-sort', 'wishSort');
+  document.querySelectorAll('#wish-extras input[data-wish-toggle]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      if (cb.dataset.wishToggle === 'instock') state.wishInStock = cb.checked;
+      syncWishlistChips();
+      render();
+    });
   });
 
-  // Catalog chips: delegated handler. Each chip declares its purpose via
-  // data-cat-filter / data-cat-status / data-cat-toggle and the dispatcher
-  // updates the right state and re-syncs all chip active classes.
-  // Belt-and-suspenders: also attach a direct click handler to each chip.
-  // The delegated one should work, but if anything intercepts the bubbling
-  // path the per-chip listener still fires.
-  function handleChipClick(chip) {
-    if (chip.dataset.catFilter) {
-      state.catalogFilter = chip.dataset.catFilter;
-    } else if (chip.dataset.catStatus) {
-      const s = chip.dataset.catStatus;
-      if (state.catalogStatuses.has(s)) state.catalogStatuses.delete(s);
-      else state.catalogStatuses.add(s);
-    } else if (chip.dataset.catToggle) {
-      if (chip.dataset.catToggle === 'unowned') state.catalogUnowned = !state.catalogUnowned;
-      else if (chip.dataset.catToggle === 'charm') state.catalogCharmOnly = !state.catalogCharmOnly;
-    } else {
-      return;
-    }
-    syncCatalogChips();
-    render();
-  }
-
-  document.querySelectorAll('#catalog-filters .chip').forEach((c) => {
-    c.addEventListener('click', () => handleChipClick(c));
+  // Catalog filters
+  wireSelect('cat-category-sel', 'catalogFilter');
+  wireSelect('cat-sort', 'catalogSort');
+  document.querySelectorAll('#cat-status-multi input[data-cat-status]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      const s = cb.dataset.catStatus;
+      if (cb.checked) state.catalogStatuses.add(s);
+      else state.catalogStatuses.delete(s);
+      syncCatalogChips();
+      render();
+    });
+  });
+  document.querySelectorAll('#cat-extras input[data-cat-toggle]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      if (cb.dataset.catToggle === 'unowned') state.catalogUnowned = cb.checked;
+      else if (cb.dataset.catToggle === 'charm') state.catalogCharmOnly = cb.checked;
+      syncCatalogChips();
+      render();
+    });
   });
 
-  // Active-filters bar: click any pill to drop that one filter, "Clear filters" to reset.
+  // Clear filters buttons (per tab)
+  document.querySelectorAll('[data-clear-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => clearTabFilters(btn.dataset.clearTab));
+  });
+
+  // Active-filters bar: keep the per-pill click-to-drop affordance.
   document.getElementById('active-filters').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-clear]');
     if (btn) clearFilter(btn.dataset.clear);
   });
 
-  const sortEl = document.getElementById('cat-sort');
-  if (sortEl) {
-    sortEl.addEventListener('change', () => {
-      state.catalogSort = sortEl.value;
-      render();
-    });
-  }
   const themeEl = document.getElementById('cat-theme');
   if (themeEl) {
     themeEl.addEventListener('change', () => {
@@ -1624,11 +1666,27 @@ function renderMyTrades() {
     ? ''
     : `<section class="trades-section"><h2 class="trader-head"><span>${title}</span></h2>${list.map((t) => renderTradeRow(t, uid)).join('')}</section>`;
 
+  // History (completed, rejected, expired, cancelled, countered) is hidden
+  // behind a toggle by default so the view stays focused on what needs your
+  // attention. Past-trades count surfaces on the toggle.
+  const historyLabel = state.tradeShowHistory
+    ? `Hide past trades (${buckets.history.length})`
+    : `Show past trades (${buckets.history.length})`;
+
   let html = '';
   html += sec('Pending', buckets.pending);
   html += sec('Active', buckets.active);
-  html += sec('History', buckets.history.slice(0, 30));
-  if (!html) html = `<div class="empty"><div class="ghost">📜</div><p>No trades yet. Browse offerings to start one.</p></div>`;
+  if (buckets.history.length > 0) {
+    html += `<div class="trade-history-toggle">
+      <button data-action="toggle-history">${historyLabel}</button>
+    </div>`;
+    if (state.tradeShowHistory) {
+      html += sec('Past', buckets.history.slice(0, 30));
+    }
+  }
+  if (buckets.pending.length === 0 && buckets.active.length === 0 && buckets.history.length === 0) {
+    html = `<div class="empty"><div class="ghost">📜</div><p>No trades yet. Browse offerings to start one.</p></div>`;
+  }
   document.getElementById('subtab-trades').innerHTML = html;
 }
 
@@ -1750,6 +1808,7 @@ async function onTradeClick(e) {
   else if (action === 'trade-received')    await tradeReceived(id, btn.dataset.side);
   else if (action === 'trade-address')     await openAddressModal(id);
   else if (action === 'trade-feedback')    await openFeedbackModal(id);
+  else if (action === 'toggle-history') { state.tradeShowHistory = !state.tradeShowHistory; renderTrade(); }
 }
 
 async function removeMyTradeItem(id) {
