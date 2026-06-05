@@ -1,12 +1,12 @@
 // Plushie Dreadfuls service worker — offline app shell.
-const CACHE = 'plushie-dreadful-v36';
+const CACHE = 'plushie-dreadful-v37';
+// Only precache the root + static assets that don't carry cache-buster query
+// strings. Versioned files (app.js?v=N, styles.css?v=N, catalog.json?v=N)
+// get fetched and cached on demand by the fetch handler — listing them here
+// with a stale version would 404 the addAll and block the install entirely.
 const ASSETS = [
   './',
   './index.html',
-  './styles.css?v=5',
-  './app.js?v=5',
-  './db.js?v=5',
-  './catalog.json?v=7',
   './manifest.json',
   './icon.svg',
   './icon-192.png',
