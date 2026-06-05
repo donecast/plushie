@@ -384,7 +384,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=39', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=40', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -1378,6 +1378,12 @@ function wireEvents() {
   document.getElementById('acct-save-username').addEventListener('click', saveUsername);
   document.getElementById('acct-save-email').addEventListener('click', saveEmail);
   document.getElementById('acct-save-address').addEventListener('click', saveDefaultAddress);
+  document.getElementById('acct-theme').addEventListener('change', (e) => {
+    const t = e.target.value;
+    if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    else document.documentElement.removeAttribute('data-theme');
+    try { localStorage.setItem('theme', t); } catch {}
+  });
   document.getElementById('acct-share').addEventListener('click', () => {
     closeAccountModal();
     openShareModal();
@@ -2191,6 +2197,8 @@ async function openAccountModal() {
   document.getElementById('acct-username').value = window.currentUser?.username ?? '';
   document.getElementById('acct-email').value    = window.currentUser?.email ?? '';
   document.getElementById('acct-address').value  = await data.getMyAddress();
+  const themeSel = document.getElementById('acct-theme');
+  if (themeSel) themeSel.value = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
   // Admin tag in the modal header so it's obvious who you're signed in as.
   const heading = document.querySelector('#account-modal h2');
   if (heading) {

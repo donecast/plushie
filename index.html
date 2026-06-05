@@ -14,7 +14,16 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=39" />
+  <link rel="stylesheet" href="./styles.css?v=40" />
+  <script>
+    // Apply saved theme before paint so the initial render doesn't flash dark.
+    (function () {
+      try {
+        var t = localStorage.getItem('theme');
+        if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) { /* localStorage blocked — fall through to default */ }
+    })();
+  </script>
 </head>
 <body>
   <header>
@@ -428,6 +437,19 @@
       </section>
 
       <section class="account-section">
+        <h3>Appearance</h3>
+        <div class="account-row">
+          <label class="field">
+            <span>Theme</span>
+            <select id="acct-theme">
+              <option value="dark">Dark (default)</option>
+              <option value="light">Light</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section class="account-section">
         <h3>Reputation</h3>
         <div id="acct-feedback" class="feedback-summary"></div>
       </section>
@@ -494,10 +516,10 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="./config.js?v=39"></script>
-  <script src="./auth.js?v=39"></script>
-  <script src="./db.js?v=39"></script>
-  <script src="./data.js?v=39"></script>
-  <script src="./app.js?v=39"></script>
+  <script src="./config.js?v=40"></script>
+  <script src="./auth.js?v=40"></script>
+  <script src="./db.js?v=40"></script>
+  <script src="./data.js?v=40"></script>
+  <script src="./app.js?v=40"></script>
 </body>
 </html>

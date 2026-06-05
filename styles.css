@@ -1,4 +1,5 @@
 :root {
+  /* Default: dark theme — gothic plum + rose. */
   --bg: #120820;
   --bg-2: #1a0d26;
   --panel: #25153a;
@@ -13,12 +14,51 @@
   --gold: #e6b85e;
   --retired: #d4a35e;
   --danger: #ff4d6d;
-  --radius: 14px;
-  --radius-sm: 8px;
+  --bg-grad-1: rgba(122, 59, 143, 0.35);
+  --bg-grad-2: rgba(196, 61, 110, 0.25);
+  --header-bg-1: rgba(26, 13, 38, 0.95);
+  --header-bg-2: rgba(18, 8, 32, 0.85);
+  --header-border: rgba(196, 61, 110, 0.25);
+  --modal-backdrop: rgba(6, 2, 14, 0.7);
+  --border-rose: rgba(255, 95, 168, 0.25);
+  --border-rose-hi: rgba(255, 95, 168, 0.45);
   --shadow-soft: 0 6px 18px rgba(0, 0, 0, 0.45);
   --shadow-hi: 0 12px 32px rgba(0, 0, 0, 0.6);
+  --radius: 14px;
+  --radius-sm: 8px;
   --serif: 'Cormorant Garamond', 'Georgia', serif;
   --display: 'Cinzel Decorative', 'Georgia', serif;
+}
+
+/* Light theme — same gothic palette, but soft parchment-lavender base.
+   Activate by setting data-theme="light" on <html>; persisted via Account →
+   Appearance. The early-load script in <head> applies it before render to
+   avoid a flash. */
+[data-theme="light"] {
+  --bg: #f7f1fb;
+  --bg-2: #ece1f0;
+  --panel: #fcfaff;
+  --panel-2: #f5e8f0;
+  --panel-hi: #ebd9e9;
+  --ink: #2a1244;
+  --ink-dim: #6a4f80;
+  --ink-mute: #a092ad;
+  --rose: #a8295c;
+  --rose-hi: #c43d6e;
+  --rose-soft: rgba(196, 61, 110, 0.10);
+  --gold: #a87a35;
+  --retired: #b88940;
+  --danger: #c43050;
+  --bg-grad-1: rgba(168, 90, 180, 0.10);
+  --bg-grad-2: rgba(196, 61, 110, 0.08);
+  --header-bg-1: rgba(252, 250, 255, 0.95);
+  --header-bg-2: rgba(245, 235, 250, 0.85);
+  --header-border: rgba(168, 41, 92, 0.20);
+  --modal-backdrop: rgba(60, 30, 80, 0.35);
+  --border-rose: rgba(168, 41, 92, 0.25);
+  --border-rose-hi: rgba(168, 41, 92, 0.45);
+  --shadow-soft: 0 4px 14px rgba(120, 90, 140, 0.16);
+  --shadow-hi: 0 10px 28px rgba(120, 90, 140, 0.24);
 }
 
 * { box-sizing: border-box; }
@@ -28,8 +68,8 @@ body {
   font-family: var(--serif);
   color: var(--ink);
   background:
-    radial-gradient(ellipse 60% 40% at 15% 0%, rgba(122, 59, 143, 0.35) 0%, transparent 60%),
-    radial-gradient(ellipse 50% 40% at 100% 100%, rgba(196, 61, 110, 0.25) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 15% 0%, var(--bg-grad-1) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 100% 100%, var(--bg-grad-2) 0%, transparent 60%),
     var(--bg);
   min-height: 100vh;
   font-size: 17px;
@@ -42,10 +82,10 @@ header {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: linear-gradient(180deg, rgba(26, 13, 38, 0.95), rgba(18, 8, 32, 0.85));
+  background: linear-gradient(180deg, var(--header-bg-1), var(--header-bg-2));
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(196, 61, 110, 0.25);
+  border-bottom: 1px solid var(--header-border);
   padding-top: env(safe-area-inset-top);
 }
 
@@ -886,7 +926,7 @@ main {
 .modal-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(8, 4, 14, 0.75);
+  background: var(--modal-backdrop);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
 }
@@ -1497,8 +1537,8 @@ body.locked { overflow: hidden; }
   inset: 0;
   z-index: 1000;
   background:
-    radial-gradient(circle at 30% 20%, rgba(122, 59, 143, 0.4), transparent 50%),
-    radial-gradient(circle at 70% 80%, rgba(255, 95, 168, 0.25), transparent 50%),
+    radial-gradient(circle at 30% 20%, var(--bg-grad-1), transparent 50%),
+    radial-gradient(circle at 70% 80%, var(--bg-grad-2), transparent 50%),
     var(--bg);
   display: flex;
   align-items: center;
