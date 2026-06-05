@@ -1706,6 +1706,10 @@ body.locked { overflow: hidden; }
 
   /* Cards / grids */
   .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  /* Re-assert single-column for list view — the .grid rule above and this
+     .grid-list rule have equal specificity, and the .grid rule otherwise
+     wins by source order. */
+  .grid-list { grid-template-columns: 1fr; }
   .grid-tight { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
   .card-name { font-size: 0.98rem; }
   .card-meaning { font-size: 0.88rem; }

@@ -384,7 +384,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=38', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=39', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
