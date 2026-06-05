@@ -115,7 +115,13 @@ h1 {
   padding: 0 20px;
   display: flex;
   gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-snap-type: x proximity;
 }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { scroll-snap-align: start; flex-shrink: 0; }
 
 .tab {
   background: transparent;
@@ -293,11 +299,6 @@ main {
   padding: 6px 16px 12px;
   border-top: 0;
   flex-wrap: wrap;
-}
-@media (max-width: 480px) {
-  .grid-list .card { grid-template-columns: 110px 1fr; }
-  .grid-list .card-body { padding: 10px 12px 4px; }
-  .grid-list .card-actions { padding: 4px 12px 10px; }
 }
 
 .grid-tight {
@@ -1009,8 +1010,11 @@ main {
   gap: 4px;
   margin-bottom: 18px;
   border-bottom: 1px solid rgba(255, 95, 168, 0.18);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
-.subtab {
+.subtabs::-webkit-scrollbar { display: none; }
+.subtab { flex-shrink: 0;
   background: transparent;
   border: 0;
   color: var(--ink-dim);
@@ -1504,15 +1508,134 @@ body.locked { overflow: hidden; }
 }
 
 /* ─── Mobile ────────────────────────────── */
-@media (max-width: 600px) {
-  h1 { font-size: 1.3rem; }
-  .bat-logo { width: 48px; height: 32px; }
-  .header-inner { padding: 14px 16px 4px; }
-  .tabs { padding: 0 12px; }
-  main { padding: 16px 14px; }
-  .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
-  .card-name { font-size: 1rem; }
-  .card-meaning { font-size: 0.85rem; }
-  .add-btn { padding: 10px 16px; font-size: 0.88rem; }
-  .modal-card { padding: 20px 18px; }
+@media (max-width: 768px) {
+  /* Header */
+  h1 { font-size: 1.25rem; letter-spacing: 0.05em; }
+  .bat-logo { width: 44px; height: 30px; }
+  .header-inner { padding: 12px 14px 4px; gap: 8px; }
+  .brand { gap: 10px; }
+  .header-actions { gap: 6px; }
+  .user-badge { padding: 5px 10px; font-size: 0.85rem; }
+  .icon-btn { padding: 6px; font-size: 1rem; }
+
+  /* Tabs: scrollable strip, smaller padding */
+  .tabs { padding: 0 12px; gap: 0; }
+  .tab { padding: 12px 14px 10px; font-size: 0.85rem; letter-spacing: 0.04em; }
+  .tab.active::after { left: 8px; right: 8px; }
+
+  /* Sub-tabs */
+  .subtab { padding: 10px 12px; font-size: 0.78rem; }
+
+  /* Main padding */
+  main { padding: 14px 12px; }
+
+  /* Search bar: stacks above the filter row */
+  .toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
+  #search { min-width: 0; padding: 10px 14px; font-size: 0.95rem; }
+
+  /* Filter chip rows: horizontal scroll instead of wrapping */
+  .filters {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+    margin: 0 -12px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .filters::-webkit-scrollbar { display: none; }
+  .filters > * { flex-shrink: 0; }
+  .chip {
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    letter-spacing: 0.02em;
+  }
+  .chip-toggle::before { margin-right: 4px; }
+  .chip-select { padding: 8px 30px 8px 12px; font-size: 0.85rem; }
+  .chip-sep { display: none; }
+
+  /* Active filters bar — wrap normally, smaller text */
+  .active-filters { padding: 6px 10px; font-size: 0.82rem; }
+  .active-pill { padding: 3px 8px; font-size: 0.78rem; }
+  .active-clear-all { font-size: 0.8rem; }
+
+  /* Cards / grids */
+  .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .grid-tight { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+  .card-name { font-size: 0.98rem; }
+  .card-meaning { font-size: 0.88rem; }
+  .card-actions { padding: 8px 10px 10px; gap: 4px; }
+  .card-actions button, .card-actions .btn-buy { font-size: 0.82rem; padding: 6px 8px; }
+  .qty-control { padding: 1px; }
+  .qty-btn { width: 28px; height: 28px; font-size: 0.95rem; }
+  .qty-display { font-size: 0.85rem; min-width: 22px; }
+
+  /* List view (My Collection) — compact photo, body fills rest */
+  .grid-list .card { grid-template-columns: 96px 1fr; }
+  .grid-list .card-body { padding: 8px 10px 2px; }
+  .grid-list .card-actions {
+    padding: 4px 10px 8px;
+    grid-column: 1 / -1;
+    border-top: 1px solid rgba(255, 95, 168, 0.1);
+    margin-top: 4px;
+  }
+  .grid-list .card-photo { aspect-ratio: 1 / 1; }
+
+  /* Modals: full-width, less inner padding, sticky close */
+  .modal-card { max-width: 100%; padding: 18px 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
+  .modal-card-wide { max-width: 100%; }
+  .modal-card h2 { font-size: 1.2rem; }
+  .modal-name { font-size: 0.95rem; }
+  .form-actions { flex-direction: column-reverse; gap: 8px; }
+  .form-actions button { width: 100%; }
+
+  /* User menu / dropdowns */
+  .user-menu { left: 12px; right: 12px; }
+
+  /* Trade lines: stack the two columns */
+  .trade-lines { grid-template-columns: 1fr; gap: 8px; }
+  .trade-card { padding: 10px 12px; }
+  .trade-head { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .trade-with { margin-right: 0; }
+
+  /* Offer builder — already vertical, just tighten spacing */
+  .picker-panel { padding: 10px; }
+
+  /* Account modal sections */
+  .account-row { flex-direction: column; align-items: stretch; gap: 6px; }
+  .account-row.right { flex-direction: row; justify-content: flex-end; }
+  .feedback-summary { grid-template-columns: repeat(5, 1fr); gap: 4px; }
+  .fb-cell { padding: 8px 4px; }
+  .fb-num { font-size: 1.05rem; }
+  .fb-label { font-size: 0.68rem; }
+
+  /* Pens */
+  .pens-progress { padding: 12px 14px; }
+  .pens-progress-text { gap: 6px; }
+  .pen-rows { grid-template-columns: 1fr; }
+  .pen-row { padding: 8px 12px; }
+
+  /* Admin table → make horizontally scrollable so columns don't squish */
+  .admin-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Auth overlay */
+  .auth-card { padding: 28px 22px; }
+  .auth-title { font-size: 1.4rem; }
+}
+
+/* Extra-small phones — squeeze even more */
+@media (max-width: 380px) {
+  h1 { font-size: 1.1rem; }
+  .bat-logo { width: 36px; height: 24px; }
+  .tab { padding: 11px 11px 9px; font-size: 0.8rem; }
+  .grid-list .card { grid-template-columns: 80px 1fr; }
+  .grid { grid-template-columns: 1fr; }
+  .grid-tight { grid-template-columns: repeat(2, 1fr); }
+  .card-actions button, .card-actions .btn-buy { font-size: 0.78rem; padding: 5px 7px; }
 }
