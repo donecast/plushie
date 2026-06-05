@@ -1463,6 +1463,46 @@ body.locked { overflow: hidden; }
 }
 .user-menu .menu-item:hover { background: var(--bg-2); color: var(--gold); }
 
+/* ─── Admin ────────────────────────────── */
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--serif);
+  margin-top: 12px;
+}
+.admin-table th, .admin-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 95, 168, 0.12);
+  text-align: left;
+  vertical-align: middle;
+}
+.admin-table th {
+  font-family: var(--display);
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+}
+.admin-table tr:hover td { background: rgba(255, 95, 168, 0.05); }
+.admin-table button {
+  background: var(--panel-2);
+  border: 1px solid rgba(255, 215, 142, 0.35);
+  color: var(--gold);
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-family: var(--serif);
+  cursor: pointer;
+}
+.admin-back { margin-bottom: 12px; }
+.admin-back button {
+  background: transparent;
+  border: 0;
+  color: var(--rose-hi);
+  font-family: var(--serif);
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
 /* ─── Mobile ────────────────────────────── */
 @media (max-width: 600px) {
   h1 { font-size: 1.3rem; }

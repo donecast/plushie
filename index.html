@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=32" />
+  <link rel="stylesheet" href="./styles.css?v=33" />
 </head>
 <body>
   <header>
@@ -61,6 +61,7 @@
       <button class="tab" data-tab="wishlist">Wish List</button>
       <button class="tab" data-tab="pens">Pens</button>
       <button class="tab" data-tab="trade">Trade <span id="trade-badge" class="tab-badge hidden">0</span></button>
+      <button class="tab hidden" id="admin-tab" data-tab="admin">Admin</button>
     </nav>
   </header>
 
@@ -202,6 +203,10 @@
     <section id="pens-view" class="view hidden">
       <div id="pens-progress" class="pens-progress"></div>
       <div id="pens-list" class="pens-list"></div>
+    </section>
+
+    <section id="admin-view" class="view hidden">
+      <div id="admin-content"></div>
     </section>
 
     <section id="trade-view" class="view hidden">
@@ -464,10 +469,10 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="./config.js?v=32"></script>
-  <script src="./auth.js?v=32"></script>
-  <script src="./db.js?v=32"></script>
-  <script src="./data.js?v=32"></script>
-  <script src="./app.js?v=32"></script>
+  <script src="./config.js?v=33"></script>
+  <script src="./auth.js?v=33"></script>
+  <script src="./db.js?v=33"></script>
+  <script src="./data.js?v=33"></script>
+  <script src="./app.js?v=33"></script>
 </body>
 </html>

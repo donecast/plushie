@@ -33,6 +33,10 @@ const state = {
   partnerFeedback: new Map(), // userId → summary
   offerDraft: null,           // { recipientId, recipientUsername, recipientItems, myItems, parentTradeId? }
   feedbackDraft: null,        // { tradeId, rateeId, rateeUsername, rating, comment }
+
+  // ─── Admin state ──────────────────────────────────────────────────
+  adminUsers: [],             // list of all profiles + feedback
+  adminUserView: null,        // { user, snapshot } when drilled into a user
 };
 
 const PRODUCT_URL_BASE = 'https://plushiedreadfuls.com/products/';
@@ -327,7 +331,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=32', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=33', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -670,6 +674,9 @@ function render() {
   document.getElementById('catalog-view').classList.toggle('hidden', tab !== 'catalog');
   document.getElementById('pens-view').classList.toggle('hidden', tab !== 'pens');
   document.getElementById('trade-view').classList.toggle('hidden', tab !== 'trade');
+  document.getElementById('admin-view').classList.toggle('hidden', tab !== 'admin');
+  // Admin tab visibility is gated by the current user being is_admin.
+  document.getElementById('admin-tab').classList.toggle('hidden', !window.currentUser?.isAdmin);
 
   document.getElementById('collection-filters').classList.toggle('hidden', tab !== 'collection');
   document.getElementById('wishlist-actions').classList.toggle('hidden', tab !== 'wishlist');
@@ -715,9 +722,14 @@ function render() {
     const total = [...state.pensOwned.values()].reduce((a, b) => a + b, 0);
     document.getElementById('count-label').textContent =
       `${unique} of ${PENS.length} unique · ${total} pen${total === 1 ? '' : 's'} total`;
-  } else {
+  } else if (tab === 'trade') {
     renderTrade();
     document.getElementById('count-label').textContent = tradeCountLabel();
+  } else if (tab === 'admin') {
+    renderAdmin();
+    document.getElementById('count-label').textContent = state.adminUserView
+      ? `Inspecting @${state.adminUserView.user.username}`
+      : `${state.adminUsers.length} user${state.adminUsers.length === 1 ? '' : 's'}`;
   }
   updateTradeBadge();
 }
@@ -1143,6 +1155,10 @@ function wireEvents() {
     t.addEventListener('click', async () => {
       state.tab = t.dataset.tab;
       if (state.tab === 'trade') await loadTradeData();  // refresh from server on enter
+      if (state.tab === 'admin') {
+        state.adminUserView = null;
+        await loadAdminUsers();
+      }
       render();
     });
   });
@@ -1201,28 +1217,18 @@ function wireEvents() {
   // The delegated one should work, but if anything intercepts the bubbling
   // path the per-chip listener still fires.
   function handleChipClick(chip) {
-    let label = '';
     if (chip.dataset.catFilter) {
       state.catalogFilter = chip.dataset.catFilter;
-      label = `Category → ${chip.dataset.catFilter}`;
     } else if (chip.dataset.catStatus) {
       const s = chip.dataset.catStatus;
       if (state.catalogStatuses.has(s)) state.catalogStatuses.delete(s);
       else state.catalogStatuses.add(s);
-      label = `Status → ${[...state.catalogStatuses].join(', ') || '(none)'}`;
     } else if (chip.dataset.catToggle) {
       if (chip.dataset.catToggle === 'unowned') state.catalogUnowned = !state.catalogUnowned;
       else if (chip.dataset.catToggle === 'charm') state.catalogCharmOnly = !state.catalogCharmOnly;
-      label = `Toggle → ${chip.dataset.catToggle}`;
     } else {
       return;
     }
-    console.log('[chips]', label, 'state=', {
-      filter: state.catalogFilter,
-      statuses: [...state.catalogStatuses],
-      unowned: state.catalogUnowned, charm: state.catalogCharmOnly,
-    });
-    toast(label);
     syncCatalogChips();
     render();
   }
@@ -1282,6 +1288,7 @@ function wireEvents() {
     s.addEventListener('click', () => setTradeSubTab(s.dataset.subtab));
   });
   document.getElementById('trade-view').addEventListener('click', onTradeClick);
+  document.getElementById('admin-view').addEventListener('click', onAdminClick);
 
   // Offer modal
   document.querySelectorAll('[data-close-offer]').forEach((el) =>
@@ -2075,6 +2082,12 @@ async function openAccountModal() {
   document.getElementById('acct-username').value = window.currentUser?.username ?? '';
   document.getElementById('acct-email').value    = window.currentUser?.email ?? '';
   document.getElementById('acct-address').value  = await data.getMyAddress();
+  // Admin tag in the modal header so it's obvious who you're signed in as.
+  const heading = document.querySelector('#account-modal h2');
+  if (heading) {
+    heading.innerHTML = 'Your account' + (window.currentUser?.isAdmin
+      ? ' <span class="role-tag">admin</span>' : '');
+  }
 
   // Feedback summary
   const fb = state.myFeedback || { good_count: 0, meh_count: 0, bad_count: 0, net_score: 0, total_count: 0 };
@@ -2227,6 +2240,163 @@ async function saveAddress() {
   } catch (err) {
     console.error(err);
     toast('Could not save address.');
+  }
+}
+
+// ─── Admin ───────────────────────────────────────────────────────────
+async function loadAdminUsers() {
+  if (!window.currentUser?.isAdmin) return;
+  try {
+    state.adminUsers = await data.adminListUsers();
+  } catch (err) {
+    console.error('adminListUsers', err);
+    toast('Could not load users.');
+  }
+}
+
+function renderAdmin() {
+  if (!window.currentUser?.isAdmin) {
+    document.getElementById('admin-content').innerHTML = '<p class="dim">Not an admin.</p>';
+    return;
+  }
+  if (state.adminUserView) {
+    renderAdminUserView();
+  } else {
+    renderAdminUserList();
+  }
+}
+
+function renderAdminUserList() {
+  const rows = state.adminUsers.map((u) => {
+    const f = u.feedback || { good_count: 0, meh_count: 0, bad_count: 0, net_score: 0, total_count: 0 };
+    const me = u.id === window.currentUser.id;
+    return `
+      <tr data-uid="${u.id}" class="admin-row">
+        <td><strong>@${escapeHtml(u.username)}</strong>${me ? ' <span class="dim">(you)</span>' : ''}${u.is_admin ? ' <span class="role-tag">admin</span>' : ''}</td>
+        <td class="dim">${u.created_at ? new Date(u.created_at).toLocaleDateString() : ''}</td>
+        <td><span class="fb-num fb-good">${f.good_count}</span> · <span class="fb-num fb-meh">${f.meh_count}</span> · <span class="fb-num fb-bad">${f.bad_count}</span></td>
+        <td>${f.net_score}</td>
+        <td><button data-admin-action="open" data-uid="${u.id}">Inspect →</button></td>
+      </tr>
+    `;
+  }).join('');
+  document.getElementById('admin-content').innerHTML = `
+    <h2 class="trader-head"><span>Users</span></h2>
+    <table class="admin-table">
+      <thead><tr><th>Username</th><th>Joined</th><th>Feedback (g/m/b)</th><th>Net</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function renderAdminUserView() {
+  const { user, snapshot } = state.adminUserView;
+  const renderItemRow = (it, kind) => {
+    const src = it.photo || catalogImageFor(it.catalogId);
+    const photo = src ? `<img src="${escapeHtml(src)}" alt="" />` : `<span class="no-photo">🖤</span>`;
+    return `
+      <article class="card">
+        <div class="card-photo">${photo}</div>
+        <div class="card-body">
+          <h3 class="card-name">${escapeHtml(it.nickname || it.name)}</h3>
+          ${it.nickname ? `<p class="card-product">${escapeHtml(it.name)}</p>` : ''}
+          ${it.meaning ? `<p class="card-meaning">${escapeHtml(it.meaning)}</p>` : ''}
+          <div class="card-meta">
+            ${kind === 'collection' && it.dateCollected ? `<span>${formatDate(it.dateCollected)}</span>` : ''}
+            ${kind === 'collection' && it.acquiredHow ? `<span>${escapeHtml(it.acquiredHow)}</span>` : ''}
+            ${kind === 'collection' && (it.quantity || 1) > 1 ? `<span>×${it.quantity}</span>` : ''}
+            ${kind === 'wishlist' && it.outOfStock ? `<span class="meta-warn">Out of stock</span>` : ''}
+          </div>
+        </div>
+        ${kind === 'wishlist' ? `<div class="card-actions">
+          <button class="btn-danger" data-admin-action="del-wish" data-id="${it.id}">Delete</button>
+        </div>` : ''}
+      </article>
+    `;
+  };
+
+  const f = snapshot.feedback || {};
+  const tradesHtml = snapshot.trades.slice(0, 30).map((t) => {
+    const them = t.proposer_id === user.id ? t.recipient?.username : t.proposer?.username;
+    const direction = t.proposer_id === user.id ? '→' : '←';
+    const lines = (t.trade_line_items || []).map((l) =>
+      `${l.quantity}× ${escapeHtml(l.trade_item?.name ?? 'item')} (${l.side})`
+    ).join(', ');
+    return `<li><strong>${direction} @${escapeHtml(them || '?')}</strong> · ${escapeHtml(t.status)} · <span class="dim">${new Date(t.created_at).toLocaleDateString()}</span><br/><span class="dim">${lines}</span>${t.message ? `<br/><em>"${escapeHtml(t.message)}"</em>` : ''}</li>`;
+  }).join('');
+
+  document.getElementById('admin-content').innerHTML = `
+    <div class="admin-back">
+      <button data-admin-action="back">← Back to users</button>
+    </div>
+    <h2 class="trader-head"><span>@${escapeHtml(user.username)}</span>
+      <span class="dim">${snapshot.collection?.name ?? '(no collection)'}</span>
+    </h2>
+    <div class="feedback-summary">
+      <div class="fb-cell"><span class="fb-num fb-good">${f.good_count || 0}</span><span class="fb-label">good</span></div>
+      <div class="fb-cell"><span class="fb-num fb-meh">${f.meh_count || 0}</span><span class="fb-label">meh</span></div>
+      <div class="fb-cell"><span class="fb-num fb-bad">${f.bad_count || 0}</span><span class="fb-label">bad</span></div>
+      <div class="fb-cell"><span class="fb-num">${f.net_score || 0}</span><span class="fb-label">net</span></div>
+      <div class="fb-cell"><span class="fb-num">${f.total_count || 0}</span><span class="fb-label">total</span></div>
+    </div>
+
+    <section class="my-items-section">
+      <h3 class="trader-head"><span>Collection (${snapshot.plushies.length})</span><span class="dim">read-only</span></h3>
+      <div class="grid grid-list">${snapshot.plushies.map((i) => renderItemRow(i, 'collection')).join('')}</div>
+    </section>
+
+    <section class="my-items-section">
+      <h3 class="trader-head"><span>Wish list (${snapshot.wishlist.length})</span><span class="dim">deletable</span></h3>
+      <div class="grid grid-list">${snapshot.wishlist.map((i) => renderItemRow(i, 'wishlist')).join('')}</div>
+    </section>
+
+    <section class="my-items-section">
+      <h3 class="trader-head"><span>Trade items (${snapshot.tradeItems.length})</span></h3>
+      <ul class="member-list">
+        ${snapshot.tradeItems.map((ti) => `<li><span>${ti.kind === 'offering' ? '↻' : '↺'} ${escapeHtml(ti.name)} · ${ti.kind} · qty ${ti.quantity} (${ti.reserved} reserved)</span></li>`).join('') || '<li class="dim">none</li>'}
+      </ul>
+    </section>
+
+    <section class="my-items-section">
+      <h3 class="trader-head"><span>Trades (${snapshot.trades.length})</span></h3>
+      <ul class="member-list">${tradesHtml || '<li class="dim">no trades</li>'}</ul>
+    </section>
+  `;
+}
+
+async function onAdminClick(e) {
+  const btn = e.target.closest('[data-admin-action]');
+  if (!btn) return;
+  const action = btn.dataset.adminAction;
+  if (action === 'open') {
+    const uid = btn.dataset.uid;
+    const user = state.adminUsers.find((u) => u.id === uid);
+    if (!user) return;
+    document.getElementById('admin-content').innerHTML = '<p class="dim">Loading…</p>';
+    try {
+      const snapshot = await data.adminUserSnapshot(uid);
+      state.adminUserView = { user, snapshot };
+      renderAdmin();
+    } catch (err) {
+      console.error(err);
+      toast('Could not load user.');
+    }
+  } else if (action === 'back') {
+    state.adminUserView = null;
+    renderAdmin();
+  } else if (action === 'del-wish') {
+    if (!confirm('Delete this wishlist entry on behalf of the user?')) return;
+    try {
+      await data.adminDeleteWishlist(btn.dataset.id);
+      // Refresh snapshot
+      const uid = state.adminUserView.user.id;
+      state.adminUserView.snapshot = await data.adminUserSnapshot(uid);
+      renderAdmin();
+      toast('Removed.');
+    } catch (err) {
+      console.error(err);
+      toast('Could not delete.');
+    }
   }
 }
 

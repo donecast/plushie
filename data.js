@@ -670,6 +670,90 @@ data.updateEmail = async function (email) {
   // Supabase sends a confirmation email; the change takes effect after they click.
 };
 
+// ─── Admin: cross-user inspection ─────────────────────────────────
+// These all rely on the RLS policies from migration 0005 — non-admins will
+// see only their own data even if they call these.
+
+data.adminListUsers = async function () {
+  const { data: rows, error } = await sb
+    .from('profiles')
+    .select('id, username, is_admin, created_at')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  // Enrich with feedback summary
+  const { data: fb } = await sb.from('user_feedback_summary').select('*');
+  const byId = new Map((fb || []).map((f) => [f.user_id, f]));
+  return rows.map((r) => ({ ...r, feedback: byId.get(r.id) || null }));
+};
+
+data.adminUserSnapshot = async function (userId) {
+  // Find the user's owned collection (the one auto-created on signup).
+  const { data: col } = await sb
+    .from('collections')
+    .select('id, name')
+    .eq('owner_id', userId)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  let plushies = [];
+  let wishlist = [];
+  let pens = [];
+  if (col) {
+    const cid = col.id;
+    const [{ data: p }, { data: w }, { data: pn }] = await Promise.all([
+      sb.from('plushies').select('*').eq('collection_id', cid).order('added_at', { ascending: false }),
+      sb.from('wishlist').select('*').eq('collection_id', cid).order('added_at', { ascending: false }),
+      sb.from('pen_counts').select('pen_id, count').eq('collection_id', cid),
+    ]);
+    plushies = (p || []).map((r) => data._rowToItem(r, 'collection'));
+    wishlist = (w || []).map((r) => data._rowToItem(r, 'wishlist'));
+    pens = pn || [];
+    // Resolve photos so the admin actually sees them.
+    await Promise.all([...plushies, ...wishlist].map(async (it) => {
+      if (it.photoPath) it.photo = await data.photoUrl(it.photoPath);
+    }));
+  }
+  // Trades involving this user
+  const { data: trades } = await sb
+    .from('trades')
+    .select('*, trade_line_items(side, quantity, trade_item:trade_items(id, name, photo_path, catalog_id, owner_id))')
+    .or(`proposer_id.eq.${userId},recipient_id.eq.${userId}`)
+    .order('created_at', { ascending: false });
+  // Resolve trade partners' usernames
+  const partnerIds = new Set();
+  for (const t of (trades || [])) { partnerIds.add(t.proposer_id); partnerIds.add(t.recipient_id); }
+  let usernames = new Map();
+  if (partnerIds.size) {
+    const { data: profs } = await sb.from('profiles').select('id, username').in('id', [...partnerIds]);
+    usernames = new Map((profs || []).map((p) => [p.id, p.username]));
+  }
+  for (const t of (trades || [])) {
+    t.proposer = usernames.get(t.proposer_id) ? { username: usernames.get(t.proposer_id) } : null;
+    t.recipient = usernames.get(t.recipient_id) ? { username: usernames.get(t.recipient_id) } : null;
+  }
+  // Trade items owned by this user
+  const { data: tradeItems } = await sb
+    .from('trade_items')
+    .select('*')
+    .eq('owner_id', userId);
+  // Feedback summary
+  const fb = await data.getFeedbackSummary(userId);
+  return { collection: col, plushies, wishlist, pens, trades: trades || [], tradeItems: tradeItems || [], feedback: fb };
+};
+
+data.adminUpdateWishlist = async function (wishlistId, patch) {
+  const { error } = await sb
+    .from('wishlist')
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq('id', wishlistId);
+  if (error) throw error;
+};
+
+data.adminDeleteWishlist = async function (wishlistId) {
+  const { error } = await sb.from('wishlist').delete().eq('id', wishlistId);
+  if (error) throw error;
+};
+
 data.leaveFeedback = async function (tradeId, rateeId, rating, comment) {
   const { error } = await sb.from('trade_feedback').insert({
     trade_id: tradeId,

@@ -38,7 +38,7 @@ const auth = {
     if (!session) return null;
     const { data, error } = await sb
       .from('profiles')
-      .select('id, username')
+      .select('id, username, is_admin')
       .eq('id', session.user.id)
       .maybeSingle();
     if (error) throw error;
@@ -90,7 +90,12 @@ async function runAuthGate(onReady) {
       if (!session) { show('login'); return; }
       const profile = await auth.getProfile();
       if (!profile) { show('username'); return; }
-      window.currentUser = { id: session.user.id, email: session.user.email, username: profile.username };
+      window.currentUser = {
+        id: session.user.id,
+        email: session.user.email,
+        username: profile.username,
+        isAdmin: !!profile.is_admin,
+      };
       updateUserBadge();
       hide();
       onReady();
