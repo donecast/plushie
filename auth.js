@@ -36,11 +36,22 @@ const auth = {
   async getProfile() {
     const session = await auth.getSession();
     if (!session) return null;
-    const { data, error } = await sb
+    // First try with is_admin (added by migration 0005). If the column
+    // doesn't exist yet, fall back to the base columns and treat is_admin
+    // as false so the user can still sign in.
+    let { data, error } = await sb
       .from('profiles')
       .select('id, username, is_admin')
       .eq('id', session.user.id)
       .maybeSingle();
+    if (error && /column.*is_admin/i.test(error.message || '')) {
+      console.warn('[auth] profiles.is_admin missing; run migration 0005');
+      ({ data, error } = await sb
+        .from('profiles')
+        .select('id, username')
+        .eq('id', session.user.id)
+        .maybeSingle());
+    }
     if (error) throw error;
     return data;
   },
