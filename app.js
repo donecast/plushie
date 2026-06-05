@@ -384,7 +384,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=41', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=42', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -799,6 +799,7 @@ function render() {
       : `${state.adminUsers.length} user${state.adminUsers.length === 1 ? '' : 's'}`;
   }
   updateTradeBadge();
+  saveFilters();    // persist filter state every render — cheap, captures all mutations
 }
 
 function renderPens() {
@@ -1226,10 +1227,67 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.add('hidden'), 2400);
 }
 
+// ─── Filter + scroll persistence ─────────────────────────────────────
+// Filters survive page reload via localStorage; scroll position per tab is
+// kept in memory for the lifetime of the page so flipping between tabs
+// always lands where you left off.
+const FILTERS_KEY = 'filters';
+const tabScroll = new Map();
+
+function saveFilters() {
+  try {
+    localStorage.setItem(FILTERS_KEY, JSON.stringify({
+      tab: state.tab,
+      filter: state.filter,
+      colCategory: state.colCategory,
+      colDupes: state.colDupes,
+      colNoBag: state.colNoBag,
+      colSort: state.colSort,
+      wishCategory: state.wishCategory,
+      wishInStock: state.wishInStock,
+      wishSort: state.wishSort,
+      catalogFilter: state.catalogFilter,
+      catalogStatuses: [...state.catalogStatuses],
+      catalogUnowned: state.catalogUnowned,
+      catalogCharmOnly: state.catalogCharmOnly,
+      catalogTheme: state.catalogTheme,
+      catalogColor: state.catalogColor,
+      catalogSort: state.catalogSort,
+      query: state.query,
+      tradeShowHistory: state.tradeShowHistory,
+      tradeSubTab: state.tradeSubTab,
+    }));
+  } catch { /* localStorage blocked or full — non-fatal */ }
+}
+
+function loadFilters() {
+  try {
+    const raw = localStorage.getItem(FILTERS_KEY);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    if (typeof s !== 'object' || !s) return;
+    // Copy known scalar keys, fall back to current default if missing.
+    const scalars = [
+      'tab', 'filter', 'colCategory', 'colSort', 'wishCategory', 'wishSort',
+      'catalogFilter', 'catalogTheme', 'catalogColor', 'catalogSort', 'query', 'tradeSubTab',
+    ];
+    for (const k of scalars) if (k in s) state[k] = s[k];
+    const bools = ['colDupes', 'colNoBag', 'wishInStock', 'catalogUnowned', 'catalogCharmOnly', 'tradeShowHistory'];
+    for (const k of bools) if (k in s) state[k] = !!s[k];
+    if (Array.isArray(s.catalogStatuses)) state.catalogStatuses = new Set(s.catalogStatuses);
+    // Sync the search input value so the visible UI matches the restored state.
+    const searchEl = document.getElementById('search');
+    if (searchEl && state.query) searchEl.value = state.query;
+  } catch { /* corrupt JSON — ignore */ }
+}
+
 // ─── Event wiring ────────────────────────────────────────────────────
 function wireEvents() {
   document.querySelectorAll('.tab').forEach((t) => {
     t.addEventListener('click', async () => {
+      // Remember the scroll position of the tab we're leaving so we can
+      // restore it when the user comes back.
+      tabScroll.set(state.tab, window.scrollY);
       state.tab = t.dataset.tab;
       if (state.tab === 'trade') await loadTradeData();  // refresh from server on enter
       if (state.tab === 'admin') {
@@ -1237,6 +1295,11 @@ function wireEvents() {
         await loadAdminUsers();
       }
       render();
+      // Defer to next frame so the new tab's grid has laid out.
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: tabScroll.get(state.tab) || 0, behavior: 'instant' });
+      });
+      saveFilters();
     });
   });
 
@@ -2528,6 +2591,7 @@ function registerSW() {
 // ─── Boot ────────────────────────────────────────────────────────────
 async function boot() {
   wireEvents();
+  loadFilters();                  // restore filter state + active tab from localStorage
   await data.loadActiveCollection();
   await handleJoinToken();        // ?join=<token> redeems and switches in
   await data.migrateFromIDB();    // one-time IDB → Supabase upload per account
