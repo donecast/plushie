@@ -384,7 +384,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=37', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=38', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -942,7 +942,14 @@ async function onCardClickInner(btn) {
     if (item) openModal('collection', item);
   } else if (action === 'delete') {
     if (!confirm('Remove this plushie?')) return;
-    const inCol = state.collection.some((x) => x.id === id);
+    const col = state.collection.find((x) => x.id === id);
+    const inCol = !!col;
+    // Collection deletes must also clean up any active offering for the same
+    // catalog id, unless reservations would be orphaned.
+    if (inCol && col.catalogId) {
+      const ok = await syncOfferingToOwned(col.catalogId, 0);
+      if (!ok) return;
+    }
     await data.delete(inCol ? 'collection' : 'wishlist', id);
     await loadAll();
     render();
@@ -1012,14 +1019,17 @@ async function onCardClickInner(btn) {
     const next = (item.quantity || 1) - 1;
     if (next <= 0) {
       if (!confirm(`Remove “${item.name}” from your collection?`)) return;
+      if (item.catalogId) {
+        const ok = await syncOfferingToOwned(item.catalogId, 0);
+        if (!ok) return;
+      }
       await data.delete('collection', id);
     } else {
-      // Don't drop below the count reserved for trades — that's already promised.
-      const offering = state.myTradeItems.find((t) => t.kind === 'offering' && t.catalogId === item.catalogId);
-      const reserved = offering?.reserved ?? 0;
-      if (next < reserved) {
-        toast(`Can't go below ${reserved} — that count is reserved in an active trade.`);
-        return;
+      // Trim a matching offering down to match (and bail if that would
+      // orphan a reservation).
+      if (item.catalogId) {
+        const ok = await syncOfferingToOwned(item.catalogId, next);
+        if (!ok) return;
       }
       item.quantity = next;
       render();   // optimistic
@@ -1517,18 +1527,38 @@ async function markForTrade(item, kind) {
     toast('Only catalog items can be traded.');
     return;
   }
+
+  // Offerings are gated on actually owning the item — find your collection
+  // row for this catalog product and use its quantity as the ceiling.
+  let owned = 0;
+  if (kind === 'offering') {
+    const colItem = state.collection.find((c) => c.catalogId === item.catalogId);
+    owned = colItem?.quantity || 0;
+    if (owned < 1) {
+      toast('You need to own at least one of these to offer it for trade.');
+      return;
+    }
+  }
+
   const existing = state.myTradeItems.find((t) => t.kind === kind && t.catalogId === item.catalogId);
   if (existing) {
     if (kind === 'offering') {
-      const qty = prompt(`You're already offering ${existing.quantity}. New quantity?`, String(existing.quantity));
+      const qty = prompt(
+        `You own ${owned}. Currently offering ${existing.quantity}. New quantity (0 to remove)?`,
+        String(existing.quantity),
+      );
       if (qty === null) return;
-      const n = Math.max(existing.reserved, parseInt(qty, 10) || 0);
+      let n = parseInt(qty, 10);
+      if (Number.isNaN(n)) return;
+      // Floor at reserved (can't take back what's already locked in trades),
+      // ceiling at owned (can't offer more than you have).
+      n = Math.max(existing.reserved, Math.min(owned, n));
       if (n === 0) {
         await data.deleteTradeItem(existing.id);
         toast('Removed from offerings.');
       } else {
         await data.updateTradeItem(existing.id, { quantity: n });
-        toast('Updated offering.');
+        toast(`Offering ${n} now.`);
       }
     } else {
       await data.deleteTradeItem(existing.id);
@@ -1537,9 +1567,9 @@ async function markForTrade(item, kind) {
   } else {
     let quantity = 1;
     if (kind === 'offering') {
-      const q = prompt('How many do you have to trade away?', '1');
+      const q = prompt(`You own ${owned}. How many to offer for trade?`, String(owned));
       if (q === null) return;
-      quantity = Math.max(1, parseInt(q, 10) || 1);
+      quantity = Math.max(1, Math.min(owned, parseInt(q, 10) || 1));
     }
     await data.addTradeItem({
       kind,
@@ -1549,10 +1579,30 @@ async function markForTrade(item, kind) {
       photoPath: item.photoPath ?? null,
       quantity,
     });
-    toast(kind === 'offering' ? 'Listed for trade.' : 'Seeking listed.');
+    toast(kind === 'offering' ? `Offering ${quantity} for trade.` : 'Seeking listed.');
   }
   state.myTradeItems = await data.listMyTradeItems();
   render();
+}
+
+// When a collection row's quantity drops, the matching offering row must
+// follow — you can't promise to trade more copies than you own. Returns
+// false (and toasts) if the change would orphan a reservation.
+async function syncOfferingToOwned(catalogId, newOwned) {
+  const offering = state.myTradeItems.find((t) => t.kind === 'offering' && t.catalogId === catalogId);
+  if (!offering) return true;
+  if (offering.quantity <= newOwned) return true;
+  if (offering.reserved > newOwned) {
+    toast(`Can't drop below ${offering.reserved} — that count is reserved in an active trade.`);
+    return false;
+  }
+  if (newOwned === 0) {
+    await data.deleteTradeItem(offering.id);
+  } else {
+    await data.updateTradeItem(offering.id, { quantity: newOwned });
+  }
+  state.myTradeItems = await data.listMyTradeItems();
+  return true;
 }
 
 // ─── Trade: render the tab ───────────────────────────────────────────
