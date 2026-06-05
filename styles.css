@@ -683,6 +683,31 @@ main {
 .card-actions .btn-got { color: var(--rose-hi); border-color: var(--rose); }
 .card-actions .btn-got:hover { background: var(--rose); color: white; }
 .card-actions .btn-danger:hover { color: var(--danger); border-color: var(--danger); }
+
+/* Icon-only trash button used for collection delete. Small, red, no label —
+   the row is busy enough already and the icon is unambiguous. */
+.card-actions .btn-trash {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 77, 109, 0.35);
+  background: transparent;
+  color: var(--danger);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s ease;
+}
+.card-actions .btn-trash:hover {
+  background: rgba(255, 77, 109, 0.12);
+  border-color: var(--danger);
+}
 .card-actions .btn-link {
   flex: 0 0 auto;
   text-decoration: none;

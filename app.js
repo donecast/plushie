@@ -384,7 +384,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=40', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=41', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -689,7 +689,7 @@ function renderCard(item, kind) {
     ? `
       ${qtyControl}
       ${tradeBtn}
-      <button class="btn-danger" data-action="delete" data-id="${item.id}">Delete</button>
+      <button class="btn-trash" data-action="delete" data-id="${item.id}" aria-label="Delete" title="Delete">🗑</button>
     `
     : `
       <button class="btn-got" data-action="got" data-id="${item.id}">Got It! 🖤</button>
