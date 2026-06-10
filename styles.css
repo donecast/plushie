@@ -1470,11 +1470,23 @@ main {
   margin-right: 10px;
 }
 .trade-status {
+  display: inline-block;
   font-family: var(--serif);
   font-style: italic;
   color: var(--ink-dim);
   font-size: 0.9rem;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-rose-mild);
 }
+/* Color-coded so users can scan their trade list for what needs action. */
+.trade-status-your  { color: var(--gold); border-color: var(--gold-border); background: var(--gold-bg); font-weight: 600; }
+.trade-status-their { color: var(--ink-dim); border-color: var(--border-rose-mild); }
+.trade-status-done  { color: var(--success); border-color: var(--success-border); }
+.trade-status-dead  { color: var(--ink-mute); border-color: var(--border-rose-faint); }
+
+.trade-filters { margin-bottom: 16px; }
+.trade-list .empty-note { padding: 24px 12px; text-align: center; }
 .trade-lines {
   display: grid;
   grid-template-columns: 1fr 1fr;

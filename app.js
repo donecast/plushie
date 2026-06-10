@@ -32,7 +32,7 @@ const state = {
   myFeedback: { good_count: 0, meh_count: 0, bad_count: 0, net_score: 0, total_count: 0 },
   partnerFeedback: new Map(), // userId → summary (cache shared by rep badges + ship-first banner)
   myFeedbackByTrade: {},      // tradeId → trade_feedback row (for the edit-within-7-days flow)
-  tradeShowHistory: false,    // include completed/cancelled/expired/rejected bucket?
+  tradeFilter: 'open',        // My Trades filter pill: open | pending | active | past
   offerDraft: null,           // { recipientId, recipientUsername, recipientItems, myItems, parentTradeId? }
   feedbackDraft: null,        // { tradeId, rateeId, ratings: { communication, shipping, accuracy }, mode: 'new'|'edit' }
 
@@ -385,7 +385,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=49', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=50', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -1182,6 +1182,61 @@ async function scheduleReminderCheck() {
   window._reminderTimer = setInterval(maybeFireReminder, 60 * 60 * 1000);
 }
 
+// Compares each open trade's "needs my action" signature against what we
+// fired notifications for last time. Whenever something fresh appears
+// (their accept arrived, they shipped, they confirmed receipt), drop a
+// local notification. No backend push — this only runs while the app
+// is open or being loaded, which is fine for a hobby tracker.
+async function maybeFireTradeNotifications() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  if (!(await idb.getMeta('notify_enabled'))) return;
+  if (!Array.isArray(state.trades) || state.trades.length === 0) return;
+
+  const seen = (await idb.getMeta('notified_trade_events')) || {};
+  const uid = window.currentUser?.id;
+  const fresh = [];
+
+  for (const t of state.trades) {
+    const isMine = t.proposer_id === uid;
+    const status = tradeStatusLabel(t, uid, isMine);
+    if (status.kind !== 'your') continue;
+    // Stable signature per trade × action. If the partner advances the
+    // trade so the action required of me changes, the signature changes
+    // and we notify again.
+    const sig = `${t.status}|${t.proposer_shipped_at ? '1' : '0'}|${t.recipient_shipped_at ? '1' : '0'}|${t.proposer_received_at ? '1' : '0'}|${t.recipient_received_at ? '1' : '0'}`;
+    if (seen[t.id] === sig) continue;
+    seen[t.id] = sig;
+    const other = isMine ? t.recipient?.username : t.proposer?.username;
+    fresh.push({ other: other || 'a collector', text: status.text, tradeId: t.id });
+  }
+
+  // Prune entries for trades that no longer require action so the meta
+  // doesn't grow forever.
+  const liveIds = new Set(state.trades.map((t) => t.id));
+  for (const id of Object.keys(seen)) {
+    if (!liveIds.has(id)) delete seen[id];
+  }
+  await idb.setMeta('notified_trade_events', seen);
+
+  if (fresh.length === 0) return;
+  const title = '🦇 The Plush Crypt';
+  const body = fresh.length === 1
+    ? `@${fresh[0].other}: ${fresh[0].text.replace(/^Your turn · /, '')}`
+    : `${fresh.length} trades need your attention.`;
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      const reg = await navigator.serviceWorker.ready;
+      reg.showNotification(title, {
+        body, icon: 'icon-192.png', badge: 'icon-192.png', tag: 'trade-action',
+      });
+    } else {
+      new Notification(title, { body, icon: 'icon-192.png' });
+    }
+  } catch (e) {
+    console.warn('Trade notification failed', e);
+  }
+}
+
 async function maybeFireReminder() {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (!(await idb.getMeta('notify_enabled'))) return;
@@ -1255,7 +1310,7 @@ function saveFilters() {
       catalogColor: state.catalogColor,
       catalogSort: state.catalogSort,
       query: state.query,
-      tradeShowHistory: state.tradeShowHistory,
+      tradeFilter: state.tradeFilter,
       tradeSubTab: state.tradeSubTab,
     }));
   } catch { /* localStorage blocked or full — non-fatal */ }
@@ -1270,10 +1325,10 @@ function loadFilters() {
     // Copy known scalar keys, fall back to current default if missing.
     const scalars = [
       'tab', 'filter', 'colCategory', 'colSort', 'wishCategory', 'wishSort',
-      'catalogFilter', 'catalogTheme', 'catalogColor', 'catalogSort', 'query', 'tradeSubTab',
+      'catalogFilter', 'catalogTheme', 'catalogColor', 'catalogSort', 'query', 'tradeSubTab', 'tradeFilter',
     ];
     for (const k of scalars) if (k in s) state[k] = s[k];
-    const bools = ['colDupes', 'colNoBag', 'wishInStock', 'catalogUnowned', 'catalogCharmOnly', 'tradeShowHistory'];
+    const bools = ['colDupes', 'colNoBag', 'wishInStock', 'catalogUnowned', 'catalogCharmOnly'];
     for (const k of bools) if (k in s) state[k] = !!s[k];
     if (Array.isArray(s.catalogStatuses)) state.catalogStatuses = new Set(s.catalogStatuses);
     // Sync the search input value so the visible UI matches the restored state.
@@ -1404,6 +1459,7 @@ function wireEvents() {
     s.addEventListener('click', () => setTradeSubTab(s.dataset.subtab));
   });
   document.getElementById('trade-view').addEventListener('click', onTradeClick);
+  document.getElementById('trade-view').addEventListener('click', onTradeFilterClick);
   document.getElementById('admin-view').addEventListener('click', onAdminClick);
 
   // Offer modal
@@ -1532,6 +1588,9 @@ async function loadTradeData() {
       uids.add(other);
     }
     await ensureReputationFor([...uids]);
+    // Fire local notifications for any partner action that just appeared
+    // (their shipment, their receipt confirmation, etc.).
+    maybeFireTradeNotifications().catch((e) => console.warn(e));
   } catch (err) {
     console.error('loadTradeData', err);
     toast('Could not load trade data.');
@@ -1746,6 +1805,9 @@ function catalogImageFor(catalogId) {
 function renderOfferingCard(it) {
   const src = it.photo || catalogImageFor(it.catalogId);
   const photo = src ? `<img src="${escapeHtml(src)}" loading="lazy" />` : `<span class="no-photo">🖤</span>`;
+  // Quick-trade button drops you straight into the offer builder with
+  // this one item pre-selected on their side — much faster than the
+  // owner-header "Propose a trade" path when you only want one thing.
   return `
     <article class="card card-small">
       <div class="card-photo">${photo}</div>
@@ -1753,6 +1815,9 @@ function renderOfferingCard(it) {
         <h3 class="card-name">${escapeHtml(it.name)}</h3>
         <div class="card-meta"><span>Available: ${it.available}</span></div>
         ${it.notes ? `<p class="card-meaning">${escapeHtml(it.notes)}</p>` : ''}
+      </div>
+      <div class="card-actions">
+        <button class="btn-primary" data-action="quick-trade" data-uid="${it.ownerId}" data-item-id="${it.id}">I'll trade for this</button>
       </div>
     </article>
   `;
@@ -1795,39 +1860,60 @@ function renderMyTradeItems() {
 
 function renderMyTrades() {
   const uid = window.currentUser.id;
-  const buckets = { pending: [], active: [], history: [] };
+  // Bucket per status group; the user picks one via filter pills rather
+  // than scrolling through stacked sections.
+  const buckets = { pending: [], active: [], past: [] };
   for (const t of state.trades) {
-    if (t.status === 'pending' && !tradeIsExpired(t))   buckets.pending.push(t);
-    else if (t.status === 'accepted' && !tradeIsFinished(t)) buckets.active.push(t);
-    else                                                 buckets.history.push(t);
+    if (t.status === 'pending' && !tradeIsExpired(t))         buckets.pending.push(t);
+    else if (t.status === 'accepted' && !tradeIsFinished(t))  buckets.active.push(t);
+    else                                                      buckets.past.push(t);
+  }
+  // Trades that need *my* action win sort priority within their bucket.
+  const yoursFirst = (a, b) => {
+    const aMine = a.proposer_id === uid;
+    const bMine = b.proposer_id === uid;
+    const ak = tradeStatusLabel(a, uid, aMine).kind === 'your' ? 0 : 1;
+    const bk = tradeStatusLabel(b, uid, bMine).kind === 'your' ? 0 : 1;
+    return ak - bk;
+  };
+  buckets.pending.sort(yoursFirst);
+  buckets.active.sort(yoursFirst);
+
+  const counts = {
+    pending: buckets.pending.length,
+    active:  buckets.active.length,
+    past:    buckets.past.length,
+  };
+  const total = counts.pending + counts.active + counts.past;
+  if (total === 0) {
+    document.getElementById('subtab-trades').innerHTML =
+      `<div class="empty"><div class="ghost">📜</div><p>No trades yet. Browse offerings to start one.</p></div>`;
+    return;
   }
 
-  const sec = (title, list) => list.length === 0
-    ? ''
-    : `<section class="trades-section"><h2 class="trader-head"><span>${title}</span></h2>${list.map((t) => renderTradeRow(t, uid)).join('')}</section>`;
+  const filter = state.tradeFilter || 'open';
+  const pill = (key, label, count) =>
+    `<button class="chip chip-toggle ${filter === key ? 'active' : ''}" data-trade-filter="${key}">${label}${count > 0 ? ` <span class="dim">${count}</span>` : ''}</button>`;
 
-  // History (completed, rejected, expired, cancelled, countered) is hidden
-  // behind a toggle by default so the view stays focused on what needs your
-  // attention. Past-trades count surfaces on the toggle.
-  const historyLabel = state.tradeShowHistory
-    ? `Hide past trades (${buckets.history.length})`
-    : `Show past trades (${buckets.history.length})`;
+  let list;
+  if (filter === 'pending')      list = buckets.pending;
+  else if (filter === 'active')  list = buckets.active;
+  else if (filter === 'past')    list = buckets.past.slice(0, 50);
+  else                           list = [...buckets.pending, ...buckets.active]; // 'open' default
 
-  let html = '';
-  html += sec('Pending', buckets.pending);
-  html += sec('Active', buckets.active);
-  if (buckets.history.length > 0) {
-    html += `<div class="trade-history-toggle">
-      <button data-action="toggle-history">${historyLabel}</button>
-    </div>`;
-    if (state.tradeShowHistory) {
-      html += sec('Past', buckets.history.slice(0, 30));
-    }
-  }
-  if (buckets.pending.length === 0 && buckets.active.length === 0 && buckets.history.length === 0) {
-    html = `<div class="empty"><div class="ghost">📜</div><p>No trades yet. Browse offerings to start one.</p></div>`;
-  }
-  document.getElementById('subtab-trades').innerHTML = html;
+  const rows = list.length === 0
+    ? `<p class="empty-note">Nothing here.</p>`
+    : list.map((t) => renderTradeRow(t, uid)).join('');
+
+  document.getElementById('subtab-trades').innerHTML = `
+    <div class="filters trade-filters">
+      ${pill('open',    'Needs attention', counts.pending + counts.active)}
+      ${pill('pending', 'Pending',         counts.pending)}
+      ${pill('active',  'Active',          counts.active)}
+      ${pill('past',    'Past',            counts.past)}
+    </div>
+    <div class="trade-list">${rows}</div>
+  `;
 }
 
 function renderTradeRow(t, uid) {
@@ -1841,14 +1927,7 @@ function renderTradeRow(t, uid) {
     `<li>${l.quantity}× ${escapeHtml(l.trade_item?.name ?? 'item')}</li>`
   ).join('');
 
-  const statusText = (() => {
-    if (t.status === 'pending') {
-      const exp = new Date(t.expires_at);
-      const hoursLeft = Math.max(0, Math.round((exp - new Date()) / 3600000));
-      return `Pending · expires in ${hoursLeft}h`;
-    }
-    return capitalize(t.status);
-  })();
+  const status = tradeStatusLabel(t, uid, isMine);
 
   let actions = '';
   if (t.status === 'pending') {
@@ -1874,7 +1953,7 @@ function renderTradeRow(t, uid) {
       <header class="trade-head">
         <div>
           <span class="trade-with">${isMine ? 'You → ' : ''}${otherBadge}${isMine ? '' : ' → You'}</span>
-          <span class="trade-status">${statusText}</span>
+          <span class="trade-status trade-status-${status.kind}">${status.text}</span>
         </div>
       </header>
       <div class="trade-lines">
@@ -1886,6 +1965,41 @@ function renderTradeRow(t, uid) {
       ${actions ? `<div class="card-actions">${actions}</div>` : ''}
     </article>
   `;
+}
+
+// Tells the viewer whose turn it is at a glance. The "ball is in your
+// court" framing is more actionable than the raw status enum on cards
+// where the user can see they have a trade but not whether they need
+// to do something about it.
+function tradeStatusLabel(t, uid, isMine) {
+  // Returns { text, kind } where kind ∈ 'your' | 'their' | 'done' | 'dead'
+  // and drives the trade-status pill color.
+  if (t.status === 'pending') {
+    const exp = new Date(t.expires_at);
+    const hoursLeft = Math.max(0, Math.round((exp - new Date()) / 3600000));
+    if (isMine) return { text: `Awaiting their response · expires in ${hoursLeft}h`, kind: 'their' };
+    return { text: `Your turn to respond · ${hoursLeft}h left`, kind: 'your' };
+  }
+  if (t.status === 'accepted') {
+    const myShip   = isMine ? t.proposer_shipped_at  : t.recipient_shipped_at;
+    const theirShip = isMine ? t.recipient_shipped_at : t.proposer_shipped_at;
+    const myRecv    = isMine ? t.proposer_received_at : t.recipient_received_at;
+    const theirRecv = isMine ? t.recipient_received_at : t.proposer_received_at;
+    const needShip    = !myShip;
+    const needConfirm = theirShip && !myRecv;
+    if (needShip && needConfirm) return { text: 'Your turn · ship and confirm receipt', kind: 'your' };
+    if (needShip)                return { text: 'Your turn · ship your side', kind: 'your' };
+    if (needConfirm)             return { text: 'Your turn · confirm you received theirs', kind: 'your' };
+    if (!theirShip)              return { text: 'Awaiting their ship', kind: 'their' };
+    if (!theirRecv)              return { text: 'Awaiting their confirmation', kind: 'their' };
+    return { text: 'Wrapping up…', kind: 'their' };
+  }
+  if (t.status === 'completed') return { text: 'Completed', kind: 'done' };
+  if (t.status === 'rejected')  return { text: 'Rejected',  kind: 'dead' };
+  if (t.status === 'cancelled') return { text: 'Cancelled', kind: 'dead' };
+  if (t.status === 'expired')   return { text: 'Expired',   kind: 'dead' };
+  if (t.status === 'countered') return { text: 'Countered', kind: 'dead' };
+  return { text: capitalize(t.status), kind: 'dead' };
 }
 
 function renderShipFirstBanner(t, isMine) {
@@ -1944,6 +2058,7 @@ async function onTradeClick(e) {
   if (!btn) return;
   const { action, id, uid } = btn.dataset;
   if (action === 'propose-trade')         await openOfferModal(uid);
+  else if (action === 'quick-trade')      await openOfferModal(uid, null, btn.dataset.itemId);
   else if (action === 'trade-item-remove') await removeMyTradeItem(id);
   else if (action === 'trade-item-adjust') await adjustMyTradeItem(id);
   else if (action === 'trade-accept')      await respondToTrade(id, 'accept');
@@ -1955,7 +2070,14 @@ async function onTradeClick(e) {
   else if (action === 'trade-received')    await tradeReceived(id, btn.dataset.side);
   else if (action === 'trade-address')     await openAddressModal(id);
   else if (action === 'trade-feedback')    await openFeedbackModal(id);
-  else if (action === 'toggle-history') { state.tradeShowHistory = !state.tradeShowHistory; renderTrade(); }
+}
+// Filter pill clicks inside My Trades use a separate dataset key so
+// they don't fight the generic [data-action] dispatcher.
+function onTradeFilterClick(e) {
+  const btn = e.target.closest('[data-trade-filter]');
+  if (!btn) return;
+  state.tradeFilter = btn.dataset.tradeFilter;
+  renderTrade();
 }
 
 async function removeMyTradeItem(id) {
@@ -2020,9 +2142,17 @@ async function tradeReceived(id, side) {
 // promptAddress is now openAddressModal — defined later with a proper modal.
 
 // ─── Trade: offer builder modal ──────────────────────────────────────
-async function openOfferModal(recipientId, parentTradeId) {
+// preselectedItemId, when set, drops one of their items into recipientPicks
+// at qty=1 so a quick-trade button can skip the picker step.
+async function openOfferModal(recipientId, parentTradeId, preselectedItemId) {
   const recipientItems = state.tradeBrowse.filter((it) => it.ownerId === recipientId);
   const recipientUsername = recipientItems[0]?.ownerUsername ?? '?';
+
+  const recipientPicks = new Map();
+  if (preselectedItemId) {
+    const found = recipientItems.find((it) => it.id === preselectedItemId);
+    if (found && found.available > 0) recipientPicks.set(preselectedItemId, 1);
+  }
 
   state.offerDraft = {
     recipientId,
@@ -2030,7 +2160,7 @@ async function openOfferModal(recipientId, parentTradeId) {
     recipientItems,
     myItems: state.myTradeItems.filter((t) => t.kind === 'offering'),
     proposerPicks: new Map(),    // tradeItemId → qty (my offerings)
-    recipientPicks: new Map(),   // tradeItemId → qty (their offerings)
+    recipientPicks,              // tradeItemId → qty (their offerings)
     parentTradeId,
   };
 
@@ -2613,7 +2743,8 @@ async function openAddressModal(tradeId) {
   const t = state.trades.find((x) => x.id === tradeId);
   const uid = window.currentUser.id;
   const otherName = t.proposer_id === uid ? t.recipient?.username : t.proposer?.username;
-  document.getElementById('address-sub').textContent = `Trade with @${otherName || 'partner'}`;
+  const otherId   = t.proposer_id === uid ? t.recipient_id : t.proposer_id;
+  document.getElementById('address-sub').innerHTML = `Trade with ${repBadge(otherId, otherName, state.partnerFeedback.get(otherId))}`;
   document.getElementById('address-input').value = '';
   document.getElementById('address-their').classList.add('hidden');
   document.getElementById('address-pending').classList.add('hidden');
