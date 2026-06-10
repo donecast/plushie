@@ -65,6 +65,35 @@ const auth = {
     if (error) throw error;
   },
 
+  // Returns the latest consent_log row for the current user, or null if
+  // they've never accepted any version. Used by the gate to decide whether
+  // to silently write a row (first sign-in) or surface a re-accept screen
+  // (existing user, version bumped).
+  async getLatestConsent() {
+    const session = await auth.getSession();
+    if (!session) return null;
+    const { data, error } = await sb
+      .from('consent_log')
+      .select('terms_version, accepted_at')
+      .eq('user_id', session.user.id)
+      .order('accepted_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return data;
+  },
+
+  async recordConsent(version) {
+    const session = await auth.getSession();
+    if (!session) throw new Error('not_authenticated');
+    const { error } = await sb.from('consent_log').insert({
+      user_id: session.user.id,
+      terms_version: version,
+      user_agent: navigator.userAgent.slice(0, 500),
+    });
+    if (error) throw error;
+  },
+
   onAuthChange(cb) {
     return sb.auth.onAuthStateChange((event, session) => cb(event, session));
   },
@@ -82,6 +111,7 @@ async function runAuthGate(onReady) {
     login:    overlay.querySelector('[data-step="login"]'),
     sent:     overlay.querySelector('[data-step="sent"]'),
     username: overlay.querySelector('[data-step="username"]'),
+    consent:  overlay.querySelector('[data-step="consent"]'),
   };
 
   function show(step) {
@@ -101,6 +131,19 @@ async function runAuthGate(onReady) {
       if (!session) { show('login'); return; }
       const profile = await auth.getProfile();
       if (!profile) { show('username'); return; }
+
+      // Consent gate. New users get a row written silently (they ticked the
+      // sign-in checkbox to get here); existing users whose last accepted
+      // version is older than TERMS_VERSION must re-accept before the app
+      // unlocks.
+      const latest = await auth.getLatestConsent();
+      const currentVersion = window.TERMS_VERSION;
+      if (!latest) {
+        await auth.recordConsent(currentVersion);
+      } else if (latest.terms_version !== currentVersion) {
+        show('consent'); return;
+      }
+
       window.currentUser = {
         id: session.user.id,
         email: session.user.email,
@@ -177,6 +220,26 @@ async function runAuthGate(onReady) {
     } finally {
       btn.disabled = false; btn.textContent = 'Continue';
     }
+  });
+
+  // Re-consent step (existing users when TERMS_VERSION bumps). Writes a new
+  // consent_log row, then re-evaluates the gate to release the app.
+  document.getElementById('auth-consent-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const box = document.getElementById('auth-consent-agree');
+    if (!box.checked) return;
+    const btn = e.target.querySelector('button[type=submit]');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      await auth.recordConsent(window.TERMS_VERSION);
+      await evaluate();
+    } catch (err) {
+      alert('Couldn’t save your acceptance: ' + (err.message || err));
+      btn.disabled = false; btn.textContent = 'Accept and continue';
+    }
+  });
+  document.getElementById('auth-consent-agree').addEventListener('change', (e) => {
+    document.getElementById('auth-consent-submit').disabled = !e.target.checked;
   });
 
   auth.onAuthChange((event) => {

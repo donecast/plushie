@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=47" />
+  <link rel="stylesheet" href="./styles.css?v=48" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash dark.
     (function () {
@@ -467,6 +467,24 @@
         </form>
         <p id="auth-username-error" class="auth-error hidden"></p>
       </div>
+
+      <div class="auth-step hidden" data-step="consent">
+        <div class="auth-mark">📜</div>
+        <h1 class="auth-title">A quick update</h1>
+        <p class="auth-sub">We've revised the Terms and Privacy since you last signed in. Please review and accept to continue.</p>
+        <form id="auth-consent-form">
+          <label class="auth-consent">
+            <input type="checkbox" id="auth-consent-agree" required />
+            <span>
+              I agree to the
+              <button type="button" class="inline-link" data-open-legal="terms">Terms</button>
+              and
+              <button type="button" class="inline-link" data-open-legal="privacy">Privacy</button>.
+            </span>
+          </label>
+          <button type="submit" id="auth-consent-submit" class="btn primary" disabled>Accept and continue</button>
+        </form>
+      </div>
     </div>
   </div>
 
@@ -587,10 +605,10 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="./config.js?v=47"></script>
-  <script src="./auth.js?v=47"></script>
-  <script src="./db.js?v=47"></script>
-  <script src="./data.js?v=47"></script>
-  <script src="./app.js?v=47"></script>
+  <script src="./config.js?v=48"></script>
+  <script src="./auth.js?v=48"></script>
+  <script src="./db.js?v=48"></script>
+  <script src="./data.js?v=48"></script>
+  <script src="./app.js?v=48"></script>
 </body>
 </html>
