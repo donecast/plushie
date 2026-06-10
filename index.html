@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=46" />
+  <link rel="stylesheet" href="./styles.css?v=47" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash dark.
     (function () {
@@ -432,7 +432,16 @@
             <span class="field-label">Email</span>
             <input type="email" id="auth-email" required autocomplete="email" placeholder="you@example.com" />
           </label>
-          <button type="submit" class="btn primary">Send magic link</button>
+          <label class="auth-consent">
+            <input type="checkbox" id="auth-agree" required />
+            <span>
+              I agree to the
+              <button type="button" class="inline-link" data-open-legal="terms">Terms</button>
+              and
+              <button type="button" class="inline-link" data-open-legal="privacy">Privacy</button>.
+            </span>
+          </label>
+          <button type="submit" id="auth-submit" class="btn primary" disabled>Send magic link</button>
         </form>
         <p class="auth-hint">No passwords. We email you a one-tap link. Open it on the same device to come right back.</p>
         <p id="auth-error" class="auth-error hidden"></p>
@@ -578,10 +587,10 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="./config.js?v=46"></script>
-  <script src="./auth.js?v=46"></script>
-  <script src="./db.js?v=46"></script>
-  <script src="./data.js?v=46"></script>
-  <script src="./app.js?v=46"></script>
+  <script src="./config.js?v=47"></script>
+  <script src="./auth.js?v=47"></script>
+  <script src="./db.js?v=47"></script>
+  <script src="./data.js?v=47"></script>
+  <script src="./app.js?v=47"></script>
 </body>
 </html>

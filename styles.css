@@ -1296,6 +1296,9 @@ main {
 .footer-link:hover { color: var(--rose-hi); }
 
 /* ─── Legal modal ────────────────────────────── */
+/* Sits above the auth overlay (z-index 1000) so it can be opened from the
+   sign-in card's Terms/Privacy links before the user is authenticated. */
+#legal-modal { z-index: 1100; }
 .legal-section { padding: 12px 0; }
 .legal-section.hidden { display: none; }
 .legal-section h2 {
@@ -1804,6 +1807,46 @@ body.locked { overflow: hidden; }
   color: var(--danger-hi);
   font-size: 0.9rem;
   font-family: var(--serif);
+}
+
+/* Consent row on the sign-in form — keeps the magic-link button disabled
+   until the checkbox is ticked. */
+.auth-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 18px;
+  font-family: var(--serif);
+  font-size: 0.92rem;
+  color: var(--ink-dim);
+  text-align: left;
+  line-height: 1.45;
+  cursor: pointer;
+}
+.auth-consent input[type="checkbox"] {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--rose-hi);
+  cursor: pointer;
+}
+.auth-consent .inline-link {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: var(--rose-hi);
+  font-family: inherit;
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.auth-consent .inline-link:hover { color: var(--rose); }
+.btn.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 /* ─── User badge & menu ────────────────────────────── */

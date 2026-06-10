@@ -118,13 +118,22 @@ async function runAuthGate(onReady) {
     }
   }
 
-  // Login form: send magic link
+  // Login form: send magic link. The submit button stays disabled until both
+  // the email field is non-empty and the Terms/Privacy checkbox is ticked.
+  const submitBtn = document.getElementById('auth-submit');
+  const emailInput = document.getElementById('auth-email');
+  const agreeBox = document.getElementById('auth-agree');
+  const refreshSubmit = () => {
+    submitBtn.disabled = !(emailInput.value.trim() && agreeBox.checked);
+  };
+  emailInput.addEventListener('input', refreshSubmit);
+  agreeBox.addEventListener('change', refreshSubmit);
+
   document.getElementById('auth-login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const email = document.getElementById('auth-email').value.trim();
-    if (!email) return;
-    const btn = e.target.querySelector('button[type=submit]');
-    btn.disabled = true; btn.textContent = 'Sending…';
+    const email = emailInput.value.trim();
+    if (!email || !agreeBox.checked) return;
+    submitBtn.disabled = true; submitBtn.textContent = 'Sending…';
     try {
       await auth.sendMagicLink(email);
       document.getElementById('auth-sent-email').textContent = email;
@@ -132,7 +141,8 @@ async function runAuthGate(onReady) {
     } catch (err) {
       alert('Couldn’t send link: ' + (err.message || err));
     } finally {
-      btn.disabled = false; btn.textContent = 'Send magic link';
+      submitBtn.textContent = 'Send magic link';
+      refreshSubmit();
     }
   });
 
