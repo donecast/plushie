@@ -6,15 +6,15 @@
   <meta name="theme-color" content="#1a0d26" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Dreadfuls" />
-  <title>Plushie Dreadfuls Tracker</title>
+  <meta name="apple-mobile-web-app-title" content="Plush Crypt" />
+  <title>The Plush Crypt</title>
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="./icon-192.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=42" />
+  <link rel="stylesheet" href="./styles.css?v=43" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash dark.
     (function () {
@@ -54,7 +54,7 @@
             </linearGradient>
           </defs>
         </svg>
-        <h1>Plushie Dreadfuls</h1>
+        <h1>The Plush Crypt</h1>
       </div>
       <div class="header-actions">
         <button id="user-badge" class="user-badge hidden" title="Account">
@@ -307,7 +307,18 @@
   </div>
 
   <footer class="app-footer">
-    <p class="footer-note">Your collection is synced to your account. Sign in on any device to see it.</p>
+    <p class="footer-note">
+      The Plush Crypt is an independent, fan-made tracker.
+      Not affiliated with, endorsed by, or sponsored by Plushie Dreadfuls Co. or any plushie maker.
+      Product names, photos, and trademarks belong to their respective owners.
+    </p>
+    <p class="footer-links">
+      <button type="button" class="footer-link" data-open-legal="terms">Terms</button>
+      ·
+      <button type="button" class="footer-link" data-open-legal="privacy">Privacy</button>
+      ·
+      <a class="footer-link" href="mailto:support@plushcrypt.com">Contact</a>
+    </p>
   </footer>
 
   <div id="toast" class="toast hidden"></div>
@@ -351,6 +362,56 @@
         <button type="button" class="btn-ghost" data-close-feedback>Skip for now</button>
         <button type="button" class="btn-primary" id="feedback-submit" disabled>Submit</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Legal modal: Terms / Privacy from the footer links -->
+  <div id="legal-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-legal></div>
+    <div class="modal-card modal-card-wide">
+      <button class="modal-close" data-close-legal aria-label="Close">×</button>
+      <nav class="subtabs">
+        <button class="subtab active" data-legal-tab="terms">Terms</button>
+        <button class="subtab" data-legal-tab="privacy">Privacy</button>
+        <button class="subtab" data-legal-tab="about">About</button>
+      </nav>
+
+      <section class="legal-section" data-legal-section="terms">
+        <h2>Terms of Use</h2>
+        <p>By using The Plush Crypt you agree to the following. These are short and plain — read them.</p>
+        <ul>
+          <li><strong>No warranty.</strong> The service is provided as-is. We don't guarantee uptime, data preservation, or that anything works.</li>
+          <li><strong>You're responsible for what you list.</strong> Don't list counterfeit goods or anything illegal to ship to or from your jurisdiction.</li>
+          <li><strong>Trades are between you and the other person.</strong> We don't escrow, mediate, verify identity, or guarantee anything. Use the feedback system and the ship-first guidance to manage risk.</li>
+          <li><strong>You're responsible for the addresses you share.</strong> Only enter a real shipping address when you trust the other party enough.</li>
+          <li><strong>Don't abuse the service.</strong> We may suspend accounts that defraud other users, harass others, or misuse the platform.</li>
+          <li><strong>We may change or shut down the service at any time</strong>, with or without notice. Your data is your responsibility — you can request a copy or deletion by emailing <a href="mailto:support@plushcrypt.com">support@plushcrypt.com</a>.</li>
+          <li><strong>Catalog data</strong> is fetched live from public product feeds (currently plushiedreadfuls.com). We don't claim ownership of catalog content or images.</li>
+        </ul>
+      </section>
+
+      <section class="legal-section hidden" data-legal-section="privacy">
+        <h2>Privacy</h2>
+        <p>What we store and who can see it:</p>
+        <ul>
+          <li><strong>Account:</strong> your email (used for sign-in magic links) and your chosen username.</li>
+          <li><strong>Your collection / wish list / pen counts / trade items / nickname / meaning / acquired-how:</strong> stored in our database. Only visible to you and anyone you've shared your collection with.</li>
+          <li><strong>Photos:</strong> stored in our cloud storage, scoped to your collection. Other users can't browse them.</li>
+          <li><strong>Trade offerings:</strong> publicly browsable by other signed-in users (that's the point — they need to see what you're willing to trade).</li>
+          <li><strong>Shipping addresses:</strong> revealed only to the other party of an accepted trade, and only after they've also entered theirs.</li>
+          <li><strong>Feedback:</strong> the ratings (good / meh / bad) and comments you give or receive are visible to other signed-in users via your profile.</li>
+          <li><strong>Admins</strong> can read collection / wish list / trade data for moderation. Currently the only admin is the site operator.</li>
+          <li><strong>Third parties:</strong> auth, database, storage, and transactional email run on Supabase. Magic-link emails send via our SMTP provider (Resend). Catalog data is fetched from plushiedreadfuls.com. We don't sell your data.</li>
+          <li><strong>Deletion:</strong> email <a href="mailto:support@plushcrypt.com">support@plushcrypt.com</a> from your account address and we'll wipe your rows and photos.</li>
+        </ul>
+      </section>
+
+      <section class="legal-section hidden" data-legal-section="about">
+        <h2>About</h2>
+        <p>The Plush Crypt is an independent fan-made tracker built so plushie collectors can catalog what they own, what they want, and trade with other collectors.</p>
+        <p>We're not affiliated with, endorsed by, or sponsored by Plushie Dreadfuls Co. or any other plushie manufacturer. Product names, photos, and trademarks belong to their respective owners.</p>
+        <p>Questions, takedown requests, or bug reports: <a href="mailto:support@plushcrypt.com">support@plushcrypt.com</a></p>
+      </section>
     </div>
   </div>
 
@@ -516,10 +577,10 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="./config.js?v=42"></script>
-  <script src="./auth.js?v=42"></script>
-  <script src="./db.js?v=42"></script>
-  <script src="./data.js?v=42"></script>
-  <script src="./app.js?v=42"></script>
+  <script src="./config.js?v=43"></script>
+  <script src="./auth.js?v=43"></script>
+  <script src="./db.js?v=43"></script>
+  <script src="./data.js?v=43"></script>
+  <script src="./app.js?v=43"></script>
 </body>
 </html>

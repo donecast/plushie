@@ -384,7 +384,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=42', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=43', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -1192,7 +1192,7 @@ async function maybeFireReminder() {
   const dayMs = 24 * 60 * 60 * 1000;
   if (Date.now() - last < dayMs) return;
 
-  const title = '🦇 Plushie Dreadfuls';
+  const title = '🦇 The Plush Crypt';
   const body = oos.length === 1
     ? `Check on restock: ${oos[0].name}`
     : `${oos.length} out-of-stock wishlist items waiting…`;
@@ -1441,6 +1441,17 @@ function wireEvents() {
   document.getElementById('acct-save-username').addEventListener('click', saveUsername);
   document.getElementById('acct-save-email').addEventListener('click', saveEmail);
   document.getElementById('acct-save-address').addEventListener('click', saveDefaultAddress);
+
+  // Legal modal — Terms / Privacy / About
+  document.querySelectorAll('[data-open-legal]').forEach((b) => {
+    b.addEventListener('click', () => openLegalModal(b.dataset.openLegal));
+  });
+  document.querySelectorAll('[data-close-legal]').forEach((el) =>
+    el.addEventListener('click', () => document.getElementById('legal-modal').classList.add('hidden'))
+  );
+  document.querySelectorAll('#legal-modal [data-legal-tab]').forEach((tab) => {
+    tab.addEventListener('click', () => switchLegalTab(tab.dataset.legalTab));
+  });
   document.getElementById('acct-theme').addEventListener('change', (e) => {
     const t = e.target.value;
     if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
@@ -2256,6 +2267,19 @@ async function switchCollection(collectionId) {
 }
 
 // ─── Account modal ───────────────────────────────────────────────────
+function openLegalModal(which) {
+  document.getElementById('legal-modal').classList.remove('hidden');
+  switchLegalTab(which || 'terms');
+}
+function switchLegalTab(which) {
+  document.querySelectorAll('#legal-modal [data-legal-tab]').forEach((t) =>
+    t.classList.toggle('active', t.dataset.legalTab === which)
+  );
+  document.querySelectorAll('#legal-modal [data-legal-section]').forEach((s) =>
+    s.classList.toggle('hidden', s.dataset.legalSection !== which)
+  );
+}
+
 async function openAccountModal() {
   document.getElementById('acct-username').value = window.currentUser?.username ?? '';
   document.getElementById('acct-email').value    = window.currentUser?.email ?? '';

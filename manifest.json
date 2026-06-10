@@ -1,7 +1,7 @@
 {
-  "name": "Plushie Dreadfuls Tracker",
-  "short_name": "Dreadfuls",
-  "description": "Track your Plushie Dreadfuls collection and wish list. Gothic-cute, offline-first.",
+  "name": "The Plush Crypt",
+  "short_name": "Plush Crypt",
+  "description": "A collector's tracker and trade ledger for plushies. Independent and fan-made.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
