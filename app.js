@@ -30,10 +30,11 @@ const state = {
   tradeBrowse: [],
   trades: [],
   myFeedback: { good_count: 0, meh_count: 0, bad_count: 0, net_score: 0, total_count: 0 },
-  partnerFeedback: new Map(), // userId → summary
+  partnerFeedback: new Map(), // userId → summary (cache shared by rep badges + ship-first banner)
+  myFeedbackByTrade: {},      // tradeId → trade_feedback row (for the edit-within-7-days flow)
   tradeShowHistory: false,    // include completed/cancelled/expired/rejected bucket?
   offerDraft: null,           // { recipientId, recipientUsername, recipientItems, myItems, parentTradeId? }
-  feedbackDraft: null,        // { tradeId, rateeId, rateeUsername, rating, comment }
+  feedbackDraft: null,        // { tradeId, rateeId, ratings: { communication, shipping, accuracy }, mode: 'new'|'edit' }
 
   // ─── Admin state ──────────────────────────────────────────────────
   adminUsers: [],             // list of all profiles + feedback
@@ -384,7 +385,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=48', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=49', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -1416,21 +1417,30 @@ function wireEvents() {
     pickerAdjust(btn.dataset.picker, btn.dataset.id, parseInt(btn.dataset.delta, 10));
   });
 
-  // Feedback modal
+  // Feedback modal — three structured thumbs.
   document.querySelectorAll('[data-close-feedback]').forEach((el) =>
     el.addEventListener('click', closeFeedbackModal)
   );
-  document.querySelectorAll('.feedback-choice').forEach((b) => {
-    b.addEventListener('click', () => {
-      if (!state.feedbackDraft) return;
-      state.feedbackDraft.rating = b.dataset.rating;
-      document.querySelectorAll('.feedback-choice').forEach((x) =>
-        x.classList.toggle('selected', x === b)
-      );
-      document.getElementById('feedback-submit').disabled = false;
+  document.querySelectorAll('#feedback-modal .thumb-row').forEach((row) => {
+    const cat = row.dataset.category;
+    row.querySelectorAll('.thumb-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        setFeedbackRating(cat, btn.dataset.value === 'up');
+      });
     });
   });
   document.getElementById('feedback-submit').addEventListener('click', submitFeedback);
+
+  // Mini-profile popover — opens whenever a [data-mini-uid] element is
+  // clicked anywhere in the app. Single delegated listener avoids
+  // re-wiring after every render.
+  document.body.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-mini-uid]');
+    if (t) { e.preventDefault(); openMiniProfile(t.dataset.miniUid); }
+  });
+  document.querySelectorAll('[data-close-mini]').forEach((el) =>
+    el.addEventListener('click', closeMiniProfile)
+  );
 
   document.getElementById('user-badge').addEventListener('click', openAccountModal);
 
@@ -1510,18 +1520,18 @@ async function loadTradeData() {
     state.tradeBrowse  = await data.browseOfferings();
     state.trades       = await data.listTrades();
     state.myFeedback   = await data.getFeedbackSummary(window.currentUser.id);
+    state.partnerFeedback.set(window.currentUser.id, state.myFeedback);
+    state.myFeedbackByTrade = await data.listMyFeedback();
 
-    // Cache feedback summaries for partners that appear in the trade list.
-    const partnerIds = new Set();
+    // Collect every user we'll show a badge for and pull their summaries
+    // in one batch — browse list owners + trade partners.
+    const uids = new Set();
+    for (const it of state.tradeBrowse) uids.add(it.ownerId);
     for (const t of state.trades) {
       const other = t.proposer_id === window.currentUser.id ? t.recipient_id : t.proposer_id;
-      partnerIds.add(other);
+      uids.add(other);
     }
-    await Promise.all([...partnerIds].map(async (uid) => {
-      if (!state.partnerFeedback.has(uid)) {
-        state.partnerFeedback.set(uid, await data.getFeedbackSummary(uid));
-      }
-    }));
+    await ensureReputationFor([...uids]);
   } catch (err) {
     console.error('loadTradeData', err);
     toast('Could not load trade data.');
@@ -1716,7 +1726,7 @@ function renderBrowse() {
   const groups = [...byOwner.entries()].map(([ownerId, g]) => `
     <section class="trader-group">
       <h2 class="trader-head">
-        <span>@${escapeHtml(g.username)}</span>
+        ${repBadge(ownerId, g.username, state.partnerFeedback.get(ownerId), { large: true })}
         <button class="btn-link" data-action="propose-trade" data-uid="${ownerId}">Propose a trade →</button>
       </h2>
       <div class="grid grid-tight">
@@ -1857,11 +1867,13 @@ function renderTradeRow(t, uid) {
     actions = renderCompletedTradeActions(t, isMine, uid);
   }
 
+  const otherId = isMine ? t.recipient_id : t.proposer_id;
+  const otherBadge = repBadge(otherId, otherName, state.partnerFeedback.get(otherId));
   return `
     <article class="trade-card">
       <header class="trade-head">
         <div>
-          <span class="trade-with">${isMine ? 'You → ' : ''}@${escapeHtml(otherName || 'unknown')}${isMine ? '' : ' → You'}</span>
+          <span class="trade-with">${isMine ? 'You → ' : ''}${otherBadge}${isMine ? '' : ' → You'}</span>
           <span class="trade-status">${statusText}</span>
         </div>
       </header>
@@ -1916,9 +1928,14 @@ function renderAcceptedTradeActions(t, isMine, uid) {
 }
 
 function renderCompletedTradeActions(t, isMine, uid) {
-  // Feedback availability: did we already submit?
-  const myFb = (t._myFeedback);  // we'd need to look it up; for now just show button
-  return `<button data-action="trade-feedback" data-id="${t.id}">Leave feedback</button>`;
+  const mine = state.myFeedbackByTrade?.[t.id];
+  if (!mine) return `<button class="btn-primary" data-action="trade-feedback" data-id="${t.id}">Leave feedback</button>`;
+  const ageMs = Date.now() - new Date(mine.created_at).getTime();
+  const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+  if (ageMs > SEVEN_DAYS) {
+    return `<span class="dim">Feedback locked</span>`;
+  }
+  return `<button data-action="trade-feedback" data-id="${t.id}">Edit your feedback</button>`;
 }
 
 // ─── Trade: card-action dispatchers ──────────────────────────────────
@@ -2018,7 +2035,9 @@ async function openOfferModal(recipientId, parentTradeId) {
   };
 
   document.getElementById('offer-title').textContent = parentTradeId ? 'Counter offer' : 'Propose a trade';
-  document.getElementById('offer-sub').textContent = `with @${recipientUsername}`;
+  // Subtitle becomes the partner's reputation badge so the proposer
+  // sees who they're dealing with before committing.
+  document.getElementById('offer-sub').innerHTML = `with ${repBadge(recipientId, recipientUsername, state.partnerFeedback.get(recipientId))}`;
   document.getElementById('offer-message').value = '';
   renderOfferBuilder();
   document.getElementById('offer-modal').classList.remove('hidden');
@@ -2122,6 +2141,10 @@ async function openCounterModal(tradeId) {
 }
 
 // ─── Trade: feedback modal ───────────────────────────────────────────
+// Feedback modal driver — three structured thumbs + optional comment.
+// Opens in either 'new' or 'edit' mode depending on whether the current
+// user already left feedback on this trade. Existing rows stay editable
+// for 7 days (enforced by the DB policy).
 async function openFeedbackModal(tradeId) {
   const t = state.trades.find((x) => x.id === tradeId);
   if (!t) return;
@@ -2129,18 +2152,39 @@ async function openFeedbackModal(tradeId) {
   const rateeId = t.proposer_id === uid ? t.recipient_id : t.proposer_id;
   const rateeName = t.proposer_id === uid ? t.recipient?.username : t.proposer?.username;
 
-  // Already left feedback?
-  const existing = await data.getFeedbackForTrade(tradeId);
-  if (existing.some((f) => f.rater_id === uid)) {
-    toast('You already left feedback for this trade.');
-    return;
+  const existing = await data.getMyFeedbackForTrade(tradeId);
+  let mode = 'new';
+  let ratings = { communication: null, shipping: null, accuracy: null };
+  let comment = '';
+  if (existing) {
+    const ageMs = Date.now() - new Date(existing.created_at).getTime();
+    const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+    if (ageMs > SEVEN_DAYS) {
+      toast('That feedback is locked (over 7 days old).');
+      return;
+    }
+    mode = 'edit';
+    ratings = {
+      communication: existing.rating_communication,
+      shipping:      existing.rating_shipping,
+      accuracy:      existing.rating_accuracy,
+    };
+    comment = existing.comment || '';
   }
 
-  state.feedbackDraft = { tradeId, rateeId, rateeUsername: rateeName, rating: null, comment: '' };
+  state.feedbackDraft = { tradeId, rateeId, rateeUsername: rateeName, ratings, mode };
+  document.getElementById('feedback-title').textContent = mode === 'edit' ? 'Update your feedback' : 'How was the trade?';
   document.getElementById('feedback-sub').textContent = `@${rateeName || 'partner'}`;
-  document.getElementById('feedback-comment').value = '';
-  document.querySelectorAll('.feedback-choice').forEach((b) => b.classList.remove('selected'));
-  document.getElementById('feedback-submit').disabled = true;
+  document.getElementById('feedback-comment').value = comment;
+  document.getElementById('feedback-edit-note').classList.toggle('hidden', mode !== 'new');
+
+  document.querySelectorAll('#feedback-modal .thumb-btn').forEach((b) => b.classList.remove('selected'));
+  for (const [cat, val] of Object.entries(ratings)) {
+    if (val === null) continue;
+    const v = val ? 'up' : 'down';
+    document.querySelector(`#feedback-modal .thumb-row[data-category="${cat}"] .thumb-btn[data-value="${v}"]`)?.classList.add('selected');
+  }
+  refreshFeedbackSubmit();
   document.getElementById('feedback-modal').classList.remove('hidden');
 }
 
@@ -2149,12 +2193,40 @@ function closeFeedbackModal() {
   state.feedbackDraft = null;
 }
 
+function setFeedbackRating(category, value) {
+  const d = state.feedbackDraft;
+  if (!d) return;
+  // Tapping the already-selected thumb clears it.
+  d.ratings[category] = d.ratings[category] === value ? null : value;
+  document.querySelectorAll(`#feedback-modal .thumb-row[data-category="${category}"] .thumb-btn`).forEach((b) => {
+    const isSelected = (d.ratings[category] === true && b.dataset.value === 'up')
+                    || (d.ratings[category] === false && b.dataset.value === 'down');
+    b.classList.toggle('selected', isSelected);
+  });
+  refreshFeedbackSubmit();
+}
+
+function refreshFeedbackSubmit() {
+  const d = state.feedbackDraft;
+  const btn = document.getElementById('feedback-submit');
+  if (!btn) return;
+  if (!d) { btn.disabled = true; return; }
+  const all = ['communication', 'shipping', 'accuracy'].every((c) => d.ratings[c] === true || d.ratings[c] === false);
+  btn.disabled = !all;
+}
+
 async function submitFeedback() {
   const d = state.feedbackDraft;
-  if (!d || !d.rating) return;
+  if (!d) return;
+  const comment = document.getElementById('feedback-comment').value.trim() || null;
   try {
-    await data.leaveFeedback(d.tradeId, d.rateeId, d.rating, document.getElementById('feedback-comment').value.trim() || null);
-    toast('Feedback recorded.');
+    if (d.mode === 'edit') {
+      await data.updateFeedback(d.tradeId, d.ratings, comment);
+      toast('Feedback updated.');
+    } else {
+      await data.leaveFeedback(d.tradeId, d.rateeId, d.ratings, comment);
+      toast('Feedback recorded.');
+    }
     closeFeedbackModal();
     await loadTradeData();
     render();
@@ -2162,6 +2234,125 @@ async function submitFeedback() {
     console.error(err);
     toast('Could not save feedback.');
   }
+}
+
+// ─── Reputation badge + mini-profile popover ─────────────────────────
+// Renders inline `@user · Nt · P%` chip. Self-contained HTML; the
+// containing element must have a click handler (set up at boot) that
+// dispatches to openMiniProfile when [data-mini-uid] is clicked.
+function repBadge(uid, username, summary, opts = {}) {
+  const total = summary?.total_count ?? 0;
+  const pct = summary?.overall_percent;
+  let pctCls = 'rep-empty';
+  let pctTxt = total === 0 ? 'new' : (pct == null ? '—' : `${pct}%`);
+  if (pct != null && total > 0) {
+    if (pct >= 80) pctCls = 'rep-good';
+    else if (pct >= 50) pctCls = 'rep-meh';
+    else pctCls = 'rep-bad';
+  }
+  const size = opts.large ? ' rep-large' : '';
+  const u = escapeHtml(username || 'unknown');
+  const countTxt = total === 0 ? '' : `<span class="rep-sep">·</span><span class="rep-count">${total}t</span>`;
+  return `<button type="button" class="rep-badge${size}" data-mini-uid="${escapeHtml(uid)}" title="See @${u}'s reputation">
+    <span class="rep-name">@${u}</span>
+    ${countTxt}
+    <span class="rep-sep">·</span><span class="rep-percent ${pctCls}">${pctTxt}</span>
+  </button>`;
+}
+
+// Ensure state.partnerFeedback has entries for the supplied user IDs.
+// Fires one batched query for any unknowns. Callers should await this
+// before rendering so badges have data on first paint.
+async function ensureReputationFor(userIds) {
+  const want = userIds.filter((id) => id && !state.partnerFeedback.has(id));
+  if (want.length === 0) return;
+  try {
+    const batch = await data.getFeedbackSummaryBatch(want);
+    for (const id of want) {
+      state.partnerFeedback.set(id, batch[id] || null);
+    }
+  } catch (err) {
+    console.error('ensureReputationFor', err);
+  }
+}
+
+async function openMiniProfile(userId) {
+  const body = document.getElementById('mini-profile-body');
+  body.innerHTML = `<p class="dim">Loading…</p>`;
+  document.getElementById('mini-profile-modal').classList.remove('hidden');
+  try {
+    await ensureReputationFor([userId]);
+    const summary = state.partnerFeedback.get(userId);
+    const comments = await data.getPublicFeedback(userId, 8);
+    const username = summary?.username
+      || comments[0]?.rater_username  // fallback if their summary row is missing
+      || '(unknown)';
+    const total = summary?.total_count ?? 0;
+    const pct = summary?.overall_percent;
+    let pctCls = 'rep-empty';
+    let pctTxt = total === 0 ? 'No trades yet' : (pct == null ? '—' : `${pct}%`);
+    if (pct != null && total > 0) {
+      if (pct >= 80) pctCls = 'rep-good';
+      else if (pct >= 50) pctCls = 'rep-meh';
+      else pctCls = 'rep-bad';
+    }
+
+    const catBar = (name, up, down) => {
+      const t = up + down;
+      const inner = t === 0
+        ? `<span class="cat-empty">no ratings</span>`
+        : `<span class="cat-up">👍 ${up}</span><span class="cat-down">👎 ${down}</span>`;
+      return `<div class="mini-profile-cat"><div class="cat-name">${name}</div><div class="cat-bar">${inner}</div></div>`;
+    };
+
+    const commentHtml = comments.length === 0
+      ? `<p class="mini-profile-empty">No public comments yet.</p>`
+      : comments.map((c) => {
+        const cls = c.rating === 'good' ? 'rating-good' : c.rating === 'bad' ? 'rating-bad' : 'rating-meh';
+        const chips = [
+          c.rating_communication != null && `${c.rating_communication ? '👍' : '👎'} comms`,
+          c.rating_shipping      != null && `${c.rating_shipping      ? '👍' : '👎'} ship`,
+          c.rating_accuracy      != null && `${c.rating_accuracy      ? '👍' : '👎'} item`,
+        ].filter(Boolean).join(' · ');
+        const body = c.comment
+          ? `<p>${escapeHtml(c.comment)}</p>`
+          : (chips ? `<p class="dim">${chips}</p>` : '');
+        return `<div class="mini-profile-comment ${cls}">
+          <div class="mini-profile-comment-head">
+            <span class="from">@${escapeHtml(c.rater_username)}</span>
+            <span class="when">${shortDate(c.created_at)}</span>
+          </div>
+          ${body}
+          ${c.comment && chips ? `<p class="dim" style="margin-top:4px;font-size:0.8rem;">${chips}</p>` : ''}
+        </div>`;
+      }).join('');
+
+    body.innerHTML = `
+      <div class="mini-profile-head">
+        <div>
+          <h2>@${escapeHtml(username)}</h2>
+          <span class="mini-profile-meta">${total === 0 ? 'No trades yet' : `${total} ${total === 1 ? 'trade' : 'trades'}`}</span>
+        </div>
+        <div class="mini-profile-pct ${pctCls}">${pctTxt}</div>
+      </div>
+      <div class="mini-profile-cats">
+        ${catBar('Communication', summary?.comm_up ?? 0, summary?.comm_down ?? 0)}
+        ${catBar('Shipping',      summary?.ship_up ?? 0, summary?.ship_down ?? 0)}
+        ${catBar('Item accuracy', summary?.acc_up  ?? 0, summary?.acc_down  ?? 0)}
+      </div>
+      <div class="mini-profile-comments">
+        <h3>Recent feedback</h3>
+        ${commentHtml}
+      </div>
+    `;
+  } catch (err) {
+    console.error('openMiniProfile', err);
+    body.innerHTML = `<p class="dim">Couldn't load reputation.</p>`;
+  }
+}
+
+function closeMiniProfile() {
+  document.getElementById('mini-profile-modal').classList.add('hidden');
 }
 
 function shortDate(iso) {
@@ -2309,14 +2500,19 @@ async function openAccountModal() {
       ? ' <span class="role-tag">admin</span>' : '');
   }
 
-  // Feedback summary
-  const fb = state.myFeedback || { good_count: 0, meh_count: 0, bad_count: 0, net_score: 0, total_count: 0 };
+  // Feedback summary: overall percent + per-category breakdown + a
+  // "View your public profile" button that opens the same mini-profile
+  // popover other collectors see.
+  const fb = state.myFeedback || {};
+  const total = fb.total_count ?? 0;
+  const pct = fb.overall_percent;
+  const pctTxt = total === 0 ? 'new' : (pct == null ? '—' : `${pct}%`);
   document.getElementById('acct-feedback').innerHTML = `
-    <div class="fb-cell"><span class="fb-num fb-good">${fb.good_count}</span><span class="fb-label">good</span></div>
-    <div class="fb-cell"><span class="fb-num fb-meh">${fb.meh_count}</span><span class="fb-label">meh</span></div>
-    <div class="fb-cell"><span class="fb-num fb-bad">${fb.bad_count}</span><span class="fb-label">bad</span></div>
-    <div class="fb-cell"><span class="fb-num">${fb.net_score}</span><span class="fb-label">net</span></div>
-    <div class="fb-cell"><span class="fb-num">${fb.total_count}</span><span class="fb-label">total</span></div>
+    <div class="fb-cell"><span class="fb-num">${pctTxt}</span><span class="fb-label">overall</span></div>
+    <div class="fb-cell"><span class="fb-num">${total}</span><span class="fb-label">trades</span></div>
+    <div class="fb-cell"><span class="fb-num fb-good">${(fb.comm_up ?? 0)}/${(fb.comm_up ?? 0) + (fb.comm_down ?? 0)}</span><span class="fb-label">comms</span></div>
+    <div class="fb-cell"><span class="fb-num fb-good">${(fb.ship_up ?? 0)}/${(fb.ship_up ?? 0) + (fb.ship_down ?? 0)}</span><span class="fb-label">ship</span></div>
+    <div class="fb-cell"><span class="fb-num fb-good">${(fb.acc_up ?? 0)}/${(fb.acc_up ?? 0) + (fb.acc_down ?? 0)}</span><span class="fb-label">item</span></div>
   `;
 
   // Collections list

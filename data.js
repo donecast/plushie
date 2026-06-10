@@ -422,7 +422,42 @@ data.getFeedbackSummary = async function (userId) {
     .eq('user_id', userId)
     .maybeSingle();
   if (error) throw error;
-  return row || { user_id: userId, good_count: 0, meh_count: 0, bad_count: 0, net_score: 0, total_count: 0 };
+  return row || {
+    user_id: userId,
+    good_count: 0, meh_count: 0, bad_count: 0,
+    net_score: 0, total_count: 0,
+    comm_up: 0, comm_down: 0,
+    ship_up: 0, ship_down: 0,
+    acc_up: 0, acc_down: 0,
+    overall_percent: null,
+  };
+};
+
+// Batch reputation fetch — used to fill the per-user badge cache in one
+// round-trip when the trade tab renders. Returns rows keyed by user_id.
+data.getFeedbackSummaryBatch = async function (userIds) {
+  if (!userIds || userIds.length === 0) return {};
+  const { data: rows, error } = await sb
+    .from('user_feedback_summary')
+    .select('*')
+    .in('user_id', userIds);
+  if (error) throw error;
+  const out = {};
+  for (const r of rows) out[r.user_id] = r;
+  return out;
+};
+
+// Most recent public-facing feedback for a user, with the rater's
+// username. Used by the mini-profile popover; excludes trade_id so a
+// reader can't trace a comment back to a specific exchange.
+data.getPublicFeedback = async function (userId, limit = 8) {
+  const { data: rows, error } = await sb
+    .from('public_feedback_recent')
+    .select('*')
+    .eq('ratee_id', userId)
+    .limit(limit);
+  if (error) throw error;
+  return rows;
 };
 
 // ─── Trades ────────────────────────────────────────────────────────
@@ -754,16 +789,54 @@ data.adminDeleteWishlist = async function (wishlistId) {
   if (error) throw error;
 };
 
-data.leaveFeedback = async function (tradeId, rateeId, rating, comment) {
+// Write feedback for a trade — accepts the structured thumbs ratings
+// (each boolean | null) plus an optional comment. The legacy `rating`
+// enum is derived from the average of the thumbs (>=66% good, <=33%
+// bad, else meh) so old code paths and the user_feedback_summary view's
+// fallback math keep working.
+data.leaveFeedback = async function (tradeId, rateeId, ratings, comment) {
+  const enumRating = deriveEnumRating(ratings);
   const { error } = await sb.from('trade_feedback').insert({
     trade_id: tradeId,
     rater_id: window.currentUser.id,
     ratee_id: rateeId,
-    rating,
+    rating: enumRating,
+    rating_communication: ratings.communication,
+    rating_shipping:      ratings.shipping,
+    rating_accuracy:      ratings.accuracy,
     comment: comment ?? null,
   });
   if (error) throw error;
 };
+
+// Edit an existing feedback row. The DB policy enforces the 7-day
+// window; we don't double-check here so a clock skew on the client
+// never wins over the server.
+data.updateFeedback = async function (tradeId, ratings, comment) {
+  const enumRating = deriveEnumRating(ratings);
+  const { error } = await sb
+    .from('trade_feedback')
+    .update({
+      rating: enumRating,
+      rating_communication: ratings.communication,
+      rating_shipping:      ratings.shipping,
+      rating_accuracy:      ratings.accuracy,
+      comment: comment ?? null,
+    })
+    .eq('trade_id', tradeId)
+    .eq('rater_id', window.currentUser.id);
+  if (error) throw error;
+};
+
+function deriveEnumRating(r) {
+  const vals = [r.communication, r.shipping, r.accuracy].filter((x) => x === true || x === false);
+  if (vals.length === 0) return 'meh';
+  const ups = vals.filter((x) => x === true).length;
+  const pct = ups / vals.length;
+  if (pct >= 0.66) return 'good';
+  if (pct <= 0.33) return 'bad';
+  return 'meh';
+}
 
 data.getFeedbackForTrade = async function (tradeId) {
   const { data: rows, error } = await sb
@@ -772,6 +845,33 @@ data.getFeedbackForTrade = async function (tradeId) {
     .eq('trade_id', tradeId);
   if (error) throw error;
   return rows;
+};
+
+// All feedback rows I've left, keyed by trade_id. Used to flip the
+// completed-trade action between "Leave feedback" and "Edit feedback"
+// at render time without an extra query per row.
+data.listMyFeedback = async function () {
+  const { data: rows, error } = await sb
+    .from('trade_feedback')
+    .select('*')
+    .eq('rater_id', window.currentUser.id);
+  if (error) throw error;
+  const out = {};
+  for (const r of rows) out[r.trade_id] = r;
+  return out;
+};
+
+// My own feedback row on a specific trade, if I've left one. Used to
+// prefill the edit-feedback UI for completed trades.
+data.getMyFeedbackForTrade = async function (tradeId) {
+  const { data: row, error } = await sb
+    .from('trade_feedback')
+    .select('*')
+    .eq('trade_id', tradeId)
+    .eq('rater_id', window.currentUser.id)
+    .maybeSingle();
+  if (error) throw error;
+  return row;
 };
 
 data._tradeItemFromRow = function (r) {

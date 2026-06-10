@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=48" />
+  <link rel="stylesheet" href="./styles.css?v=49" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash dark.
     (function () {
@@ -343,26 +343,67 @@
     </div>
   </div>
 
-  <!-- Feedback prompt -->
+  <!-- Feedback prompt: three structured thumbs + optional comment.
+       Submit unlocks once all three categories are rated. -->
   <div id="feedback-modal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-backdrop" data-close-feedback></div>
     <div class="modal-card">
       <button class="modal-close" data-close-feedback aria-label="Close">×</button>
-      <h2>How was the trade?</h2>
+      <h2 id="feedback-title">How was the trade?</h2>
       <p id="feedback-sub" class="modal-name"></p>
-      <div class="feedback-buttons">
-        <button class="feedback-choice" data-rating="good">🖤 Good</button>
-        <button class="feedback-choice" data-rating="meh">😐 Meh</button>
-        <button class="feedback-choice" data-rating="bad">⚠ Bad</button>
+
+      <div class="thumb-rows">
+        <div class="thumb-row" data-category="communication">
+          <div class="thumb-label">
+            <strong>Communication</strong>
+            <span class="dim">Did they reply promptly and clearly?</span>
+          </div>
+          <div class="thumb-choice">
+            <button type="button" class="thumb-btn" data-value="up"   aria-label="Communication: thumbs up">👍</button>
+            <button type="button" class="thumb-btn" data-value="down" aria-label="Communication: thumbs down">👎</button>
+          </div>
+        </div>
+        <div class="thumb-row" data-category="shipping">
+          <div class="thumb-label">
+            <strong>Shipping</strong>
+            <span class="dim">Did the package go out promptly and arrive well-packed?</span>
+          </div>
+          <div class="thumb-choice">
+            <button type="button" class="thumb-btn" data-value="up"   aria-label="Shipping: thumbs up">👍</button>
+            <button type="button" class="thumb-btn" data-value="down" aria-label="Shipping: thumbs down">👎</button>
+          </div>
+        </div>
+        <div class="thumb-row" data-category="accuracy">
+          <div class="thumb-label">
+            <strong>Item as described</strong>
+            <span class="dim">Was the plushie in the condition you expected?</span>
+          </div>
+          <div class="thumb-choice">
+            <button type="button" class="thumb-btn" data-value="up"   aria-label="Item accuracy: thumbs up">👍</button>
+            <button type="button" class="thumb-btn" data-value="down" aria-label="Item accuracy: thumbs down">👎</button>
+          </div>
+        </div>
       </div>
+
       <label class="field">
-        <span>Note (optional)</span>
-        <textarea id="feedback-comment" rows="2" maxlength="280" placeholder="Anything you'd add…"></textarea>
+        <span>Public comment (optional, 280 chars)</span>
+        <textarea id="feedback-comment" rows="2" maxlength="280" placeholder="Other collectors will see this on their profile."></textarea>
       </label>
+      <p id="feedback-edit-note" class="dim hidden">Editable for 7 days after submission.</p>
       <div class="form-actions">
         <button type="button" class="btn-ghost" data-close-feedback>Skip for now</button>
         <button type="button" class="btn-primary" id="feedback-submit" disabled>Submit</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Mini-profile popover: tappable from any reputation badge so
+       collectors can size each other up before committing to a trade. -->
+  <div id="mini-profile-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-mini></div>
+    <div class="modal-card">
+      <button class="modal-close" data-close-mini aria-label="Close">×</button>
+      <div id="mini-profile-body"></div>
     </div>
   </div>
 
@@ -605,10 +646,10 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="./config.js?v=48"></script>
-  <script src="./auth.js?v=48"></script>
-  <script src="./db.js?v=48"></script>
-  <script src="./data.js?v=48"></script>
-  <script src="./app.js?v=48"></script>
+  <script src="./config.js?v=49"></script>
+  <script src="./auth.js?v=49"></script>
+  <script src="./db.js?v=49"></script>
+  <script src="./data.js?v=49"></script>
+  <script src="./app.js?v=49"></script>
 </body>
 </html>

@@ -1550,30 +1550,196 @@ main {
   font-variant-numeric: tabular-nums;
 }
 
-/* Feedback modal */
-.feedback-buttons {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+/* Feedback modal — three structured thumbs rows. */
+.thumb-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   margin: 14px 0;
 }
-.feedback-choice {
-  padding: 14px 8px;
+.thumb-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
   background: var(--panel-2);
   border: 1px solid var(--border-rose-mild);
   border-radius: var(--radius-sm);
+}
+.thumb-label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.thumb-label strong { font-family: var(--display); font-size: 0.9rem; letter-spacing: 0.04em; color: var(--ink); }
+.thumb-label .dim { font-family: var(--serif); font-style: italic; font-size: 0.85rem; line-height: 1.3; }
+.thumb-choice { display: flex; gap: 6px; flex-shrink: 0; }
+.thumb-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--border-rose-mild);
+  background: var(--bg-2);
   color: var(--ink);
-  font-family: var(--display);
-  letter-spacing: 0.04em;
+  font-size: 1.2rem;
+  line-height: 1;
   cursor: pointer;
   transition: all 0.12s ease;
 }
-.feedback-choice:hover { border-color: var(--rose); }
-.feedback-choice.selected {
-  background: var(--panel);
-  border-color: var(--gold);
-  color: var(--gold);
-  box-shadow: 0 0 12px var(--gold-glow);
+.thumb-btn:hover { border-color: var(--rose-hi); }
+.thumb-btn.selected[data-value="up"] {
+  background: var(--success-bg);
+  border-color: var(--success-border);
+  box-shadow: 0 0 10px var(--success-bg);
+}
+.thumb-btn.selected[data-value="down"] {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  box-shadow: 0 0 10px var(--danger-bg);
+}
+
+/* Reputation badge — used everywhere a username appears next to a
+   trade context. Format: "@user · 12t · 92%". Clickable; opens the
+   mini-profile popover. */
+.rep-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--border-rose-mild);
+  border-radius: 999px;
+  padding: 3px 10px;
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  vertical-align: baseline;
+}
+.rep-badge:hover { border-color: var(--rose-hi); background: var(--rose-hover-bg); }
+.rep-badge .rep-name { font-weight: 600; }
+.rep-badge .rep-sep { color: var(--ink-mute); }
+.rep-badge .rep-count, .rep-badge .rep-percent { color: var(--ink-dim); font-size: 0.85rem; }
+.rep-badge .rep-percent.rep-good   { color: var(--success); }
+.rep-badge .rep-percent.rep-meh    { color: var(--gold); }
+.rep-badge .rep-percent.rep-bad    { color: var(--danger-hi); }
+.rep-badge .rep-percent.rep-empty  { color: var(--ink-mute); font-style: italic; }
+.rep-badge.rep-large {
+  font-size: 1.05rem;
+  padding: 6px 14px;
+  border-radius: 999px;
+}
+
+/* Mini-profile popover — opens from any rep-badge. */
+.mini-profile-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border-rose-mild);
+  padding-bottom: 12px;
+}
+.mini-profile-head h2 {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 1.4rem;
+  color: var(--rose-hi);
+  letter-spacing: 0.04em;
+}
+.mini-profile-pct {
+  font-family: var(--display);
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+.mini-profile-pct.rep-good  { color: var(--success); }
+.mini-profile-pct.rep-meh   { color: var(--gold); }
+.mini-profile-pct.rep-bad   { color: var(--danger-hi); }
+.mini-profile-pct.rep-empty { color: var(--ink-mute); font-style: italic; font-size: 1rem; }
+.mini-profile-meta {
+  display: block;
+  color: var(--ink-dim);
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 0.85rem;
+}
+.mini-profile-cats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.mini-profile-cat {
+  padding: 10px;
+  background: var(--bg-2);
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+.mini-profile-cat .cat-name {
+  font-family: var(--display);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin-bottom: 4px;
+}
+.mini-profile-cat .cat-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--display);
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+}
+.mini-profile-cat .cat-up   { color: var(--success); }
+.mini-profile-cat .cat-down { color: var(--danger-hi); }
+.mini-profile-cat .cat-empty { color: var(--ink-mute); font-style: italic; font-size: 0.85rem; }
+
+.mini-profile-comments h3 {
+  font-family: var(--display);
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+  margin: 0 0 10px;
+}
+.mini-profile-comment {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: var(--panel-2);
+  border-left: 3px solid var(--border-rose-mild);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.mini-profile-comment.rating-good { border-left-color: var(--success); }
+.mini-profile-comment.rating-meh  { border-left-color: var(--gold); }
+.mini-profile-comment.rating-bad  { border-left-color: var(--danger-hi); }
+.mini-profile-comment-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-family: var(--serif);
+  font-size: 0.85rem;
+}
+.mini-profile-comment-head .from { color: var(--gold); }
+.mini-profile-comment-head .when { color: var(--ink-mute); font-style: italic; }
+.mini-profile-comment p {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 0.95rem;
+  line-height: 1.4;
+  color: var(--ink);
+}
+.mini-profile-empty {
+  color: var(--ink-dim);
+  font-style: italic;
+  font-family: var(--serif);
+  padding: 20px 0;
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .thumb-row { padding: 10px 12px; gap: 8px; }
+  .thumb-label .dim { font-size: 0.8rem; }
+  .thumb-btn { width: 40px; height: 40px; font-size: 1.05rem; }
+  .mini-profile-cats { grid-template-columns: 1fr; gap: 6px; }
 }
 
 /* ─── Account modal ────────────────────────────── */
