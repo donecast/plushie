@@ -20,10 +20,87 @@
   --header-bg-2: rgba(18, 8, 32, 0.85);
   --header-border: rgba(196, 61, 110, 0.25);
   --modal-backdrop: rgba(6, 2, 14, 0.7);
-  --border-rose: rgba(255, 95, 168, 0.25);
-  --border-rose-hi: rgba(255, 95, 168, 0.45);
-  --shadow-soft: 0 6px 18px rgba(0, 0, 0, 0.45);
-  --shadow-hi: 0 12px 32px rgba(0, 0, 0, 0.6);
+
+  /* Rose border tints — six tiers from a faint divider to a strong glow. */
+  --border-rose-mist:    rgba(255, 95, 168, 0.05);
+  --border-rose-faint:   rgba(255, 95, 168, 0.10);
+  --border-rose-vague:   rgba(255, 95, 168, 0.12);
+  --border-rose-mild:    rgba(255, 95, 168, 0.18);
+  --border-rose:         rgba(255, 95, 168, 0.25);
+  --border-rose-strong:  rgba(255, 95, 168, 0.30);
+  --border-rose-hi:      rgba(255, 95, 168, 0.45);
+  --border-rose-glow:    rgba(255, 95, 168, 0.50);
+
+  /* Glows used in text-shadow / drop-shadow / box-shadow color slots. */
+  --rose-glow-soft:      rgba(255, 95, 168, 0.35);
+  --rose-glow-med:       rgba(255, 95, 168, 0.45);
+  --rose-glow-hard:      rgba(255, 95, 168, 0.50);
+
+  /* Magenta button drop-shadow. */
+  --rose-shadow:         rgba(196, 61, 110, 0.40);
+  --rose-shadow-md:      rgba(196, 61, 110, 0.45);
+  --rose-shadow-hi:      rgba(196, 61, 110, 0.60);
+
+  /* Soft hover surfaces / focus rings. */
+  --rose-hover-bg:       rgba(255, 95, 168, 0.04);
+  --row-hover-bg:        rgba(255, 95, 168, 0.05);
+  --focus-ring:          rgba(255, 95, 168, 0.15);
+
+  /* Card / modal shadow colors (the rgba slot inside box-shadow). */
+  --shadow-card:         rgba(0, 0, 0, 0.40);
+  --shadow-strong:       rgba(0, 0, 0, 0.45);
+  --shadow-deep:         rgba(0, 0, 0, 0.55);
+  --shadow-soft:         0 6px 18px rgba(0, 0, 0, 0.45);
+  --shadow-hi:           0 12px 32px rgba(0, 0, 0, 0.60);
+
+  /* Status badges — dark chip + neon text on dark mode. */
+  --badge-bg:            rgba(20, 8, 32, 0.85);
+  --badge-border-white:  rgba(255, 255, 255, 0.15);
+  --owned-text:          #ffd8a8;
+  --stock-blue:          #74c0ff;
+  --stock-blue-border:   #4a7ab8;
+  --stock-blue-glow:     rgba(116, 192, 255, 0.40);
+  --stock-purple:        #c4a3ff;
+  --stock-purple-border: #8a6fc4;
+  --stock-purple-glow:   rgba(196, 163, 255, 0.40);
+  --mini-grad-1:         #5a3a78;
+  --mini-grad-2:         #3d2257;
+  --mini-text:           #f3e6ff;
+  --retired-grad-2:      #b88940;
+  --text-on-gold:        #2a1500;
+  --text-on-rose:        #ffffff;
+  --ink-on-pill:         #1a0d26;
+  --watermark-bg:        rgba(8, 4, 14, 0.78);
+  --watermark-border:    rgba(255, 255, 255, 0.15);
+
+  /* Success / available-to-buy green family. */
+  --success:             #6effa6;
+  --success-strong:      #aaffcc;
+  --success-bg:          rgba(110, 255, 168, 0.12);
+  --success-border:      rgba(110, 255, 168, 0.45);
+  --teal-text:           #6effd8;
+  --teal-grad-1:         #2a4d4f;
+  --teal-grad-2:         #1a2f30;
+  --teal-border:         rgba(110, 255, 216, 0.30);
+
+  /* Danger / destructive red family. */
+  --danger-hi:           #ff7a8a;
+  --danger-bg:           rgba(255, 77, 109, 0.12);
+  --danger-border:       rgba(255, 77, 109, 0.35);
+
+  /* Gold accent tints. */
+  --gold-bg:             rgba(255, 215, 142, 0.08);
+  --gold-border:         rgba(255, 215, 142, 0.35);
+  --gold-glow:           rgba(255, 215, 142, 0.30);
+  --gold-soft-border:    rgba(212, 175, 55, 0.40);
+  --gold-soft-bg:        rgba(212, 175, 55, 0.15);
+  --gold-inset-glow:     rgba(255, 215, 142, 0.05);
+
+  /* Misc. */
+  --ink-link-underline:  rgba(181, 152, 212, 0.40);
+  /* SVG arrow inside .filter-select — color matches --rose-hi per theme. */
+  --select-arrow: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%23ff5fa8' d='M5 6 0 0h10z'/></svg>");
+
   --radius: 14px;
   --radius-sm: 8px;
   --serif: 'Cormorant Garamond', 'Georgia', serif;
@@ -55,10 +132,78 @@
   --header-bg-2: rgba(245, 235, 250, 0.85);
   --header-border: rgba(168, 41, 92, 0.20);
   --modal-backdrop: rgba(60, 30, 80, 0.35);
-  --border-rose: rgba(168, 41, 92, 0.25);
-  --border-rose-hi: rgba(168, 41, 92, 0.45);
-  --shadow-soft: 0 4px 14px rgba(120, 90, 140, 0.16);
-  --shadow-hi: 0 10px 28px rgba(120, 90, 140, 0.24);
+
+  --border-rose-mist:    rgba(168, 41, 92, 0.04);
+  --border-rose-faint:   rgba(168, 41, 92, 0.08);
+  --border-rose-vague:   rgba(168, 41, 92, 0.10);
+  --border-rose-mild:    rgba(168, 41, 92, 0.15);
+  --border-rose:         rgba(168, 41, 92, 0.25);
+  --border-rose-strong:  rgba(168, 41, 92, 0.30);
+  --border-rose-hi:      rgba(168, 41, 92, 0.45);
+  --border-rose-glow:    rgba(168, 41, 92, 0.40);
+
+  /* Glows nearly vanish on a light surface — keep barely-there hint of rose. */
+  --rose-glow-soft:      rgba(168, 41, 92, 0.10);
+  --rose-glow-med:       rgba(168, 41, 92, 0.18);
+  --rose-glow-hard:      rgba(168, 41, 92, 0.22);
+
+  --rose-shadow:         rgba(168, 41, 92, 0.18);
+  --rose-shadow-md:      rgba(168, 41, 92, 0.22);
+  --rose-shadow-hi:      rgba(168, 41, 92, 0.32);
+
+  --rose-hover-bg:       rgba(168, 41, 92, 0.04);
+  --row-hover-bg:        rgba(168, 41, 92, 0.05);
+  --focus-ring:          rgba(168, 41, 92, 0.12);
+
+  /* Lavender-tinted shadows feel softer on cream than pure black. */
+  --shadow-card:         rgba(120, 90, 140, 0.18);
+  --shadow-strong:       rgba(120, 90, 140, 0.22);
+  --shadow-deep:         rgba(120, 90, 140, 0.30);
+  --shadow-soft:         0 4px 14px rgba(120, 90, 140, 0.16);
+  --shadow-hi:           0 10px 28px rgba(120, 90, 140, 0.24);
+
+  /* Status badges flip — cream chip + deep, legible text. */
+  --badge-bg:            rgba(252, 250, 255, 0.92);
+  --badge-border-white:  rgba(60, 30, 80, 0.20);
+  --owned-text:          #8a4a18;
+  --stock-blue:          #2e5fa8;
+  --stock-blue-border:   #6b8fc8;
+  --stock-blue-glow:     rgba(46, 95, 168, 0.18);
+  --stock-purple:        #6b3ec4;
+  --stock-purple-border: #9b7fd4;
+  --stock-purple-glow:   rgba(107, 62, 196, 0.18);
+  --mini-grad-1:         #d9c8e8;
+  --mini-grad-2:         #c4adde;
+  --mini-text:           #2a1244;
+  --retired-grad-2:      #b88940;
+  --text-on-gold:        #2a1500;
+  --text-on-rose:        #ffffff;
+  --ink-on-pill:         #2a1244;
+  --watermark-bg:        rgba(252, 250, 255, 0.86);
+  --watermark-border:    rgba(60, 30, 80, 0.18);
+
+  --success:             #1f8956;
+  --success-strong:      #166842;
+  --success-bg:          rgba(31, 137, 86, 0.10);
+  --success-border:      rgba(31, 137, 86, 0.40);
+  --teal-text:           #1a7559;
+  --teal-grad-1:         #d8ece4;
+  --teal-grad-2:         #c2e0d3;
+  --teal-border:         rgba(26, 117, 89, 0.30);
+
+  --danger-hi:           #b8253f;
+  --danger-bg:           rgba(196, 48, 80, 0.08);
+  --danger-border:       rgba(196, 48, 80, 0.30);
+
+  --gold-bg:             rgba(168, 122, 53, 0.08);
+  --gold-border:         rgba(168, 122, 53, 0.30);
+  --gold-glow:           rgba(168, 122, 53, 0.18);
+  --gold-soft-border:    rgba(168, 122, 53, 0.35);
+  --gold-soft-bg:        rgba(168, 122, 53, 0.10);
+  --gold-inset-glow:     rgba(168, 122, 53, 0.06);
+
+  --ink-link-underline:  rgba(120, 90, 140, 0.45);
+  --select-arrow: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%23c43d6e' d='M5 6 0 0h10z'/></svg>");
 }
 
 * { box-sizing: border-box; }
@@ -108,7 +253,7 @@ header {
 .bat-logo {
   width: 60px;
   height: 40px;
-  filter: drop-shadow(0 0 6px rgba(255, 95, 168, 0.45));
+  filter: drop-shadow(0 0 6px var(--border-rose-hi));
   animation: floatBat 4s ease-in-out infinite;
   transform-origin: center;
 }
@@ -125,14 +270,14 @@ h1 {
   margin: 0;
   letter-spacing: 0.04em;
   color: var(--ink);
-  text-shadow: 0 0 12px rgba(255, 95, 168, 0.35);
+  text-shadow: 0 0 12px var(--rose-glow-soft);
 }
 
 .header-actions { display: flex; gap: 8px; }
 
 .icon-btn {
   background: var(--panel);
-  border: 1px solid rgba(255, 95, 168, 0.3);
+  border: 1px solid var(--border-rose-strong);
   color: var(--ink);
   width: 40px;
   height: 40px;
@@ -145,7 +290,7 @@ h1 {
 .icon-btn.active {
   background: var(--rose);
   border-color: var(--rose-hi);
-  box-shadow: 0 0 12px rgba(255, 95, 168, 0.5);
+  box-shadow: 0 0 12px var(--rose-glow-hard);
 }
 
 /* ─── Tabs ────────────────────────────── */
@@ -208,7 +353,7 @@ main {
   min-width: 200px;
   padding: 11px 16px;
   background: var(--panel);
-  border: 1px solid rgba(255, 95, 168, 0.25);
+  border: 1px solid var(--border-rose);
   border-radius: var(--radius-sm);
   color: var(--ink);
   font-family: var(--serif);
@@ -219,7 +364,7 @@ main {
 #search:focus {
   outline: none;
   border-color: var(--rose-hi);
-  box-shadow: 0 0 0 3px rgba(255, 95, 168, 0.15);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .filters {
@@ -231,7 +376,7 @@ main {
 .chip {
   padding: 9px 14px;
   background: var(--panel);
-  border: 1px solid rgba(255, 95, 168, 0.25);
+  border: 1px solid var(--border-rose);
   border-radius: 999px;
   color: var(--ink-dim);
   font-family: var(--serif);
@@ -243,9 +388,9 @@ main {
 .chip:hover { color: var(--ink); border-color: var(--rose); }
 .chip.active {
   background: var(--rose);
-  color: white;
+  color: var(--text-on-rose);
   border-color: var(--rose-hi);
-  box-shadow: 0 2px 10px rgba(196, 61, 110, 0.4);
+  box-shadow: 0 2px 10px var(--rose-shadow);
 }
 .chip-action { color: var(--rose-hi); border-color: var(--rose); }
 .chip-action:hover { background: var(--rose-soft); color: var(--rose-hi); }
@@ -265,13 +410,13 @@ main {
 .chip-sep {
   width: 1px;
   height: 18px;
-  background: rgba(255, 95, 168, 0.3);
+  background: var(--border-rose-strong);
   margin: 0 4px;
 }
 .chip-select {
   padding: 9px 12px;
   background: var(--panel);
-  border: 1px solid rgba(255, 95, 168, 0.25);
+  border: 1px solid var(--border-rose);
   border-radius: 999px;
   color: var(--ink-dim);
   font-family: var(--serif);
@@ -285,8 +430,8 @@ main {
    filters; <details>/<summary> + checkboxes for multi-value. */
 .filter-select {
   padding: 9px 30px 9px 14px;
-  background: var(--panel) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%23ff5fa8' d='M5 6 0 0h10z'/></svg>") no-repeat right 12px center;
-  border: 1px solid rgba(255, 95, 168, 0.25);
+  background: var(--panel) var(--select-arrow) no-repeat right 12px center;
+  border: 1px solid var(--border-rose);
   border-radius: var(--radius-sm);
   color: var(--ink);
   font-family: var(--serif);
@@ -308,7 +453,7 @@ main {
   gap: 6px;
   padding: 9px 14px;
   background: var(--panel);
-  border: 1px solid rgba(255, 95, 168, 0.25);
+  border: 1px solid var(--border-rose);
   border-radius: var(--radius-sm);
   color: var(--ink);
   font-family: var(--serif);
@@ -342,11 +487,11 @@ main {
   left: 0;
   z-index: 5;
   background: var(--panel);
-  border: 1px solid rgba(255, 95, 168, 0.3);
+  border: 1px solid var(--border-rose-strong);
   border-radius: var(--radius-sm);
   padding: 6px;
   min-width: 180px;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 12px 30px var(--shadow-strong);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -372,7 +517,7 @@ main {
 
 .filter-clear, .filter-action {
   background: transparent;
-  border: 1px solid rgba(255, 95, 168, 0.25);
+  border: 1px solid var(--border-rose);
   color: var(--ink-dim);
   font-family: var(--serif);
   font-size: 0.88rem;
@@ -388,7 +533,7 @@ main {
 }
 .filter-action {
   color: var(--gold);
-  border-color: rgba(255, 215, 142, 0.4);
+  border-color: var(--gold-border);
   margin-left: 0;
 }
 
@@ -403,17 +548,17 @@ main {
 .add-btn {
   background: linear-gradient(135deg, var(--rose), var(--rose-hi));
   border: none;
-  color: white;
+  color: var(--text-on-rose);
   padding: 11px 20px;
   border-radius: var(--radius-sm);
   font-family: var(--display);
   font-size: 0.95rem;
   letter-spacing: 0.06em;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(196, 61, 110, 0.45);
+  box-shadow: 0 4px 14px var(--rose-shadow-md);
   transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
-.add-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(196, 61, 110, 0.6); }
+.add-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px var(--rose-shadow-hi); }
 .add-btn:active { transform: translateY(0); }
 
 .count {
@@ -465,18 +610,18 @@ main {
   padding: 3px 8px;
   border-radius: 999px;
   text-transform: uppercase;
-  background: rgba(8, 4, 14, 0.78);
+  background: var(--watermark-bg);
   color: var(--ink);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--badge-border-white);
   white-space: nowrap;
 }
-.card-status.owned { color: #ffd8a8; border-color: var(--gold); }
+.card-status.owned { color: var(--owned-text); border-color: var(--gold); }
 .card-status.wished { color: var(--rose-hi); border-color: var(--rose); }
 
-.card-actions .btn-have { color: var(--gold); border-color: rgba(212, 175, 55, 0.4); }
-.card-actions .btn-have:hover { background: rgba(212, 175, 55, 0.15); color: #ffd8a8; }
+.card-actions .btn-have { color: var(--gold); border-color: var(--gold-soft-border); }
+.card-actions .btn-have:hover { background: var(--gold-soft-bg); color: var(--owned-text); }
 .card-actions .btn-want { color: var(--rose-hi); border-color: var(--rose); }
-.card-actions .btn-want:hover { background: var(--rose); color: white; }
+.card-actions .btn-want:hover { background: var(--rose); color: var(--text-on-rose); }
 
 .grid-tight .card-name { font-size: 0.95rem; }
 .grid-tight .card-body { padding: 10px 10px 8px; }
@@ -485,7 +630,7 @@ main {
 
 .card {
   background: var(--panel);
-  border: 1px solid rgba(255, 95, 168, 0.18);
+  border: 1px solid var(--border-rose-mild);
   border-radius: var(--radius);
   overflow: hidden;
   position: relative;
@@ -537,35 +682,35 @@ main {
   padding: 4px 10px;
   border-radius: 999px;
   text-transform: uppercase;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  box-shadow: 0 2px 8px var(--shadow-card);
   white-space: nowrap;
 }
 .badge-retired {
-  background: linear-gradient(135deg, var(--retired), #b88940);
-  color: #2a1500;
+  background: linear-gradient(135deg, var(--retired), var(--retired-grad-2));
+  color: var(--text-on-gold);
 }
 .badge-oos {
-  background: rgba(20, 8, 32, 0.85);
+  background: var(--badge-bg);
   color: var(--rose-hi);
   border: 1px solid var(--rose);
-  text-shadow: 0 0 6px rgba(255, 95, 168, 0.5);
+  text-shadow: 0 0 6px var(--rose-glow-hard);
 }
 .badge-soon {
-  background: rgba(20, 8, 32, 0.85);
-  color: #74c0ff;
-  border: 1px solid #4a7ab8;
-  text-shadow: 0 0 6px rgba(116, 192, 255, 0.4);
+  background: var(--badge-bg);
+  color: var(--stock-blue);
+  border: 1px solid var(--stock-blue-border);
+  text-shadow: 0 0 6px var(--stock-blue-glow);
 }
 .badge-fyc {
-  background: rgba(20, 8, 32, 0.85);
-  color: #c4a3ff;
-  border: 1px solid #8a6fc4;
-  text-shadow: 0 0 6px rgba(196, 163, 255, 0.4);
+  background: var(--badge-bg);
+  color: var(--stock-purple);
+  border: 1px solid var(--stock-purple-border);
+  text-shadow: 0 0 6px var(--stock-purple-glow);
 }
 .badge-mini {
-  background: linear-gradient(135deg, #5a3a78, #3d2257);
-  color: #f3e6ff;
-  border: 1px solid rgba(255, 95, 168, 0.5);
+  background: linear-gradient(135deg, var(--mini-grad-1), var(--mini-grad-2));
+  color: var(--mini-text);
+  border: 1px solid var(--rose-glow-hard);
 }
 
 .card-body {
@@ -655,8 +800,8 @@ main {
 }
 
 .badge-qty {
-  background: linear-gradient(135deg, var(--gold), #b88940);
-  color: #2a1500;
+  background: linear-gradient(135deg, var(--gold), var(--retired-grad-2));
+  color: var(--text-on-gold);
   font-variant-numeric: tabular-nums;
 }
 
@@ -664,13 +809,13 @@ main {
   display: flex;
   gap: 6px;
   padding: 10px 14px 14px;
-  border-top: 1px solid rgba(255, 95, 168, 0.1);
+  border-top: 1px solid var(--border-rose-faint);
   margin-top: auto;
 }
 .card-actions button {
   flex: 1;
   background: transparent;
-  border: 1px solid rgba(255, 95, 168, 0.25);
+  border: 1px solid var(--border-rose);
   color: var(--ink-dim);
   padding: 7px 10px;
   border-radius: var(--radius-sm);
@@ -681,7 +826,7 @@ main {
 }
 .card-actions button:hover { color: var(--ink); border-color: var(--rose); background: var(--rose-soft); }
 .card-actions .btn-got { color: var(--rose-hi); border-color: var(--rose); }
-.card-actions .btn-got:hover { background: var(--rose); color: white; }
+.card-actions .btn-got:hover { background: var(--rose); color: var(--text-on-rose); }
 .card-actions .btn-danger:hover { color: var(--danger); border-color: var(--danger); }
 
 /* Icon-only trash button used for collection delete. Small, red, no label —
@@ -691,7 +836,7 @@ main {
   height: 32px;
   padding: 0;
   border-radius: 50%;
-  border: 1px solid rgba(255, 77, 109, 0.35);
+  border: 1px solid var(--danger-border);
   background: transparent;
   color: var(--danger);
   font-size: 0.95rem;
@@ -705,7 +850,7 @@ main {
   transition: all 0.12s ease;
 }
 .card-actions .btn-trash:hover {
-  background: rgba(255, 77, 109, 0.12);
+  background: var(--danger-bg);
   border-color: var(--danger);
 }
 .card-actions .btn-link {
@@ -724,8 +869,8 @@ main {
   align-items: center;
   justify-content: center;
   background: var(--panel);
-  color: #6effa6;
-  border: 1px solid rgba(110, 255, 168, 0.45);
+  color: var(--success);
+  border: 1px solid var(--success-border);
   font-family: var(--serif);
   font-size: 0.92rem;
   letter-spacing: 0.04em;
@@ -735,9 +880,9 @@ main {
   transition: all 0.12s ease;
 }
 .card-actions .btn-buy:hover {
-  background: rgba(110, 255, 168, 0.12);
-  color: #aaffcc;
-  border-color: #6effa6;
+  background: var(--success-bg);
+  color: var(--success-strong);
+  border-color: var(--success);
 }
 
 /* ─── Active filters bar ────────────────────────────── */
@@ -749,7 +894,7 @@ main {
   margin: 0 0 14px;
   padding: 8px 10px;
   background: var(--panel);
-  border: 1px solid rgba(255, 95, 168, 0.15);
+  border: 1px solid var(--border-rose-mild);
   border-radius: var(--radius-sm);
   font-family: var(--serif);
   font-size: 0.9rem;
@@ -762,7 +907,7 @@ main {
 }
 .active-pill {
   background: var(--bg-2);
-  border: 1px solid rgba(255, 215, 142, 0.35);
+  border: 1px solid var(--gold-border);
   color: var(--gold);
   padding: 3px 10px;
   border-radius: 999px;
@@ -792,7 +937,7 @@ main {
   margin-bottom: 24px;
   padding: 16px 18px;
   background: var(--panel);
-  border: 1px solid rgba(255, 95, 168, 0.2);
+  border: 1px solid var(--border-rose-mild);
   border-radius: var(--radius);
 }
 .pens-progress-text {
@@ -815,7 +960,7 @@ main {
   height: 100%;
   background: linear-gradient(90deg, var(--rose), var(--gold));
   transition: width 0.3s ease;
-  box-shadow: 0 0 8px rgba(255, 95, 168, 0.4);
+  box-shadow: 0 0 8px var(--rose-glow-med);
 }
 
 .pens-list { display: flex; flex-direction: column; gap: 24px; }
@@ -829,7 +974,7 @@ main {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  border-bottom: 1px solid rgba(255, 95, 168, 0.15);
+  border-bottom: 1px solid var(--border-rose-mild);
   padding-bottom: 6px;
 }
 .pens-group-count {
@@ -853,7 +998,7 @@ main {
   gap: 12px;
   padding: 8px 10px 8px 14px;
   background: var(--panel);
-  border: 1px solid rgba(255, 95, 168, 0.12);
+  border: 1px solid var(--border-rose-vague);
   border-radius: var(--radius-sm);
   font-family: var(--serif);
   transition: all 0.12s ease;
@@ -880,7 +1025,7 @@ main {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  border: 1px solid rgba(255, 95, 168, 0.3);
+  border: 1px solid var(--border-rose-strong);
   background: var(--bg-2);
   color: var(--ink);
   font-size: 1.2rem;
@@ -958,7 +1103,7 @@ main {
 .modal-card {
   position: relative;
   background: linear-gradient(180deg, var(--panel-2), var(--panel));
-  border: 1px solid rgba(255, 95, 168, 0.3);
+  border: 1px solid var(--border-rose-strong);
   border-radius: var(--radius);
   padding: 24px;
   width: 100%;
@@ -1006,7 +1151,7 @@ main {
   height: 120px;
   border-radius: var(--radius);
   background: var(--bg-2);
-  border: 2px dashed rgba(255, 95, 168, 0.4);
+  border: 2px dashed var(--rose-glow-med);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1053,7 +1198,7 @@ main {
   width: 100%;
   padding: 10px 12px;
   background: var(--bg-2);
-  border: 1px solid rgba(255, 95, 168, 0.2);
+  border: 1px solid var(--border-rose-mild);
   border-radius: var(--radius-sm);
   color: var(--ink);
   font-family: var(--serif);
@@ -1063,7 +1208,7 @@ main {
 .field input:focus, .field textarea:focus, .field select:focus {
   outline: none;
   border-color: var(--rose-hi);
-  box-shadow: 0 0 0 3px rgba(255, 95, 168, 0.15);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .checkbox {
@@ -1101,23 +1246,23 @@ main {
 }
 .btn-ghost {
   background: transparent;
-  border-color: rgba(255, 95, 168, 0.3);
+  border-color: var(--border-rose-strong);
   color: var(--ink-dim);
 }
 .btn-ghost:hover { color: var(--ink); border-color: var(--rose); }
 .btn-primary {
   background: linear-gradient(135deg, var(--rose), var(--rose-hi));
-  color: white;
-  box-shadow: 0 4px 14px rgba(196, 61, 110, 0.45);
+  color: var(--text-on-rose);
+  box-shadow: 0 4px 14px var(--rose-shadow-md);
 }
-.btn-primary:hover { box-shadow: 0 6px 18px rgba(196, 61, 110, 0.6); }
+.btn-primary:hover { box-shadow: 0 6px 18px var(--rose-shadow-hi); }
 
 /* ─── Footer ────────────────────────────── */
 .app-footer {
   max-width: 1100px;
   margin: 40px auto 0;
   padding: 24px 20px 8px;
-  border-top: 1px solid rgba(255, 95, 168, 0.12);
+  border-top: 1px solid var(--border-rose-vague);
   text-align: center;
   display: flex;
   flex-wrap: wrap;
@@ -1144,7 +1289,7 @@ main {
   font-size: 0.85rem;
   cursor: pointer;
   text-decoration: underline;
-  text-decoration-color: rgba(181, 152, 212, 0.4);
+  text-decoration-color: var(--ink-link-underline);
   text-underline-offset: 3px;
   transition: color 0.15s ease;
 }
@@ -1198,7 +1343,7 @@ main {
   cursor: pointer;
   transition: background 0.12s ease;
 }
-.card-clickable:hover { background: rgba(255, 95, 168, 0.04); }
+.card-clickable:hover { background: var(--rose-hover-bg); }
 .card-clickable::after {
   content: '›';
   position: absolute;
@@ -1217,7 +1362,7 @@ main {
 }
 .trade-history-toggle button {
   background: transparent;
-  border: 1px dashed rgba(255, 95, 168, 0.3);
+  border: 1px dashed var(--border-rose-strong);
   color: var(--ink-dim);
   font-family: var(--serif);
   font-style: italic;
@@ -1234,7 +1379,7 @@ main {
   padding: 0 5px;
   margin-left: 4px;
   background: var(--gold);
-  color: #1a0d26;
+  color: var(--ink-on-pill);
   font-size: 0.7rem;
   font-weight: 700;
   border-radius: 9px;
@@ -1247,7 +1392,7 @@ main {
   display: flex;
   gap: 4px;
   margin-bottom: 18px;
-  border-bottom: 1px solid rgba(255, 95, 168, 0.18);
+  border-bottom: 1px solid var(--border-rose-mild);
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -1274,9 +1419,9 @@ main {
 .subview.hidden { display: none; }
 
 .badge-trade {
-  background: linear-gradient(135deg, #2a4d4f, #1a2f30);
-  color: #6effd8;
-  border: 1px solid rgba(110, 255, 216, 0.3);
+  background: linear-gradient(135deg, var(--teal-grad-1), var(--teal-grad-2));
+  color: var(--teal-text);
+  border: 1px solid var(--teal-border);
 }
 
 .trader-group, .my-items-section, .trades-section { margin-bottom: 28px; }
@@ -1288,7 +1433,7 @@ main {
   font-size: 1.1rem;
   letter-spacing: 0.06em;
   color: var(--rose-hi);
-  border-bottom: 1px solid rgba(255, 95, 168, 0.15);
+  border-bottom: 1px solid var(--border-rose-mild);
   padding-bottom: 6px;
   margin: 0 0 12px;
 }
@@ -1304,7 +1449,7 @@ main {
 
 .trade-card {
   background: var(--panel);
-  border: 1px solid rgba(255, 95, 168, 0.18);
+  border: 1px solid var(--border-rose-mild);
   border-radius: var(--radius);
   padding: 14px 16px;
   margin-bottom: 12px;
@@ -1349,13 +1494,13 @@ main {
   font-family: var(--serif);
   font-style: italic;
   color: var(--ink-dim);
-  border-left: 2px solid rgba(255, 215, 142, 0.4);
+  border-left: 2px solid var(--gold-border);
   padding-left: 10px;
 }
 .ship-first-banner {
   margin: 8px 0;
   padding: 8px 12px;
-  background: rgba(255, 215, 142, 0.08);
+  background: var(--gold-bg);
   border-left: 3px solid var(--gold);
   border-radius: 4px;
   font-family: var(--serif);
@@ -1384,7 +1529,7 @@ main {
   justify-content: space-between;
   align-items: center;
   padding: 6px 0;
-  border-bottom: 1px dashed rgba(255, 95, 168, 0.1);
+  border-bottom: 1px dashed var(--border-rose-faint);
 }
 .picker-row:last-child { border-bottom: 0; }
 .picker-name { font-family: var(--serif); }
@@ -1412,7 +1557,7 @@ main {
 .feedback-choice {
   padding: 14px 8px;
   background: var(--panel-2);
-  border: 1px solid rgba(255, 95, 168, 0.2);
+  border: 1px solid var(--border-rose-mild);
   border-radius: var(--radius-sm);
   color: var(--ink);
   font-family: var(--display);
@@ -1425,13 +1570,13 @@ main {
   background: var(--panel);
   border-color: var(--gold);
   color: var(--gold);
-  box-shadow: 0 0 12px rgba(255, 215, 142, 0.3);
+  box-shadow: 0 0 12px var(--gold-glow);
 }
 
 /* ─── Account modal ────────────────────────────── */
 .account-section {
   padding: 14px 0;
-  border-bottom: 1px solid rgba(255, 95, 168, 0.12);
+  border-bottom: 1px solid var(--border-rose-vague);
 }
 .account-section:last-child { border-bottom: 0; }
 .account-section h3 {
@@ -1477,9 +1622,9 @@ main {
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
-.fb-num.fb-good { color: #6effd8; }
+.fb-num.fb-good { color: var(--teal-text); }
 .fb-num.fb-meh  { color: var(--ink-dim); }
-.fb-num.fb-bad  { color: #ff7a8a; }
+.fb-num.fb-bad  { color: var(--danger-hi); }
 .fb-label {
   font-family: var(--serif);
   font-style: italic;
@@ -1494,7 +1639,7 @@ main {
 .menu-section.hidden { display: none; }
 .menu-divider {
   height: 1px;
-  background: rgba(255, 95, 168, 0.18);
+  background: var(--border-rose-mild);
   margin: 4px 6px;
 }
 .menu-item.active { color: var(--gold); }
@@ -1524,7 +1669,7 @@ main {
   justify-content: space-between;
   align-items: center;
   padding: 8px 0;
-  border-bottom: 1px dashed rgba(255, 95, 168, 0.1);
+  border-bottom: 1px dashed var(--border-rose-faint);
   font-family: var(--serif);
 }
 .member-list li:last-child { border-bottom: 0; }
@@ -1535,11 +1680,11 @@ main {
   font-size: 0.7rem;
   letter-spacing: 0.05em;
   background: var(--gold);
-  color: #1a0d26;
+  color: var(--ink-on-pill);
   border-radius: 9px;
   font-family: var(--display);
 }
-.role-tag.editor { background: var(--rose); color: #fff; }
+.role-tag.editor { background: var(--rose); color: var(--text-on-rose); }
 .role-tag.viewer { background: var(--ink-dim); color: var(--bg); }
 
 .invite-link-wrap {
@@ -1551,7 +1696,7 @@ main {
 .invite-link-wrap input {
   flex: 1;
   background: var(--bg-2);
-  border: 1px solid rgba(255, 95, 168, 0.25);
+  border: 1px solid var(--border-rose);
   border-radius: var(--radius-sm);
   padding: 8px 10px;
   color: var(--ink);
@@ -1562,7 +1707,7 @@ main {
 /* ─── Address modal ────────────────────────────── */
 .address-their {
   background: var(--bg-2);
-  border: 1px solid rgba(255, 215, 142, 0.3);
+  border: 1px solid var(--gold-glow);
   border-radius: var(--radius-sm);
   padding: 12px;
   margin-top: 14px;
@@ -1602,16 +1747,16 @@ body.locked { overflow: hidden; }
   width: 100%;
   max-width: 420px;
   background: var(--panel);
-  border: 1px solid rgba(255, 95, 168, 0.25);
+  border: 1px solid var(--border-rose);
   border-radius: var(--radius);
   padding: 36px 28px;
-  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 215, 142, 0.05) inset;
+  box-shadow: 0 30px 60px var(--shadow-deep), 0 0 0 1px var(--gold-inset-glow) inset;
   text-align: center;
 }
 .auth-mark {
   font-size: 2.4rem;
   margin-bottom: 12px;
-  filter: drop-shadow(0 0 12px rgba(255, 95, 168, 0.5));
+  filter: drop-shadow(0 0 12px var(--rose-glow-hard));
 }
 .auth-spinner {
   font-size: 2rem;
@@ -1656,7 +1801,7 @@ body.locked { overflow: hidden; }
 }
 .auth-error {
   margin-top: 14px;
-  color: #ff7a8a;
+  color: var(--danger-hi);
   font-size: 0.9rem;
   font-family: var(--serif);
 }
@@ -1664,7 +1809,7 @@ body.locked { overflow: hidden; }
 /* ─── User badge & menu ────────────────────────────── */
 .user-badge {
   background: var(--panel-2);
-  border: 1px solid rgba(255, 95, 168, 0.25);
+  border: 1px solid var(--border-rose);
   color: var(--ink);
   font-family: var(--serif);
   font-size: 0.92rem;
@@ -1684,9 +1829,9 @@ body.locked { overflow: hidden; }
   position: fixed;
   z-index: 950;
   background: var(--panel);
-  border: 1px solid rgba(255, 95, 168, 0.3);
+  border: 1px solid var(--border-rose-strong);
   border-radius: var(--radius-sm);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 16px 40px var(--shadow-deep);
   min-width: 160px;
   padding: 6px;
 }
@@ -1714,7 +1859,7 @@ body.locked { overflow: hidden; }
 }
 .admin-table th, .admin-table td {
   padding: 10px 12px;
-  border-bottom: 1px solid rgba(255, 95, 168, 0.12);
+  border-bottom: 1px solid var(--border-rose-vague);
   text-align: left;
   vertical-align: middle;
 }
@@ -1725,10 +1870,10 @@ body.locked { overflow: hidden; }
   color: var(--ink-dim);
   text-transform: uppercase;
 }
-.admin-table tr:hover td { background: rgba(255, 95, 168, 0.05); }
+.admin-table tr:hover td { background: var(--border-rose-mist); }
 .admin-table button {
   background: var(--panel-2);
-  border: 1px solid rgba(255, 215, 142, 0.35);
+  border: 1px solid var(--gold-border);
   color: var(--gold);
   padding: 5px 10px;
   border-radius: 999px;
@@ -1818,7 +1963,7 @@ body.locked { overflow: hidden; }
   .grid-list .card-actions {
     padding: 4px 10px 8px;
     grid-column: 1 / -1;
-    border-top: 1px solid rgba(255, 95, 168, 0.1);
+    border-top: 1px solid var(--border-rose-faint);
     margin-top: 4px;
   }
   .grid-list .card-photo { aspect-ratio: 1 / 1; }
