@@ -384,7 +384,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=45', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=46', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -1452,12 +1452,12 @@ function wireEvents() {
   document.querySelectorAll('#legal-modal [data-legal-tab]').forEach((tab) => {
     tab.addEventListener('click', () => switchLegalTab(tab.dataset.legalTab));
   });
-  document.getElementById('acct-theme').addEventListener('change', (e) => {
-    const t = e.target.value;
-    if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
-    else document.documentElement.removeAttribute('data-theme');
-    try { localStorage.setItem('theme', t); } catch {}
+  document.getElementById('acct-theme').addEventListener('change', (e) => setTheme(e.target.value));
+  document.getElementById('theme-btn').addEventListener('click', () => {
+    const current = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+    setTheme(current === 'light' ? 'dark' : 'light');
   });
+  syncThemeButton();
   document.getElementById('acct-share').addEventListener('click', () => {
     closeAccountModal();
     openShareModal();
@@ -2267,6 +2267,22 @@ async function switchCollection(collectionId) {
 }
 
 // ─── Account modal ───────────────────────────────────────────────────
+function setTheme(t) {
+  if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+  else document.documentElement.removeAttribute('data-theme');
+  try { localStorage.setItem('theme', t); } catch {}
+  syncThemeButton();
+  const sel = document.getElementById('acct-theme');
+  if (sel) sel.value = t;
+}
+function syncThemeButton() {
+  const btn = document.getElementById('theme-btn');
+  if (!btn) return;
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  btn.textContent = isLight ? '☀️' : '🌙';
+  btn.title = isLight ? 'Switch to dark' : 'Switch to light';
+}
+
 function openLegalModal(which) {
   document.getElementById('legal-modal').classList.remove('hidden');
   switchLegalTab(which || 'terms');
