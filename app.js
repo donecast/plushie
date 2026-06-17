@@ -385,7 +385,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=50', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=51', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -1508,16 +1508,6 @@ function wireEvents() {
   document.getElementById('acct-save-email').addEventListener('click', saveEmail);
   document.getElementById('acct-save-address').addEventListener('click', saveDefaultAddress);
 
-  // Legal modal — Terms / Privacy / About
-  document.querySelectorAll('[data-open-legal]').forEach((b) => {
-    b.addEventListener('click', () => openLegalModal(b.dataset.openLegal));
-  });
-  document.querySelectorAll('[data-close-legal]').forEach((el) =>
-    el.addEventListener('click', () => document.getElementById('legal-modal').classList.add('hidden'))
-  );
-  document.querySelectorAll('#legal-modal [data-legal-tab]').forEach((tab) => {
-    tab.addEventListener('click', () => switchLegalTab(tab.dataset.legalTab));
-  });
   document.getElementById('acct-theme').addEventListener('change', (e) => setTheme(e.target.value));
   document.getElementById('theme-btn').addEventListener('click', () => {
     const current = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
@@ -2604,6 +2594,22 @@ function syncThemeButton() {
   btn.title = isLight ? 'Switch to dark' : 'Switch to light';
 }
 
+// Legal modal wiring is delegated on document.body and registered at
+// load (see call below runAuthGate) rather than inside wireEvents(),
+// because the Terms/Privacy links also live on the pre-sign-in auth
+// overlay — wireEvents() doesn't run until boot(), which is gated
+// behind sign-in, so those links would otherwise be dead.
+function wireLegalModal() {
+  document.body.addEventListener('click', (e) => {
+    const open = e.target.closest('[data-open-legal]');
+    if (open) { e.preventDefault(); openLegalModal(open.dataset.openLegal); return; }
+    const close = e.target.closest('[data-close-legal]');
+    if (close) { document.getElementById('legal-modal').classList.add('hidden'); return; }
+    const tab = e.target.closest('#legal-modal [data-legal-tab]');
+    if (tab) { switchLegalTab(tab.dataset.legalTab); return; }
+  });
+}
+
 function openLegalModal(which) {
   document.getElementById('legal-modal').classList.remove('hidden');
   switchLegalTab(which || 'terms');
@@ -2976,6 +2982,10 @@ async function boot() {
     refreshCatalogLive();
   });
 }
+
+// Legal modal works on the pre-sign-in auth overlay too, so wire it up
+// immediately rather than waiting for boot() (which is gated behind auth).
+wireLegalModal();
 
 // Gate the app behind sign-in + profile. The auth overlay handles its own UI;
 // once both exist, runAuthGate's callback fires and the app boots normally.
