@@ -378,7 +378,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=53a', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=53b', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -2706,6 +2706,12 @@ function setTheme(t) {
   if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
   else document.documentElement.removeAttribute('data-theme');
   try { localStorage.setItem('theme', t); } catch {}
+  // Keep the iOS Safari tab bar / Android Chrome chrome in sync with the
+  // in-app toggle. Without this, the OS chrome stays on whatever the
+  // system pref dictates and the user sees a parchment bar above a
+  // dark page, which reads as "dark mode didn't work" on mobile.
+  const meta = document.getElementById('meta-theme-color');
+  if (meta) meta.content = (t === 'dark') ? '#1a0d26' : '#f4eff3';
   syncThemeButton();
   const sel = document.getElementById('acct-theme');
   if (sel) sel.value = t;

@@ -3,8 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#f4eff3" media="(prefers-color-scheme: light)" />
-  <meta name="theme-color" content="#1a0d26" media="(prefers-color-scheme: dark)" />
+  <!-- One single theme-color tag; setTheme() in app.js updates its
+       content when the user toggles the moon button so the iOS Safari
+       tab bar (and Android Chrome chrome) flips with the in-app theme,
+       not just the system pref. -->
+  <meta id="meta-theme-color" name="theme-color" content="#f4eff3" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Plush Crypt" />
@@ -15,16 +18,23 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=53a" />
+  <link rel="stylesheet" href="./styles.css?v=53b" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
     // gothic is an opt-in. Older users who explicitly chose 'light' get the
     // (new) default; explicit 'dark' is preserved.
+    // Also re-set the theme-color meta inline so the OS chrome bar starts
+    // on the right color (mobile Safari paints the bar from the meta tag
+    // before any of the rest of the JS runs).
     (function () {
       try {
         var t = localStorage.getItem('theme');
-        if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+        if (t === 'dark') {
+          document.documentElement.setAttribute('data-theme', 'dark');
+          var meta = document.getElementById('meta-theme-color');
+          if (meta) meta.content = '#1a0d26';
+        }
       } catch (e) { /* localStorage blocked — fall through to default */ }
     })();
   </script>
