@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=52d" />
+  <link rel="stylesheet" href="./styles.css?v=52e" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -66,7 +66,6 @@
       <button class="tab active" data-tab="catalog">Catalog</button>
       <button class="tab" data-tab="collection">My Collection</button>
       <button class="tab" data-tab="wishlist">Wish List</button>
-      <button class="tab" data-tab="pens">Pens</button>
       <button class="tab" data-tab="trade">Trade <span id="trade-badge" class="tab-badge hidden">0</span></button>
       <button class="tab hidden" id="admin-tab" data-tab="admin">Admin</button>
     </nav>
@@ -208,10 +207,28 @@
     <div id="active-filters" class="active-filters"></div>
 
     <section id="collection-view" class="view">
-      <div id="collection-grid" class="grid grid-list"></div>
-      <div id="collection-empty" class="empty hidden">
-        <div class="ghost">🖤</div>
-        <p>Your crypt is empty. Add your first plushie above.</p>
+      <!-- Sub-tabs: Plushies (the existing list) + Pens (folded in from
+           the old top-level tab). State key is colSubTab. -->
+      <nav id="collection-subtabs" class="subtabs subtabs-collection">
+        <button class="subtab active" data-col-subtab="plushies">
+          Plushies <span class="dim" id="col-subtab-count-plushies"></span>
+        </button>
+        <button class="subtab" data-col-subtab="pens">
+          Pens <span class="dim" id="col-subtab-count-pens"></span>
+        </button>
+      </nav>
+
+      <div id="collection-sub-plushies" class="subview">
+        <div id="collection-grid" class="grid grid-list"></div>
+        <div id="collection-empty" class="empty hidden">
+          <div class="ghost">🖤</div>
+          <p>Your crypt is empty. Add your first plushie above.</p>
+        </div>
+      </div>
+
+      <div id="collection-sub-pens" class="subview hidden">
+        <div id="pens-progress" class="pens-progress"></div>
+        <div id="pens-list" class="pens-list"></div>
       </div>
     </section>
 
@@ -229,11 +246,6 @@
         <div class="ghost">🕯</div>
         <p>The catalog is still loading…</p>
       </div>
-    </section>
-
-    <section id="pens-view" class="view hidden">
-      <div id="pens-progress" class="pens-progress"></div>
-      <div id="pens-list" class="pens-list"></div>
     </section>
 
     <section id="admin-view" class="view hidden">

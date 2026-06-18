@@ -1,6 +1,7 @@
 // ─── State ────────────────────────────────────────────────────────────
 const state = {
-  tab: 'catalog',             // 'catalog' | 'collection' | 'wishlist' | 'pens'
+  tab: 'catalog',             // 'catalog' | 'collection' | 'wishlist' | 'trade' | 'admin'
+  colSubTab: 'plushies',      // collection sub-tab: 'plushies' | 'pens' (Pens fold-in)
   filter: 'all',              // collection: all | active | retired
   colCategory: 'all',         // collection category chip
   colDupes: false,            // collection: only quantity > 1
@@ -377,7 +378,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=52d', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=52e', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -684,10 +685,12 @@ function renderCard(item, kind) {
       <button class="btn-trash" data-action="delete" data-id="${item.id}" aria-label="Delete" title="Delete">🗑</button>
     `
     : `
-      <button class="btn-got" data-action="got" data-id="${item.id}">Got It! 🖤</button>
-      ${tradeBtn}
-      ${item.url ? `<a class="btn-buy" href="${escapeHtml(item.url)}" target="_blank" rel="noopener" title="Open product page">Buy</a>` : ''}
-      <button class="btn-danger" data-action="delete" data-id="${item.id}">Delete</button>
+      <button class="btn-got" data-action="got" data-id="${item.id}">✓ Got it! — move to collection</button>
+      <div class="card-actions-secondary">
+        ${item.url && !item.outOfStock ? `<a class="btn-buy" href="${escapeHtml(item.url)}" target="_blank" rel="noopener" title="Buy on plushiedreadfuls.com">Buy ↗</a>` : ''}
+        <button class="btn-icon btn-icon-seek" data-action="seek-trade" data-id="${item.id}" aria-label="Seek in trade" title="Seek in trade">↺</button>
+        <button class="btn-icon btn-icon-danger" data-action="delete" data-id="${item.id}" aria-label="Remove from wish list" title="Remove">🗑</button>
+      </div>
     `;
 
   // Body content. On the collection (list view) we keep things compact —
@@ -728,37 +731,64 @@ function render() {
   revokeAllBlobUrls();
 
   const tab = state.tab;
+  // Pens used to be a top-level tab; it's now a sub-tab of Collection.
+  // We treat a Pens sub-view selection like 'tab is collection, but
+  // showing the pens checklist'. The flags below derive from both.
+  const onPens = tab === 'collection' && state.colSubTab === 'pens';
+
   document.getElementById('collection-view').classList.toggle('hidden', tab !== 'collection');
   document.getElementById('wishlist-view').classList.toggle('hidden', tab !== 'wishlist');
   document.getElementById('catalog-view').classList.toggle('hidden', tab !== 'catalog');
-  document.getElementById('pens-view').classList.toggle('hidden', tab !== 'pens');
   document.getElementById('trade-view').classList.toggle('hidden', tab !== 'trade');
   document.getElementById('admin-view').classList.toggle('hidden', tab !== 'admin');
   // Admin tab visibility is gated by the current user being is_admin.
   document.getElementById('admin-tab').classList.toggle('hidden', !window.currentUser?.isAdmin);
 
-  document.getElementById('collection-filters').classList.toggle('hidden', tab !== 'collection');
+  // Collection sub-tabs and sub-views.
+  if (tab === 'collection') {
+    document.querySelectorAll('#collection-subtabs .subtab').forEach((s) =>
+      s.classList.toggle('active', s.dataset.colSubtab === state.colSubTab)
+    );
+    document.getElementById('collection-sub-plushies').classList.toggle('hidden', state.colSubTab !== 'plushies');
+    document.getElementById('collection-sub-pens').classList.toggle('hidden', state.colSubTab !== 'pens');
+  }
+
+  // Toolbar visibility: Plushies sub-tab gets the search + filters;
+  // Pens sub-tab hides them. Other tabs untouched.
+  document.getElementById('collection-filters').classList.toggle('hidden', tab !== 'collection' || onPens);
   document.getElementById('wishlist-actions').classList.toggle('hidden', tab !== 'wishlist');
   document.getElementById('catalog-filters').classList.toggle('hidden', tab !== 'catalog');
 
   // Search bar makes sense on item lists, not on the checklist/trade tabs.
-  document.getElementById('search').classList.toggle('hidden', tab === 'pens' || tab === 'trade');
+  document.getElementById('search').classList.toggle('hidden', onPens || tab === 'trade' || tab === 'admin');
   // Active-filters bar belongs to the catalog.
   document.getElementById('active-filters').classList.toggle('hidden', tab !== 'catalog');
   // The plain count-label now only shows for non-catalog tabs (catalog has its own bar).
-  document.getElementById('count-label').classList.toggle('hidden', tab === 'catalog');
+  document.getElementById('count-label').classList.toggle('hidden', tab === 'catalog' || onPens);
 
   document.querySelectorAll('.tab').forEach((t) =>
     t.classList.toggle('active', t.dataset.tab === tab)
   );
 
   if (tab === 'collection') {
+    // Plushies sub-tab — the original list view.
     syncCollectionChips();
     const items = filteredCollection();
     document.getElementById('collection-grid').innerHTML = items.map((i) => renderCard(i, 'collection')).join('');
     document.getElementById('collection-empty').classList.toggle('hidden', items.length > 0);
     document.getElementById('count-label').textContent =
       `${items.length} of ${state.collection.length} item${state.collection.length === 1 ? '' : 's'}`;
+    // Pens sub-tab — always re-render so the counts stay current even
+    // when the user is on Plushies (the sub-tab badge totals show
+    // through). renderPens() updates #pens-progress + #pens-list.
+    renderPens();
+    const unique = state.pensOwned.size;
+    const total = [...state.pensOwned.values()].reduce((a, b) => a + b, 0);
+    const pensBadge = `${unique}/${PENS.length}`;
+    document.getElementById('col-subtab-count-plushies').textContent = `· ${state.collection.length}`;
+    document.getElementById('col-subtab-count-pens').textContent = `· ${pensBadge}`;
+    // When Pens sub-tab is showing, the count-label is hidden (handled
+    // above via the onPens flag); no need to set it here.
   } else if (tab === 'wishlist') {
     syncWishlistChips();
     const items = filteredWishlist();
@@ -775,12 +805,6 @@ function render() {
     const empty = state.catalog.length === 0;
     document.getElementById('catalog-empty').classList.toggle('hidden', !empty);
     renderActiveFilters(items.length);
-  } else if (tab === 'pens') {
-    renderPens();
-    const unique = state.pensOwned.size;
-    const total = [...state.pensOwned.values()].reduce((a, b) => a + b, 0);
-    document.getElementById('count-label').textContent =
-      `${unique} of ${PENS.length} unique · ${total} pen${total === 1 ? '' : 's'} total`;
   } else if (tab === 'trade') {
     renderTrade();
     document.getElementById('count-label').textContent = tradeCountLabel();
@@ -1298,6 +1322,7 @@ function saveFilters() {
   try {
     localStorage.setItem(FILTERS_KEY, JSON.stringify({
       tab: state.tab,
+      colSubTab: state.colSubTab,
       filter: state.filter,
       colCategory: state.colCategory,
       colDupes: state.colDupes,
@@ -1327,13 +1352,17 @@ function loadFilters() {
     if (typeof s !== 'object' || !s) return;
     // Copy known scalar keys, fall back to current default if missing.
     const scalars = [
-      'tab', 'filter', 'colCategory', 'colSort', 'wishCategory', 'wishSort',
+      'tab', 'colSubTab', 'filter', 'colCategory', 'colSort', 'wishCategory', 'wishSort',
       'catalogFilter', 'catalogTheme', 'catalogColor', 'catalogSort', 'query', 'tradeSubTab', 'tradeFilter',
     ];
     for (const k of scalars) if (k in s) state[k] = s[k];
     const bools = ['colDupes', 'colNoBag', 'wishInStock', 'catalogUnowned'];
     for (const k of bools) if (k in s) state[k] = !!s[k];
     if (Array.isArray(s.catalogStatuses)) state.catalogStatuses = new Set(s.catalogStatuses);
+    // Legacy migration: 'pens' was a top-level tab pre-v52; users who had
+    // it saved should land on Collection → Pens sub-tab instead so they
+    // don't see an empty / non-existent tab.
+    if (state.tab === 'pens') { state.tab = 'collection'; state.colSubTab = 'pens'; }
     // Sync the search input value so the visible UI matches the restored state.
     const searchEl = document.getElementById('search');
     if (searchEl && state.query) searchEl.value = state.query;
@@ -1357,6 +1386,22 @@ function wireEvents() {
       // Defer to next frame so the new tab's grid has laid out.
       requestAnimationFrame(() => {
         window.scrollTo({ top: tabScroll.get(state.tab) || 0, behavior: 'instant' });
+      });
+      saveFilters();
+    });
+  });
+
+  // Collection sub-tabs (Plushies / Pens). Scroll is tracked per
+  // sub-tab using a composite key so the lists keep their places.
+  document.querySelectorAll('#collection-subtabs .subtab').forEach((s) => {
+    s.addEventListener('click', () => {
+      const key = `collection:${state.colSubTab}`;
+      tabScroll.set(key, window.scrollY);
+      state.colSubTab = s.dataset.colSubtab;
+      render();
+      requestAnimationFrame(() => {
+        const nextKey = `collection:${state.colSubTab}`;
+        window.scrollTo({ top: tabScroll.get(nextKey) || 0, behavior: 'instant' });
       });
       saveFilters();
     });

@@ -1081,6 +1081,74 @@ main {
   border-color: var(--success);
 }
 
+/* Wishlist actions stack: full-width primary "Got it!" on its own row,
+   followed by a slim secondary row with Buy + icon-only seek + icon-only
+   delete. The :has() selector targets only the wishlist variant of
+   .card-actions without needing a kind-specific class on the article. */
+.card-actions:has(.card-actions-secondary) {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding-top: 14px;
+}
+.card-actions .btn-got {
+  flex: 1 1 auto;
+  width: 100%;
+  padding: 11px 10px;
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+.card-actions-secondary {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.card-actions-secondary .btn-buy {
+  flex: 1 1 auto;
+  text-align: center;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  border-radius: 10px;
+}
+.card-actions-secondary .btn-icon {
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1.5px solid var(--hairline-2);
+  background: var(--surface);
+  color: var(--muted-1);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s ease;
+}
+.card-actions-secondary .btn-icon.btn-icon-seek:hover {
+  border-color: var(--rose-edge);
+  background: var(--blush);
+  color: var(--rose-2);
+}
+.card-actions-secondary .btn-icon.btn-icon-danger:hover {
+  border-color: var(--negative-edge);
+  background: var(--danger-soft);
+  color: var(--danger-1);
+}
+
+/* Tighten the collection list-view action row so "Offer for trade"
+   doesn't span the full width. The button hugs its label, qty stepper
+   sits at natural width on the left, trash hangs on the right. */
+.grid-list .card-actions [data-action="offer-trade"] {
+  flex: 0 0 auto;
+  padding: 7px 14px;
+}
+.grid-list .card-actions { gap: 10px; align-items: center; }
+.grid-list .card-actions .btn-trash { margin-left: auto; }
+
 /* ─── Active filters bar ────────────────────────────── */
 .active-filters {
   display: flex;
@@ -1131,60 +1199,63 @@ main {
 /* ─── Pens checklist ────────────────────────────── */
 .pens-progress {
   margin-bottom: 24px;
-  padding: 16px 18px;
-  background: var(--panel);
-  border: 1px solid var(--border-rose-mild);
-  border-radius: var(--radius);
+  padding: 18px 20px;
+  background: var(--surface);
+  border: 1px solid var(--hairline-3);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card-soft);
 }
 .pens-progress-text {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  margin-bottom: 10px;
-  font-family: var(--display);
-  letter-spacing: 0.05em;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-family: var(--sans);
+  letter-spacing: 0;
 }
-.pens-count { font-size: 1.7rem; color: var(--gold); font-weight: 700; }
-.pens-total { color: var(--ink-dim); font-size: 0.9rem; }
+.pens-count { font-family: var(--display); font-size: 1.75rem; color: var(--ink-2); font-weight: 700; }
+.pens-total { color: var(--muted-1); font-size: 0.9rem; font-weight: 600; }
 .pens-bar {
   height: 8px;
-  background: var(--bg-2);
-  border-radius: 4px;
+  background: var(--canvas);
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
   overflow: hidden;
 }
 .pens-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--rose), var(--gold));
+  background: linear-gradient(90deg, var(--rose-1), var(--gold-1));
   transition: width 0.3s ease;
-  box-shadow: 0 0 8px var(--rose-glow-med);
+  box-shadow: none;
 }
 
-.pens-list { display: flex; flex-direction: column; gap: 24px; }
-.pens-group { }
+.pens-list { display: flex; flex-direction: column; gap: 22px; }
 .pens-group-title {
   font-family: var(--display);
-  font-size: 1.05rem;
-  letter-spacing: 0.08em;
-  color: var(--rose-hi);
-  margin: 0 0 10px;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+  margin: 0 0 12px;
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  border-bottom: 1px solid var(--border-rose-mild);
-  padding-bottom: 6px;
+  border-bottom: 1.5px dashed var(--rose-seam);
+  padding-bottom: 10px;
 }
 .pens-group-count {
   font-size: 0.8rem;
-  color: var(--ink-dim);
+  color: var(--muted-1);
   font-family: var(--sans);
-  font-style: italic;
-  letter-spacing: 0.02em;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0;
 }
 
 .pen-rows {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 8px;
 }
 
 .pen-row {
@@ -1192,40 +1263,46 @@ main {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 10px 8px 14px;
-  background: var(--panel);
-  border: 1px solid var(--border-rose-vague);
-  border-radius: var(--radius-sm);
+  padding: 10px 12px 10px 16px;
+  background: var(--surface);
+  border: 1px solid var(--hairline-3);
+  border-radius: 13px;
   font-family: var(--sans);
   transition: all 0.12s ease;
 }
 .pen-row.owned {
-  background: linear-gradient(135deg, var(--panel-2), var(--panel));
-  border-color: var(--gold);
+  background: var(--gold-fill);
+  border-color: var(--gold-edge);
 }
-.pen-row.owned .pen-name { color: var(--ink); font-style: normal; }
+.pen-row.owned .pen-name { color: var(--ink-2); font-style: normal; font-weight: 700; }
 .pen-name {
-  font-size: 0.98rem;
-  color: var(--ink-dim);
-  font-style: italic;
+  font-size: 0.95rem;
+  color: var(--muted-1);
+  font-style: normal;
+  font-weight: 600;
   flex: 1;
   min-width: 0;
 }
 .pen-qty {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   flex-shrink: 0;
+  background: var(--gold-fill);
+  border: 1px solid var(--gold-edge);
+  border-radius: 999px;
+  padding: 2px;
 }
+.pen-row.owned .pen-qty { background: var(--surface); }
 .pen-btn {
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  border: 1px solid var(--border-rose-strong);
-  background: var(--bg-2);
-  color: var(--ink);
-  font-size: 1.2rem;
-  font-weight: 700;
+  border: 0;
+  background: transparent;
+  color: var(--gold-1);
+  font-size: 1rem;
+  font-weight: 800;
   line-height: 1;
   cursor: pointer;
   display: flex;
@@ -1235,19 +1312,21 @@ main {
   transition: all 0.12s ease;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+  font-family: var(--sans);
 }
-.pen-btn:hover { border-color: var(--gold); color: var(--gold); background: var(--panel); }
+.pen-btn:hover { background: var(--surface); color: var(--gold-1); }
 .pen-btn:active { transform: scale(0.92); }
 .pen-count {
   display: inline-block;
-  min-width: 24px;
+  min-width: 22px;
   text-align: center;
-  font-family: var(--display);
-  font-size: 1.05rem;
-  color: var(--gold);
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 0.95rem;
+  color: var(--gold-1);
   font-variant-numeric: tabular-nums;
 }
-.pen-row:not(.owned) .pen-count { color: var(--ink-dim); }
+.pen-row:not(.owned) .pen-count { color: var(--muted-1); }
 .pens-total-grand {
   color: var(--gold);
   font-size: 0.9rem;
@@ -1634,6 +1713,25 @@ main {
 }
 .subview { display: block; }
 .subview.hidden { display: none; }
+
+/* Collection-specific sub-tab strip — sits between the main tabs and
+   the toolbar. Pens lives in here now as the second sub-tab. */
+.subtabs-collection {
+  margin: 0 0 18px;
+  gap: 18px;
+}
+.subtabs-collection .subtab {
+  padding: 8px 0 12px;
+  font-size: 1.02rem;
+}
+.subtabs-collection .subtab .dim {
+  color: var(--muted-2);
+  font-style: normal;
+  font-weight: 600;
+  font-size: 0.85rem;
+  margin-left: 4px;
+}
+.subtabs-collection .subtab.active .dim { color: var(--rose-1); }
 
 .badge-trade {
   background: var(--pending-fill);
