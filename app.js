@@ -12,7 +12,6 @@ const state = {
   catalogFilter: 'all',       // catalog category: all | plush | accessory | other
   catalogStatuses: new Set(), // empty = any; otherwise OR of: available/sold_out/coming_soon/retired/fyc
   catalogUnowned: false,      // toggle: hide ones already in collection
-  catalogCharmOnly: false,    // toggle: only show items tagged bag charm
   catalogTheme: 'all',        // tag value to require; 'all' = no constraint
   catalogColor: 'all',        // color tag substring match; 'all' = no constraint
   catalogSort: 'newest',      // newest | oldest | name_asc | name_desc | price_asc | price_desc
@@ -107,7 +106,6 @@ function renderActiveFilters(shownCount) {
     pills.push(`<button class="active-pill" data-clear="status:${s}">${escapeHtml(s.replace('_',' '))} ×</button>`);
   }
   if (state.catalogUnowned)  pills.push(`<button class="active-pill" data-clear="unowned">Unowned ×</button>`);
-  if (state.catalogCharmOnly) pills.push(`<button class="active-pill" data-clear="charm">Bag Charm ×</button>`);
   if (state.catalogTheme && state.catalogTheme !== 'all') {
     pills.push(`<button class="active-pill" data-clear="theme">Theme: ${escapeHtml(state.catalogTheme)} ×</button>`);
   }
@@ -131,7 +129,6 @@ function clearTabFilters(tab) {
     state.catalogFilter = 'all';
     state.catalogStatuses = new Set();
     state.catalogUnowned = false;
-    state.catalogCharmOnly = false;
     state.catalogTheme = 'all';
     state.catalogColor = 'all';
     state.catalogSort = 'newest';
@@ -160,7 +157,6 @@ function clearFilter(key) {
     state.catalogFilter = 'all';
     state.catalogStatuses = new Set();
     state.catalogUnowned = false;
-    state.catalogCharmOnly = false;
     state.catalogTheme = 'all';
     state.catalogColor = 'all';
     state.query = '';
@@ -175,8 +171,6 @@ function clearFilter(key) {
     state.catalogStatuses.delete(key.slice(7));
   } else if (key === 'unowned') {
     state.catalogUnowned = false;
-  } else if (key === 'charm') {
-    state.catalogCharmOnly = false;
   } else if (key === 'theme') {
     state.catalogTheme = 'all';
     const themeEl = document.getElementById('cat-theme');
@@ -240,12 +234,10 @@ function syncCatalogChips() {
     [...state.catalogStatuses].map((s) => STATUS_LABELS[s] || s),
   );
   document.querySelectorAll('#cat-extras input[data-cat-toggle]').forEach((c) => {
-    c.checked = (c.dataset.catToggle === 'unowned' && state.catalogUnowned)
-             || (c.dataset.catToggle === 'charm'   && state.catalogCharmOnly);
+    c.checked = (c.dataset.catToggle === 'unowned' && state.catalogUnowned);
   });
   const exLabels = [];
   if (state.catalogUnowned) exLabels.push('Unowned');
-  if (state.catalogCharmOnly) exLabels.push('Bag Charm');
   setMultiSummary(document.getElementById('cat-extras'), exLabels);
   const themeEl = document.getElementById('cat-theme');
   if (themeEl) themeEl.value = state.catalogTheme;
@@ -385,7 +377,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=52b', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=52c', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -548,7 +540,6 @@ function filteredCatalog() {
     if (cat !== 'all' && catalogCategory(it) !== cat) return false;
     if (statuses.size > 0 && !statuses.has(itemStatus(it))) return false;
     if (state.catalogUnowned && owned.has(it.id)) return false;
-    if (state.catalogCharmOnly && !isCharm(it)) return false;
     if (theme && theme !== 'all') {
       const tags = (it.tags || []).map((t) => t.toLowerCase());
       if (!tags.includes(theme)) return false;
@@ -921,8 +912,12 @@ async function submitForm(e) {
 async function onCardClick(e) {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
+  // Capture scroll up front so any re-render triggered by the action
+  // doesn't snap the user to the top. Actions that intentionally change
+  // tabs (currently none — we removed the auto-jumps) would override
+  // this by scrolling explicitly.
   try {
-    await onCardClickInner(btn);
+    await keepScroll(() => onCardClickInner(btn));
   } catch (err) {
     console.error('card action failed', err);
     const msg = err?.message || '';
@@ -979,10 +974,9 @@ async function onCardClickInner(btn) {
       await data.put('collection', collected);
       await data.delete('wishlist', id, { keepPhoto: true });
       await loadAll();
-      state.tab = 'collection';
-      state.filter = 'all';
-      state.query = '';
-      document.getElementById('search').value = '';
+      // Stay on Wish List — the user is probably marking multiple items
+      // as 'got it' in a row. They can switch to Collection themselves
+      // when they're done. Preserves their scroll position too.
       render();
       toast(`Moved “${item.name}” to collection. 🖤`);
     } catch (err) {
@@ -1056,16 +1050,15 @@ async function addFromCatalog(catalogId, kind) {
       const next = (existing.quantity || 1) + 1;
       await data.put('collection', { ...existing, quantity: next, updatedAt: Date.now() });
       await loadAll();
-      state.tab = 'collection';
+      // Stay on whatever tab the user is on — don't jump to Collection.
       render();
       toast(`Now you have ${next} of “${cleanCatalogName(cat.name)}”. 🖤`);
       return;
     }
   } else {
-    // Same idea on wishlist — don't duplicate.
+    // Same idea on wishlist — don't duplicate, and don't jump tabs.
     const existing = state.wishlist.find((x) => x.catalogId === cat.id);
     if (existing) {
-      state.tab = 'wishlist';
       render();
       toast(`Already on your wish list.`);
       return;
@@ -1117,13 +1110,11 @@ async function addFromCatalog(catalogId, kind) {
 
   await data.put(kind, record);
   await loadAll();
-  state.tab = kind;
+  // Stay on Catalog when adding from there — keeps the user's place in
+  // the grid so they can keep marking items. Just confirm with a toast.
   render();
   if (kind === 'collection') {
-    // Open the edit modal on the freshly-added row so the user can fill in
-    // nickname / meaning / how-acquired up front.
-    const newItem = state.collection.find((x) => x.id === base.id);
-    if (newItem) openModal('collection', newItem);
+    toast(`Added “${cleanCatalogName(cat.name)}” to your collection. 🖤`);
   } else {
     toast('Added to wish list. 🕯');
   }
@@ -1290,6 +1281,19 @@ function toast(msg) {
 const FILTERS_KEY = 'filters';
 const tabScroll = new Map();
 
+// Capture window.scrollY before an action that triggers render() and put
+// it back after the next paint, so list re-renders don't snap the user
+// to the top. Use for actions that should leave the user where they
+// were on the same tab (catalog Own/Want, wishlist Got It, etc.).
+async function keepScroll(fn) {
+  const y = window.scrollY;
+  try {
+    await fn();
+  } finally {
+    requestAnimationFrame(() => window.scrollTo({ top: y, behavior: 'instant' }));
+  }
+}
+
 function saveFilters() {
   try {
     localStorage.setItem(FILTERS_KEY, JSON.stringify({
@@ -1305,7 +1309,6 @@ function saveFilters() {
       catalogFilter: state.catalogFilter,
       catalogStatuses: [...state.catalogStatuses],
       catalogUnowned: state.catalogUnowned,
-      catalogCharmOnly: state.catalogCharmOnly,
       catalogTheme: state.catalogTheme,
       catalogColor: state.catalogColor,
       catalogSort: state.catalogSort,
@@ -1328,7 +1331,7 @@ function loadFilters() {
       'catalogFilter', 'catalogTheme', 'catalogColor', 'catalogSort', 'query', 'tradeSubTab', 'tradeFilter',
     ];
     for (const k of scalars) if (k in s) state[k] = s[k];
-    const bools = ['colDupes', 'colNoBag', 'wishInStock', 'catalogUnowned', 'catalogCharmOnly'];
+    const bools = ['colDupes', 'colNoBag', 'wishInStock', 'catalogUnowned'];
     for (const k of bools) if (k in s) state[k] = !!s[k];
     if (Array.isArray(s.catalogStatuses)) state.catalogStatuses = new Set(s.catalogStatuses);
     // Sync the search input value so the visible UI matches the restored state.
@@ -1404,7 +1407,6 @@ function wireEvents() {
   document.querySelectorAll('#cat-extras input[data-cat-toggle]').forEach((cb) => {
     cb.addEventListener('change', () => {
       if (cb.dataset.catToggle === 'unowned') state.catalogUnowned = cb.checked;
-      else if (cb.dataset.catToggle === 'charm') state.catalogCharmOnly = cb.checked;
       syncCatalogChips();
       render();
     });
