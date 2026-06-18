@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=54" />
+  <link rel="stylesheet" href="./styles.css?v=55" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -422,6 +422,107 @@
     <div class="modal-card">
       <button class="modal-close" data-close-mini aria-label="Close">×</button>
       <div id="mini-profile-body"></div>
+    </div>
+  </div>
+
+  <!-- Admin: create a new catalog item (off-catalog plushie OR form
+       variant of an existing Shopify item like the Overthinking Bunny
+       Original case). -->
+  <div id="catalog-item-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-catalog-item></div>
+    <div class="modal-card modal-card-wide">
+      <button class="modal-close" data-close-catalog-item aria-label="Close">×</button>
+      <h2>Create catalog item</h2>
+      <p class="modal-name">Approved immediately; appears in the Catalog tab right after save.</p>
+      <form id="catalog-item-form">
+        <label class="field">
+          <span>Name</span>
+          <input type="text" id="ci-name" required maxlength="120" placeholder="Overthinking Bunny (Original)" />
+        </label>
+        <label class="field">
+          <span>Form label <em class="dim">— optional, shown as a small badge</em></span>
+          <input type="text" id="ci-form-label" maxlength="40" placeholder="(Original)" />
+        </label>
+        <label class="field">
+          <span>Parent handle <em class="dim">— optional, the Shopify product this is a variant of</em></span>
+          <input type="text" id="ci-parent-handle" maxlength="120" placeholder="overthinking-bunny" autocapitalize="none" spellcheck="false" />
+        </label>
+        <label class="field">
+          <span>Type</span>
+          <select id="ci-type">
+            <option value="plush" selected>Plush (full-size)</option>
+            <option value="Mini">Mini</option>
+            <option value="Plush Accessory">Plush Accessory</option>
+            <option value="pen">Pen</option>
+            <option value="charms">Charm</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Photo <em class="dim">— upload from your device</em></span>
+          <input type="file" id="ci-photo" accept="image/*" />
+        </label>
+        <p id="ci-photo-preview-wrap" class="dim" style="margin:6px 0 0;"></p>
+        <details>
+          <summary class="dim" style="cursor:pointer; margin: 12px 0;">Optional fields</summary>
+          <label class="field">
+            <span>Handle (URL slug) <em class="dim">— auto-derived from name if left blank</em></span>
+            <input type="text" id="ci-handle" maxlength="120" autocapitalize="none" spellcheck="false" />
+          </label>
+          <label class="field">
+            <span>Tags <em class="dim">— comma-separated</em></span>
+            <input type="text" id="ci-tags" placeholder="emotion, anxiety, plushie dreadfuls" />
+          </label>
+          <label class="field">
+            <span>Lore / description</span>
+            <textarea id="ci-lore" rows="4" maxlength="2000"></textarea>
+          </label>
+        </details>
+        <div class="form-actions">
+          <button type="button" class="btn-ghost" data-close-catalog-item>Cancel</button>
+          <button type="submit" class="btn-primary" id="ci-submit">Create</button>
+        </div>
+        <p id="ci-error" class="auth-error hidden"></p>
+      </form>
+    </div>
+  </div>
+
+  <!-- End-user: "do you have this picture?" — suggest a photo for a
+       catalog item whose image is missing. -->
+  <div id="suggest-photo-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-suggest-photo></div>
+    <div class="modal-card">
+      <button class="modal-close" data-close-suggest-photo aria-label="Close">×</button>
+      <h2>Do you have a picture of this one?</h2>
+      <p class="modal-name" id="sp-target-name"></p>
+      <p class="dim" style="line-height:1.5;">If you own this plushie, please send a photo. We prefer one where the entire bunny is visible, on a white or plain background — but we'll take whatever you can send.</p>
+      <form id="suggest-photo-form">
+        <label class="field">
+          <span>Photo</span>
+          <input type="file" id="sp-photo" accept="image/*" required />
+        </label>
+        <p id="sp-photo-preview-wrap" class="dim" style="margin:6px 0 0;"></p>
+        <label class="field">
+          <span>Note to admin <em class="dim">— optional</em></span>
+          <textarea id="sp-notes" rows="2" maxlength="280" placeholder="Anything you'd want them to know."></textarea>
+        </label>
+        <div class="form-actions">
+          <button type="button" class="btn-ghost" data-close-suggest-photo>Cancel</button>
+          <button type="submit" class="btn-primary" id="sp-submit">Send</button>
+        </div>
+        <p id="sp-error" class="auth-error hidden"></p>
+      </form>
+    </div>
+  </div>
+
+  <!-- Admin: queue of pending submissions (catalog items + photos),
+       reviewable as a list with approve/reject. Reused via #aq-body. -->
+  <div id="admin-queue-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-admin-queue></div>
+    <div class="modal-card modal-card-wide">
+      <button class="modal-close" data-close-admin-queue aria-label="Close">×</button>
+      <h2 id="aq-title">Pending</h2>
+      <div id="aq-body"></div>
     </div>
   </div>
 

@@ -39,6 +39,9 @@ const state = {
   // ─── Admin state ──────────────────────────────────────────────────
   adminUsers: [],             // list of all profiles + feedback
   adminUserView: null,        // { user, snapshot } when drilled into a user
+  adminPendingCatalog: [],    // pending catalog_items waiting for admin review
+  adminPendingPhotos: [],     // pending photo suggestions waiting for admin review
+  suggestPhotoTarget: null,   // { id, kind } for the suggest-photo modal
 };
 
 const PRODUCT_URL_BASE = 'https://plushiedreadfuls.com/products/';
@@ -393,13 +396,49 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=54', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=55', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
-    const data = await r.json();
-    state.catalog = (data.products || []).filter(isPlushieCollectible);
+    const json = await r.json();
+    const shopify = (json.products || []).filter(isPlushieCollectible);
+    state.catalog = await mergeCustomCatalog(shopify);
   } catch (e) {
     console.warn('catalog load failed', e);
     state.catalog = [];
+  }
+}
+
+// Merge admin-curated catalog_items into the Shopify-derived list so
+// they show up in the Catalog tab alongside live products. Custom
+// items are normalised to the same shape (id, name, handle, type,
+// image, available, retired, tags) so renderCatalogCard doesn't care
+// where each row came from. Custom items keep the form_label on the
+// row for grouped display.
+async function mergeCustomCatalog(shopifyProducts) {
+  try {
+    const customs = await data.listApprovedCatalogItems();
+    const normalised = customs.map((c) => ({
+      id: c.id,                       // UUID — collectors' plushies.catalog_id will hold this
+      name: c.name,
+      handle: c.handle,
+      type: c.type || 'plush',
+      image: c.image || null,         // signed URL produced by data.listApprovedCatalogItems
+      price: null,
+      available: !!c.available,
+      retired: !!c.retired,
+      createdAt: c.created_at,
+      publishedAt: c.created_at,
+      tags: c.tags || [],
+      parentHandle: c.parent_handle || null,
+      formLabel: c.form_label || null,
+      isCustom: true,
+      description: c.description || null,
+      lore: c.lore || null,
+      symbolism: c.symbolism || null,
+    }));
+    return [...shopifyProducts, ...normalised];
+  } catch (e) {
+    console.warn('custom catalog merge skipped', e);
+    return shopifyProducts;
   }
 }
 
@@ -442,7 +481,8 @@ async function refreshCatalogLive() {
     return false;
   }
   if (all.length === 0) return false;
-  state.catalog = all.filter(isPlushieCollectible);
+  const shopify = all.filter(isPlushieCollectible);
+  state.catalog = await mergeCustomCatalog(shopify);
   await idb.setMeta('last_live_refresh', Date.now());
   if (state.tab === 'catalog') render();
   return true;
@@ -601,7 +641,11 @@ function renderCatalogMeta(item) {
 
 function renderCatalogCard(item, owned, wished) {
   const display = cleanCatalogName(item.name);
-  const thumb = shopifyImageVariant(item.image, 400) || item.image;
+  // Custom catalog items already carry a signed Storage URL in
+  // item.image; only Shopify URLs benefit from the _NNNx variant.
+  const thumb = item.isCustom
+    ? item.image
+    : (shopifyImageVariant(item.image, 400) || item.image);
   const photoHtml = thumb
     ? `<img src="${escapeHtml(thumb)}" alt="${escapeHtml(display)}" loading="lazy" />`
     : `<span class="no-photo">🖤</span>`;
@@ -616,15 +660,24 @@ function renderCatalogCard(item, owned, wished) {
   else if (status === 'fyc') badges.push(`<span class="badge badge-fyc" title="For Your Consideration — under consideration, doesn't exist yet">FYC</span>`);
   else if (status === 'sold_out') badges.push(`<span class="badge badge-oos">Sold Out</span>`);
   if (isMiniPlushie(item)) badges.push(`<span class="badge badge-mini">Mini</span>`);
+  if (item.isCustom && item.formLabel) {
+    badges.push(`<span class="badge badge-form" title="Form variant">${escapeHtml(item.formLabel)}</span>`);
+  }
   if (isOwned) badges.push(`<span class="card-status owned">✓ Owned</span>`);
   else if (isWished) badges.push(`<span class="card-status wished">★ Wished</span>`);
 
-  const productUrl = PRODUCT_URL_BASE + item.handle;
-  // Coming Soon / FYC items can't be owned yet — they don't physically exist.
+  // Custom catalog items don't have a plushiedreadfuls.com URL.
+  const productUrl = item.isCustom ? null : (PRODUCT_URL_BASE + item.handle);
   const canHave = !(status === 'coming_soon' || status === 'fyc');
   const haveBtn  = canHave  ? `<button class="btn-have" data-action="cat-have" data-cid="${item.id}">🖤 Have</button>` : '';
   const wantBtn  = !isWished ? `<button class="btn-want" data-action="cat-want" data-cid="${item.id}">🕯 Want</button>` : '';
-  const linkBtn  = `<a class="btn-buy" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener" title="Open product page">Buy</a>`;
+  const linkBtn  = productUrl ? `<a class="btn-buy" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener" title="Open product page">Buy</a>` : '';
+  // "Suggest a photo" appears when the item has no image. We thread
+  // the target id through dataset so the handler knows whether to
+  // attach it to a Shopify id or a catalog_items uuid.
+  const suggestBtn = !thumb
+    ? `<button class="btn-suggest" data-action="cat-suggest-photo" data-cid="${item.id}" data-target-kind="${item.isCustom ? 'custom' : 'shopify'}">🤍 Suggest a photo</button>`
+    : '';
   const actions = isOwned
     ? `<button data-action="cat-edit" data-cid="${item.id}">Edit</button> ${haveBtn} ${linkBtn}`
     : `${haveBtn} ${wantBtn} ${linkBtn}`;
@@ -636,8 +689,9 @@ function renderCatalogCard(item, owned, wished) {
         ${badges.length ? `<div class="badge-stack">${badges.join('')}</div>` : ''}
       </div>
       <div class="card-body">
-        <h3 class="card-name">${escapeHtml(display)}</h3>
+        <h3 class="card-name">${escapeHtml(display)}${item.isCustom && item.formLabel ? ` <span class="card-form-label">${escapeHtml(item.formLabel)}</span>` : ''}</h3>
         ${renderCatalogMeta(item)}
+        ${suggestBtn}
       </div>
       <div class="card-actions">${actions}</div>
     </article>
@@ -1042,6 +1096,10 @@ async function onCardClickInner(btn) {
     await addFromCatalog(cid, 'collection');
   } else if (action === 'cat-want') {
     await addFromCatalog(cid, 'wishlist');
+  } else if (action === 'cat-suggest-photo') {
+    const targetKind = btn.dataset.targetKind || 'shopify';
+    const target = state.catalog.find((c) => c.id === cid);
+    openSuggestPhotoModal(cid, targetKind, target ? cleanCatalogName(target.name) : '');
   } else if (action === 'cat-edit') {
     const owned = state.collection.find((x) => x.catalogId === cid);
     if (owned) openModal('collection', owned);
@@ -1125,7 +1183,12 @@ async function addFromCatalog(catalogId, kind) {
   // image). Routes through the img-proxy Worker for CORS + Shopify
   // ?width= resizing; on any failure, falls back to direct fetch, then
   // to storing the URL as a hot link.
-  const originalUrl = cat.image ? shopifyImageVariant(cat.image, 800) : null;
+  // Don't run the Shopify _NNNx URL mangler on non-Shopify images;
+  // signed Supabase Storage URLs end with .jpg?token=… and the regex
+  // would corrupt the token. Custom catalog items just use the URL
+  // we already have.
+  const isShopify = !!(cat.image && /^https:\/\/cdn\.shopify\.com\//.test(cat.image));
+  const originalUrl = cat.image ? (isShopify ? shopifyImageVariant(cat.image, 800) : cat.image) : null;
   let photo = originalUrl;
   if (originalUrl) {
     const sources = [
@@ -1591,6 +1654,19 @@ function wireEvents() {
   );
 
   document.getElementById('user-badge').addEventListener('click', openAccountModal);
+
+  // Catalog item create + suggest photo + admin queue modals.
+  document.querySelectorAll('[data-close-catalog-item]').forEach((el) =>
+    el.addEventListener('click', () => document.getElementById('catalog-item-modal').classList.add('hidden'))
+  );
+  document.getElementById('catalog-item-form').addEventListener('submit', submitCatalogItemForm);
+  document.querySelectorAll('[data-close-suggest-photo]').forEach((el) =>
+    el.addEventListener('click', () => document.getElementById('suggest-photo-modal').classList.add('hidden'))
+  );
+  document.getElementById('suggest-photo-form').addEventListener('submit', submitSuggestPhotoForm);
+  document.querySelectorAll('[data-close-admin-queue]').forEach((el) =>
+    el.addEventListener('click', () => document.getElementById('admin-queue-modal').classList.add('hidden'))
+  );
 
   // Account modal
   document.querySelectorAll('[data-close-account]').forEach((el) =>
@@ -3008,13 +3084,42 @@ function renderAdminUserList() {
       </tr>
     `;
   }).join('');
+  const pendingCustomBadge = (state.adminPendingCatalog || []).length
+    ? `<span class="badge badge-form">${state.adminPendingCatalog.length} pending</span>` : '';
+  const pendingPhotoBadge = (state.adminPendingPhotos || []).length
+    ? `<span class="badge badge-form">${state.adminPendingPhotos.length} pending</span>` : '';
   document.getElementById('admin-content').innerHTML = `
     <section class="admin-tools">
       <h2 class="trader-head"><span>Tools</span></h2>
+
+      <div class="admin-tool">
+        <div>
+          <strong>Add a catalog item</strong>
+          <p class="dim">Create an admin-curated entry for an off-catalog or form-variant plushie (the Overthinking Bunny Original case). Approved immediately, shows up in the Catalog tab next to live Shopify items.</p>
+        </div>
+        <button class="btn-primary" data-admin-action="new-catalog-item">Create</button>
+      </div>
+
+      <div class="admin-tool">
+        <div>
+          <strong>Pending catalog submissions ${pendingCustomBadge}</strong>
+          <p class="dim">User-submitted catalog items waiting for review.</p>
+        </div>
+        <button data-admin-action="review-catalog-pending">Review</button>
+      </div>
+
+      <div class="admin-tool">
+        <div>
+          <strong>Photo suggestions ${pendingPhotoBadge}</strong>
+          <p class="dim">Collectors' photo proposals for items missing an image. Approve to set the catalog item's photo.</p>
+        </div>
+        <button data-admin-action="review-photo-suggestions">Review</button>
+      </div>
+
       <div class="admin-tool">
         <div>
           <strong>Re-snapshot hot-linked catalog photos</strong>
-          <p class="dim">Scans plushies + wishlist for rows whose photo is still a Shopify CDN URL, fetches each through the image proxy, uploads to Storage, and rewrites the path. Use when upstream rotates an image (Overthinking Bunny case).</p>
+          <p class="dim">Scans plushies + wishlist for rows whose photo is still a Shopify CDN URL, fetches each through the image proxy, uploads to Storage, and rewrites the path.</p>
         </div>
         <button class="btn-primary" data-admin-action="backfill-photos" id="admin-backfill-btn">Start</button>
       </div>
@@ -3179,6 +3284,20 @@ async function onAdminClick(e) {
     }
   } else if (action === 'backfill-photos') {
     await adminBackfillPhotos();
+  } else if (action === 'new-catalog-item') {
+    openCatalogItemModal();
+  } else if (action === 'review-catalog-pending') {
+    await openCatalogPendingModal();
+  } else if (action === 'review-photo-suggestions') {
+    await openPhotoSuggestionsModal();
+  } else if (action === 'approve-catalog-item') {
+    await adminApproveCatalogItem(btn.dataset.id);
+  } else if (action === 'reject-catalog-item') {
+    await adminRejectCatalogItem(btn.dataset.id);
+  } else if (action === 'approve-photo-suggestion') {
+    await adminApprovePhotoSuggestion(btn.dataset.id);
+  } else if (action === 'reject-photo-suggestion') {
+    await adminRejectPhotoSuggestion(btn.dataset.id);
   }
 }
 
@@ -3250,6 +3369,259 @@ async function adminBackfillPhotos() {
   btn.disabled = false;
   btn.textContent = 'Start';
 }
+
+// ─── Catalog item: admin create + queues + suggest-photo flow ────
+
+function openCatalogItemModal() {
+  document.getElementById('catalog-item-form').reset();
+  document.getElementById('ci-photo-preview-wrap').innerHTML = '';
+  document.getElementById('ci-error').classList.add('hidden');
+  document.getElementById('catalog-item-modal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('ci-name').focus(), 50);
+}
+
+// Slugify a name into a URL-safe handle. Mirrors what Shopify would
+// produce so the admin doesn't have to think about it.
+function slugify(s) {
+  return (s || '')
+    .toLowerCase()
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
+async function submitCatalogItemForm(e) {
+  e.preventDefault();
+  const errEl = document.getElementById('ci-error');
+  errEl.classList.add('hidden');
+  const name = document.getElementById('ci-name').value.trim();
+  if (!name) { errEl.textContent = 'Name is required.'; errEl.classList.remove('hidden'); return; }
+  const formLabel = document.getElementById('ci-form-label').value.trim() || null;
+  const parentHandle = document.getElementById('ci-parent-handle').value.trim() || null;
+  const type = document.getElementById('ci-type').value;
+  const handle = document.getElementById('ci-handle').value.trim() || slugify(name);
+  const tags = (document.getElementById('ci-tags').value || '')
+    .split(',').map((t) => t.trim()).filter(Boolean);
+  const lore = document.getElementById('ci-lore').value.trim() || null;
+  const photoFile = document.getElementById('ci-photo').files[0] || null;
+
+  const submit = document.getElementById('ci-submit');
+  submit.disabled = true;
+  submit.textContent = 'Working…';
+  try {
+    let imagePath = null;
+    if (photoFile) {
+      const compressed = await compressImage(photoFile).catch(() => photoFile);
+      imagePath = await data.uploadCatalogImage(compressed, handle);
+    }
+    await data.createCatalogItem({
+      name,
+      handle,
+      type,
+      parent_handle: parentHandle,
+      form_label: formLabel,
+      image_path: imagePath,
+      lore,
+      tags,
+      status: 'approved',                // admin-created → auto-approved
+    });
+    toast('Catalog item created.');
+    document.getElementById('catalog-item-modal').classList.add('hidden');
+    // Refresh the catalog so the new item is visible immediately.
+    await loadCatalog();
+    if (state.tab === 'catalog') render();
+  } catch (err) {
+    console.error(err);
+    errEl.textContent = err.message || 'Could not create item.';
+    errEl.classList.remove('hidden');
+  } finally {
+    submit.disabled = false;
+    submit.textContent = 'Create';
+  }
+}
+
+// "Do you have this picture?" — opens for catalog cards that have no
+// image. We carry the target's id + kind on the button dataset so the
+// row we insert points to the right place.
+function openSuggestPhotoModal(targetId, targetKind, targetName) {
+  state.suggestPhotoTarget = { id: targetId, kind: targetKind };
+  document.getElementById('sp-target-name').textContent = targetName || '';
+  document.getElementById('suggest-photo-form').reset();
+  document.getElementById('sp-photo-preview-wrap').innerHTML = '';
+  document.getElementById('sp-error').classList.add('hidden');
+  document.getElementById('suggest-photo-modal').classList.remove('hidden');
+}
+
+async function submitSuggestPhotoForm(e) {
+  e.preventDefault();
+  const errEl = document.getElementById('sp-error');
+  errEl.classList.add('hidden');
+  const file = document.getElementById('sp-photo').files[0];
+  if (!file) { errEl.textContent = 'Please pick a photo.'; errEl.classList.remove('hidden'); return; }
+  const notes = document.getElementById('sp-notes').value.trim() || null;
+  const target = state.suggestPhotoTarget;
+  if (!target) return;
+  const submit = document.getElementById('sp-submit');
+  submit.disabled = true;
+  submit.textContent = 'Sending…';
+  try {
+    const compressed = await compressImage(file).catch(() => file);
+    const path = await data.uploadCatalogSuggestionImage(compressed, target.id);
+    await data.suggestCatalogPhoto({
+      targetShopifyId: target.kind === 'shopify' ? target.id : null,
+      targetCatalogItemId: target.kind === 'custom' ? target.id : null,
+      imagePath: path,
+      notes,
+    });
+    toast('Thanks — sent to admin.');
+    document.getElementById('suggest-photo-modal').classList.add('hidden');
+  } catch (err) {
+    console.error(err);
+    errEl.textContent = err.message || 'Could not send.';
+    errEl.classList.remove('hidden');
+  } finally {
+    submit.disabled = false;
+    submit.textContent = 'Send';
+  }
+}
+
+async function openCatalogPendingModal() {
+  const body = document.getElementById('aq-body');
+  document.getElementById('aq-title').textContent = 'Pending catalog submissions';
+  body.innerHTML = '<p class="dim">Loading…</p>';
+  document.getElementById('admin-queue-modal').classList.remove('hidden');
+  try {
+    const rows = await data.adminListCatalogPending();
+    state.adminPendingCatalog = rows;
+    if (rows.length === 0) {
+      body.innerHTML = '<p class="dim">Nothing pending. ✨</p>';
+      return;
+    }
+    body.innerHTML = rows.map(renderPendingCatalogRow).join('');
+  } catch (err) {
+    console.error(err);
+    body.innerHTML = `<p class="dim">Couldn't load queue: ${escapeHtml(err.message || String(err))}</p>`;
+  }
+}
+
+function renderPendingCatalogRow(row) {
+  const thumb = row.image
+    ? `<img src="${escapeHtml(row.image)}" alt="" />`
+    : `<span class="no-photo">🖤</span>`;
+  return `
+    <article class="catalog-pending-row">
+      <div class="catalog-pending-photo">${thumb}</div>
+      <div class="catalog-pending-body">
+        <h3>${escapeHtml(row.name)} ${row.form_label ? `<span class="card-form-label">${escapeHtml(row.form_label)}</span>` : ''}</h3>
+        <p class="dim">handle: <code>${escapeHtml(row.handle)}</code>${row.parent_handle ? ` · parent: <code>${escapeHtml(row.parent_handle)}</code>` : ''}</p>
+        ${row.lore ? `<p>${escapeHtml(row.lore).slice(0, 240)}${row.lore.length > 240 ? '…' : ''}</p>` : ''}
+        <p class="dim">Status: <strong>${escapeHtml(row.status)}</strong> · submitted ${new Date(row.submitted_at).toLocaleString()}</p>
+      </div>
+      <div class="catalog-pending-actions">
+        ${row.status === 'pending'
+          ? `<button class="btn-primary" data-admin-action="approve-catalog-item" data-id="${row.id}">Approve</button>
+             <button class="btn-ghost" data-admin-action="reject-catalog-item" data-id="${row.id}">Reject</button>`
+          : `<p class="dim">${row.status}</p>`
+        }
+      </div>
+    </article>
+  `;
+}
+
+async function adminApproveCatalogItem(id) {
+  try {
+    await data.adminApproveCatalogItem(id);
+    toast('Approved.');
+    await openCatalogPendingModal();
+    await loadCatalog();
+    if (state.tab === 'catalog') render();
+  } catch (err) {
+    console.error(err);
+    toast('Could not approve: ' + (err.message || err));
+  }
+}
+
+async function adminRejectCatalogItem(id) {
+  if (!confirm('Reject this submission?')) return;
+  try {
+    await data.adminRejectCatalogItem(id);
+    toast('Rejected.');
+    await openCatalogPendingModal();
+  } catch (err) {
+    console.error(err);
+    toast('Could not reject: ' + (err.message || err));
+  }
+}
+
+async function openPhotoSuggestionsModal() {
+  const body = document.getElementById('aq-body');
+  document.getElementById('aq-title').textContent = 'Photo suggestions';
+  body.innerHTML = '<p class="dim">Loading…</p>';
+  document.getElementById('admin-queue-modal').classList.remove('hidden');
+  try {
+    const rows = await data.adminListPhotoSuggestions('pending');
+    state.adminPendingPhotos = rows;
+    if (rows.length === 0) {
+      body.innerHTML = '<p class="dim">Nothing pending. ✨</p>';
+      return;
+    }
+    body.innerHTML = rows.map(renderPendingPhotoRow).join('');
+  } catch (err) {
+    console.error(err);
+    body.innerHTML = `<p class="dim">Couldn't load: ${escapeHtml(err.message || String(err))}</p>`;
+  }
+}
+
+function renderPendingPhotoRow(row) {
+  const thumb = row.image
+    ? `<img src="${escapeHtml(row.image)}" alt="" />`
+    : `<span class="no-photo">🖤</span>`;
+  const target = row.target_catalog_item_id
+    ? `catalog_items: <code>${escapeHtml(row.target_catalog_item_id)}</code>`
+    : `Shopify id: <code>${escapeHtml(row.target_shopify_id || '?')}</code>`;
+  return `
+    <article class="catalog-pending-row">
+      <div class="catalog-pending-photo">${thumb}</div>
+      <div class="catalog-pending-body">
+        <h3>Photo suggestion</h3>
+        <p class="dim">${target}</p>
+        ${row.notes ? `<p><em>"${escapeHtml(row.notes)}"</em></p>` : ''}
+        <p class="dim">submitted ${new Date(row.submitted_at).toLocaleString()}</p>
+      </div>
+      <div class="catalog-pending-actions">
+        <button class="btn-primary" data-admin-action="approve-photo-suggestion" data-id="${row.id}">Approve</button>
+        <button class="btn-ghost" data-admin-action="reject-photo-suggestion" data-id="${row.id}">Reject</button>
+      </div>
+    </article>
+  `;
+}
+
+async function adminApprovePhotoSuggestion(id) {
+  try {
+    await data.adminApprovePhotoSuggestion(id);
+    toast('Photo approved.');
+    await openPhotoSuggestionsModal();
+    await loadCatalog();
+    if (state.tab === 'catalog') render();
+  } catch (err) {
+    console.error(err);
+    toast('Could not approve: ' + (err.message || err));
+  }
+}
+
+async function adminRejectPhotoSuggestion(id) {
+  if (!confirm('Reject this photo suggestion?')) return;
+  try {
+    await data.adminRejectPhotoSuggestion(id);
+    toast('Rejected.');
+    await openPhotoSuggestionsModal();
+  } catch (err) {
+    console.error(err);
+    toast('Could not reject: ' + (err.message || err));
+  }
+}
+
 
 // Promise-based modal that requires the admin to type the target's
 // username to confirm a destructive action. Resolves true if they

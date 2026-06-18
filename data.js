@@ -805,6 +805,228 @@ data.adminUserSnapshot = async function (userId) {
   return { collection: col, plushies, wishlist, pens, trades: trades || [], tradeItems: tradeItems || [], feedback: fb };
 };
 
+
+// ─── Catalog items (admin-curated additions to the Shopify feed) ──
+// Approved rows merge into state.catalog client-side so they show up
+// in the Catalog tab next to live Shopify products. The catalog
+// bucket holds their images; we sign URLs for display, the addFromCatalog
+// snapshot then re-fetches and uploads to the user's own folder.
+
+data.catalogImageUrl = async function (path) {
+  if (!path) return null;
+  const { data: signed, error } = await sb
+    .storage.from('catalog')
+    .createSignedUrl(path, 3600);
+  if (error) { console.warn('catalog image url failed', path, error); return null; }
+  return signed.signedUrl;
+};
+
+// Approved items only — fed into state.catalog merge.
+data.listApprovedCatalogItems = async function () {
+  const { data: rows, error } = await sb
+    .from('catalog_items')
+    .select('*')
+    .eq('status', 'approved');
+  if (error) throw error;
+  // Resolve image URLs in parallel so the catalog grid has photos
+  // ready when we render.
+  await Promise.all(rows.map(async (r) => {
+    r.image = r.image_path ? await data.catalogImageUrl(r.image_path) : null;
+  }));
+  return rows;
+};
+
+// Admin queue: everything not yet seen plus everything still pending.
+data.adminListCatalogPending = async function () {
+  const { data: rows, error } = await sb
+    .from('catalog_items')
+    .select('*')
+    .or('status.eq.pending,review_seen.eq.false')
+    .order('submitted_at', { ascending: false });
+  if (error) throw error;
+  await Promise.all(rows.map(async (r) => {
+    r.image = r.image_path ? await data.catalogImageUrl(r.image_path) : null;
+  }));
+  return rows;
+};
+
+// Upload an image (Blob) to the 'catalog' bucket. Returns the path.
+// Path format: 'items/<slug>-<random>.<ext>'. The random suffix lets
+// admin re-upload without colliding with the previous version.
+data.uploadCatalogImage = async function (blob, slug) {
+  const ext = (blob.type && blob.type.split('/')[1]) || 'jpg';
+  const safeSlug = (slug || 'item').replace(/[^a-z0-9-]/gi, '-').slice(0, 60);
+  const rand = Math.random().toString(36).slice(2, 8);
+  const path = `items/${safeSlug}-${rand}.${ext === 'jpeg' ? 'jpg' : ext}`;
+  const { error } = await sb.storage
+    .from('catalog')
+    .upload(path, blob, { upsert: false, contentType: blob.type || 'image/jpeg' });
+  if (error) throw error;
+  return path;
+};
+
+// Upload to suggestions/ prefix instead. Anyone authenticated can do
+// this (the suggestions RLS policy permits it). The catalog_items
+// row's image_path stays null until admin approves a suggestion.
+data.uploadCatalogSuggestionImage = async function (blob, slug) {
+  const ext = (blob.type && blob.type.split('/')[1]) || 'jpg';
+  const safeSlug = (slug || 'item').replace(/[^a-z0-9-]/gi, '-').slice(0, 60);
+  const rand = Math.random().toString(36).slice(2, 10);
+  const path = `suggestions/${safeSlug}-${rand}.${ext === 'jpeg' ? 'jpg' : ext}`;
+  const { error } = await sb.storage
+    .from('catalog')
+    .upload(path, blob, { upsert: false, contentType: blob.type || 'image/jpeg' });
+  if (error) throw error;
+  return path;
+};
+
+// Create a catalog_items row. Admin path: status='approved' on
+// insert. Trusted-submitter path (Phase X, later) does the same;
+// untrusted path leaves status='pending'.
+data.createCatalogItem = async function (record) {
+  const insert = {
+    name: record.name,
+    handle: record.handle,
+    type: record.type || 'plush',
+    parent_handle: record.parent_handle || null,
+    form_label: record.form_label || null,
+    image_path: record.image_path || null,
+    description: record.description || null,
+    lore: record.lore || null,
+    symbolism: record.symbolism || null,
+    tags: record.tags || [],
+    available: record.available !== false,
+    retired: !!record.retired,
+    status: record.status || 'pending',
+    submitted_by: window.currentUser.id,
+    notes_to_admin: record.notes_to_admin || null,
+    approved_by: record.status === 'approved' ? window.currentUser.id : null,
+    approved_at: record.status === 'approved' ? new Date().toISOString() : null,
+  };
+  const { data: row, error } = await sb
+    .from('catalog_items')
+    .insert(insert)
+    .select()
+    .single();
+  if (error) throw error;
+  return row;
+};
+
+data.adminApproveCatalogItem = async function (id) {
+  const { error } = await sb
+    .from('catalog_items')
+    .update({
+      status: 'approved',
+      approved_by: window.currentUser.id,
+      approved_at: new Date().toISOString(),
+      review_seen: true,
+    })
+    .eq('id', id);
+  if (error) throw error;
+};
+
+data.adminRejectCatalogItem = async function (id) {
+  const { error } = await sb
+    .from('catalog_items')
+    .update({
+      status: 'rejected',
+      approved_by: window.currentUser.id,
+      approved_at: new Date().toISOString(),
+      review_seen: true,
+    })
+    .eq('id', id);
+  if (error) throw error;
+};
+
+// Mark a row as having been reviewed without changing status — used
+// when admin glances at a trusted-submitter's pre-approved row.
+data.adminMarkCatalogReviewSeen = async function (id) {
+  const { error } = await sb
+    .from('catalog_items')
+    .update({ review_seen: true })
+    .eq('id', id);
+  if (error) throw error;
+};
+
+
+// ─── Photo suggestions ─────────────────────────────────────────────
+// Anyone authenticated can suggest a photo for a catalog item that
+// lacks one. Submission flow: upload blob via uploadCatalogSuggestionImage,
+// then insert a row here pointing to the storage path. Admin reviews
+// from the queue, accepts → copy path to catalog_items.image_path.
+
+data.suggestCatalogPhoto = async function ({ targetShopifyId, targetCatalogItemId, imagePath, notes }) {
+  const { error } = await sb.from('catalog_photo_suggestions').insert({
+    target_shopify_id: targetShopifyId || null,
+    target_catalog_item_id: targetCatalogItemId || null,
+    image_path: imagePath,
+    notes: notes || null,
+    submitted_by: window.currentUser.id,
+  });
+  if (error) throw error;
+};
+
+data.adminListPhotoSuggestions = async function (status = 'pending') {
+  const { data: rows, error } = await sb
+    .from('catalog_photo_suggestions')
+    .select('*')
+    .eq('status', status)
+    .order('submitted_at', { ascending: false });
+  if (error) throw error;
+  await Promise.all(rows.map(async (r) => {
+    r.image = r.image_path ? await data.catalogImageUrl(r.image_path) : null;
+  }));
+  return rows;
+};
+
+// Approve a suggestion: copy the image into the canonical catalog
+// items/ path (so the suggestions/ object can be cleaned later) and
+// set the target's image_path. Returns the new image_path.
+data.adminApprovePhotoSuggestion = async function (suggestionId) {
+  // Pull the suggestion row first to find out what we're approving.
+  const { data: row, error: e1 } = await sb
+    .from('catalog_photo_suggestions')
+    .select('*')
+    .eq('id', suggestionId)
+    .single();
+  if (e1) throw e1;
+
+  // If the target is a catalog_items UUID, drop the path into its
+  // image_path. If it's a Shopify product, we don't have a row to
+  // write to — admin needs to create a catalog_items row first, or
+  // (later) we extend the schema with a Shopify-id-keyed table.
+  if (!row.target_catalog_item_id) {
+    throw new Error('Approving photo suggestions for raw Shopify products needs a catalog_items row first.');
+  }
+  const { error: e2 } = await sb
+    .from('catalog_items')
+    .update({ image_path: row.image_path })
+    .eq('id', row.target_catalog_item_id);
+  if (e2) throw e2;
+  const { error: e3 } = await sb
+    .from('catalog_photo_suggestions')
+    .update({
+      status: 'approved',
+      reviewed_by: window.currentUser.id,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq('id', suggestionId);
+  if (e3) throw e3;
+};
+
+data.adminRejectPhotoSuggestion = async function (suggestionId) {
+  const { error } = await sb
+    .from('catalog_photo_suggestions')
+    .update({
+      status: 'rejected',
+      reviewed_by: window.currentUser.id,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq('id', suggestionId);
+  if (error) throw error;
+};
+
+
 // All plushie + wishlist rows site-wide whose photo_path is still a
 // hot-link (starts with http) — i.e. the snapshot failed at add time
 // and the card is hanging off the upstream CDN. Used by the admin
