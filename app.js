@@ -378,7 +378,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=52f', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=53', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -1610,6 +1610,13 @@ function wireEvents() {
 async function loadTradeData() {
   try {
     state.myTradeItems = await data.listMyTradeItems();
+    // Live-link enforcement: clamp every offering to what the user
+    // currently owns before anything renders or browse is computed.
+    // This is the load-time backstop for "you can never offer more than
+    // you own" — it self-heals drift from completed trades, removed
+    // collection items, or older data, regardless of cause. If it
+    // changed anything it re-fetches myTradeItems internally.
+    await reconcileAllOfferings({ announce: true });
     state.tradeBrowse  = await data.browseOfferings();
     state.trades       = await data.listTrades();
     state.myFeedback   = await data.getFeedbackSummary(window.currentUser.id);
@@ -1774,6 +1781,49 @@ async function markForTrade(item, kind) {
 // When a collection row's quantity drops, the matching offering row must
 // follow — you can't promise to trade more copies than you own. Returns
 // false (and toasts) if the change would orphan a reservation.
+// Sweep every offering and clamp it to the current owned quantity for
+// its catalog product. Floors at `reserved` so we never break an active
+// trade; removes an offering entirely when the user owns zero and has
+// none reserved. Custom (non-catalog) offerings are left alone — they
+// have no collection to link to. Persists each correction to the server
+// so other browsers see the clamped offering. Returns true if anything
+// changed. Pass { announce:true } to toast a one-line summary.
+async function reconcileAllOfferings({ announce = false } = {}) {
+  if (!Array.isArray(state.myTradeItems) || state.myTradeItems.length === 0) return false;
+  const ownedByCatalog = new Map();
+  for (const c of state.collection) {
+    if (c.catalogId) {
+      ownedByCatalog.set(c.catalogId, (ownedByCatalog.get(c.catalogId) || 0) + (c.quantity || 1));
+    }
+  }
+  let removed = 0;
+  let trimmed = 0;
+  for (const off of state.myTradeItems) {
+    if (off.kind !== 'offering' || !off.catalogId) continue;
+    const owned = ownedByCatalog.get(off.catalogId) || 0;
+    const reserved = off.reserved || 0;
+    const target = Math.max(reserved, Math.min(owned, off.quantity));
+    if (target === off.quantity) continue;
+    try {
+      if (target === 0) { await data.deleteTradeItem(off.id); removed++; }
+      else { await data.updateTradeItem(off.id, { quantity: target }); trimmed++; }
+    } catch (err) {
+      console.error('reconcile offering', off.id, err);
+    }
+  }
+  const changed = removed + trimmed > 0;
+  if (changed) {
+    state.myTradeItems = await data.listMyTradeItems();
+    if (announce) {
+      const parts = [];
+      if (removed) parts.push(`removed ${removed} offering${removed === 1 ? '' : 's'} you no longer own`);
+      if (trimmed) parts.push(`trimmed ${trimmed} to match what you own`);
+      toast('Trade offerings updated: ' + parts.join(', ') + '.');
+    }
+  }
+  return changed;
+}
+
 async function syncOfferingToOwned(catalogId, newOwned) {
   const offering = state.myTradeItems.find((t) => t.kind === 'offering' && t.catalogId === catalogId);
   if (!offering) return true;
