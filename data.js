@@ -205,6 +205,19 @@ const data = {
     return path;
   },
 
+  // Upload to a specific user's collection bucket folder. Used by the
+  // admin backfill tool which iterates other people's plushies +
+  // wishlist rows. Storage RLS allows admin write via 0005's policy.
+  async adminUploadPhoto(blob, collectionId, id) {
+    const ext = (blob.type && blob.type.split('/')[1]) || 'jpg';
+    const path = `${collectionId}/${id}.${ext === 'jpeg' ? 'jpg' : ext}`;
+    const { error } = await sb.storage
+      .from('photos')
+      .upload(path, blob, { upsert: true, contentType: blob.type || 'image/jpeg' });
+    if (error) throw error;
+    return path;
+  },
+
   async photoUrl(path) {
     if (!path) return null;
     if (path.startsWith('http')) return path;
@@ -790,6 +803,30 @@ data.adminUserSnapshot = async function (userId) {
   // Feedback summary
   const fb = await data.getFeedbackSummary(userId);
   return { collection: col, plushies, wishlist, pens, trades: trades || [], tradeItems: tradeItems || [], feedback: fb };
+};
+
+// All plushie + wishlist rows site-wide whose photo_path is still a
+// hot-link (starts with http) — i.e. the snapshot failed at add time
+// and the card is hanging off the upstream CDN. Used by the admin
+// re-snapshot tool. Returns rows annotated with collection_id so the
+// backfill knows which Storage folder to upload into.
+data.adminListHotlinkedPhotos = async function () {
+  const [{ data: ps, error: pe }, { data: ws, error: we }] = await Promise.all([
+    sb.from('plushies').select('id, name, catalog_id, photo_path, collection_id').like('photo_path', 'http%'),
+    sb.from('wishlist').select('id, name, catalog_id, photo_path, collection_id').like('photo_path', 'http%'),
+  ]);
+  if (pe) throw pe;
+  if (we) throw we;
+  return [
+    ...(ps || []).map((r) => ({ ...r, kind: 'collection' })),
+    ...(ws || []).map((r) => ({ ...r, kind: 'wishlist' })),
+  ];
+};
+
+data.adminUpdatePhotoPath = async function (kind, id, path) {
+  const table = kind === 'collection' ? 'plushies' : 'wishlist';
+  const { error } = await sb.from(table).update({ photo_path: path }).eq('id', id);
+  if (error) throw error;
 };
 
 // Wipes a user account end-to-end (auth row + cascade through every

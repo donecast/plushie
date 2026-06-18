@@ -84,6 +84,21 @@ function shopifyImageVariant(url, size) {
   return url.replace(/\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i, `_${size}x.$1$2`);
 }
 
+// Wrap a Shopify CDN URL with the image-proxy Worker if one is
+// configured (config.js → IMG_PROXY_BASE). Returns the original URL
+// when no proxy is set, which means addFromCatalog will hot-link on
+// CORS failure (the legacy behavior). Pass the URL untouched if it
+// isn't a Shopify CDN URL — user-uploaded photos, etc., shouldn't
+// route through the catalog proxy.
+function proxyImageUrl(url, size) {
+  if (!url) return null;
+  const base = (window.IMG_PROXY_BASE || '').replace(/\/$/, '');
+  if (!base) return url;
+  if (!/^https:\/\/cdn\.shopify\.com\//.test(url)) return url;
+  const q = '?url=' + encodeURIComponent(url) + (size ? '&size=' + size : '');
+  return base + q;
+}
+
 function isCharm(item) {
   const tags = (item.tags || []).map((t) => t.toLowerCase());
   return tags.includes('bag charm') || tags.includes('bagcharm');
@@ -378,7 +393,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=53b', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=54', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -646,7 +661,14 @@ function renderCard(item, kind) {
   if (kind === 'collection') {
     if (item.dateCollected) meta.push(`<span>${formatDate(item.dateCollected)}</span>`);
     if (item.acquiredHow) meta.push(`<span>${escapeHtml(item.acquiredHow)}</span>`);
-    if (item.hasBag === false) meta.push(`<span class="meta-warn">No bag</span>`);
+    // 'No bag' only makes sense on full-size Plushies (catalog type
+    // 'plush'). On pens/charms/accessories we never expected one, so
+    // suppress the warning. Custom items (no catalogId) still show it.
+    if (item.hasBag === false) {
+      const cat = item.catalogId ? state.catalog.find((c) => c.id === item.catalogId) : null;
+      const isPlushie = !cat || (cat.type || '').toLowerCase() === 'plush';
+      if (isPlushie) meta.push(`<span class="meta-warn">No bag</span>`);
+    }
   } else {
     if (item.url) {
       try {
@@ -897,6 +919,15 @@ function openModal(kind, item) {
   document.getElementById('f-acquired').value = item.acquiredHow ?? '';
   document.getElementById('f-bag').checked = item.hasBag !== false;
 
+  // 'Has bag' applies only to full-size Plushies (catalog type 'plush');
+  // pens, charms, accessories, and decor never come with the tote bag,
+  // so the field would be permanently meaningless on those. Hide it
+  // entirely. If we can't resolve the catalog (custom item without a
+  // catalogId) we err on showing it.
+  const cat = item.catalogId ? state.catalog.find((c) => c.id === item.catalogId) : null;
+  const isPlushie = !cat || (cat.type || '').toLowerCase() === 'plush';
+  document.getElementById('field-bag').classList.toggle('hidden', !isPlushie);
+
   document.getElementById('modal').dataset.kind = 'collection';
   document.getElementById('modal').classList.remove('hidden');
   setTimeout(() => document.getElementById('f-meaning').focus(), 50);
@@ -1089,17 +1120,31 @@ async function addFromCatalog(catalogId, kind) {
     }
   }
 
-  // Pull the product photo so the card stays good if the user goes offline
-  // or the Shopify CDN URL ever rots. Fall back to the URL on CORS error.
-  let photo = cat.image ? shopifyImageVariant(cat.image, 800) : null;
-  if (photo) {
-    try {
-      const resp = await fetch(photo, { mode: 'cors' });
-      if (resp.ok) {
-        const blob = await resp.blob();
-        photo = await compressImage(blob).catch(() => blob);
-      }
-    } catch { /* keep URL */ }
+  // Snapshot the product photo so the card stays good even if upstream
+  // rotates the URL (the Overthinking Bunny problem — same SKU, new
+  // image). Routes through the img-proxy Worker for CORS + Shopify
+  // ?width= resizing; on any failure, falls back to direct fetch, then
+  // to storing the URL as a hot link.
+  const originalUrl = cat.image ? shopifyImageVariant(cat.image, 800) : null;
+  let photo = originalUrl;
+  if (originalUrl) {
+    const sources = [
+      proxyImageUrl(originalUrl, 800),     // CORS-friendly via Worker
+      originalUrl,                         // last-ditch direct (legacy)
+    ].filter((u, i, a) => u && a.indexOf(u) === i); // dedupe if proxy not configured
+    for (const src of sources) {
+      try {
+        const resp = await fetch(src, { mode: 'cors' });
+        if (resp.ok) {
+          const blob = await resp.blob();
+          // Client-side downscale + JPEG re-encode; caps at ~800px /
+          // ~80% quality so a 2 MB upstream becomes ~60-200 KB before
+          // it ever touches Supabase Storage.
+          photo = await compressImage(blob).catch(() => blob);
+          break;
+        }
+      } catch { /* try next source */ }
+    }
   }
 
   const base = {
@@ -2964,6 +3009,17 @@ function renderAdminUserList() {
     `;
   }).join('');
   document.getElementById('admin-content').innerHTML = `
+    <section class="admin-tools">
+      <h2 class="trader-head"><span>Tools</span></h2>
+      <div class="admin-tool">
+        <div>
+          <strong>Re-snapshot hot-linked catalog photos</strong>
+          <p class="dim">Scans plushies + wishlist for rows whose photo is still a Shopify CDN URL, fetches each through the image proxy, uploads to Storage, and rewrites the path. Use when upstream rotates an image (Overthinking Bunny case).</p>
+        </div>
+        <button class="btn-primary" data-admin-action="backfill-photos" id="admin-backfill-btn">Start</button>
+      </div>
+      <div id="admin-backfill-log" class="admin-backfill-log hidden"></div>
+    </section>
     <h2 class="trader-head"><span>Users</span></h2>
     <table class="admin-table">
       <thead><tr><th>Username</th><th>Joined</th><th>Feedback (g/m/b)</th><th>Net</th><th></th></tr></thead>
@@ -3121,7 +3177,78 @@ async function onAdminClick(e) {
       console.error(err);
       toast('Purge failed: ' + (err.message || err));
     }
+  } else if (action === 'backfill-photos') {
+    await adminBackfillPhotos();
   }
+}
+
+// Re-snapshot every plushie + wishlist row whose photo_path is still a
+// Shopify CDN URL (i.e., the original snapshot at add-time failed CORS
+// and we fell back to hot-linking). For each row: fetch through the
+// img-proxy Worker, downscale + re-encode via compressImage, upload to
+// Storage under the row's collection folder, and rewrite photo_path
+// to the new UUID path. Reports progress in #admin-backfill-log.
+async function adminBackfillPhotos() {
+  const btn = document.getElementById('admin-backfill-btn');
+  const log = document.getElementById('admin-backfill-log');
+  if (!window.IMG_PROXY_BASE) {
+    toast('Set window.IMG_PROXY_BASE in config.js first (Worker URL).');
+    return;
+  }
+  if (!confirm('Re-snapshot every hot-linked photo across all users? This can take a while on a large site.')) return;
+  btn.disabled = true;
+  btn.textContent = 'Working…';
+  log.classList.remove('hidden');
+  log.innerHTML = '<p class="dim">Loading hot-linked rows…</p>';
+  let rows;
+  try {
+    rows = await data.adminListHotlinkedPhotos();
+  } catch (err) {
+    console.error(err);
+    log.innerHTML = `<p class="dim">Couldn't list rows: ${escapeHtml(err.message || String(err))}</p>`;
+    btn.disabled = false;
+    btn.textContent = 'Start';
+    return;
+  }
+  if (rows.length === 0) {
+    log.innerHTML = '<p class="dim">Nothing to do — every photo is already snapshotted.</p>';
+    btn.disabled = false;
+    btn.textContent = 'Start';
+    return;
+  }
+  const lines = [`<p class="dim">${rows.length} row${rows.length === 1 ? '' : 's'} to process.</p><ul class="admin-backfill-list">`];
+  log.innerHTML = lines.join('') + '</ul>';
+  let ok = 0, skip = 0, fail = 0;
+  const list = log.querySelector('.admin-backfill-list');
+  for (const row of rows) {
+    const liId = `bf-${row.id}`;
+    list.insertAdjacentHTML('beforeend', `<li id="${liId}"><span class="dim">⏳</span> ${escapeHtml(row.name)}</li>`);
+    const li = document.getElementById(liId);
+    try {
+      const url = row.photo_path;
+      if (!/^https:\/\/cdn\.shopify\.com\//.test(url)) {
+        li.innerHTML = `<span class="dim">⊘ (non-Shopify URL, skipped)</span> ${escapeHtml(row.name)}`;
+        skip++;
+        continue;
+      }
+      const proxied = proxyImageUrl(url, 800);
+      const resp = await fetch(proxied, { mode: 'cors' });
+      if (!resp.ok) throw new Error(`fetch ${resp.status}`);
+      const blob = await resp.blob();
+      const compressed = await compressImage(blob).catch(() => blob);
+      const path = await data.adminUploadPhoto(compressed, row.collection_id, row.id);
+      await data.adminUpdatePhotoPath(row.kind, row.id, path);
+      li.innerHTML = `<span class="ok">✓</span> ${escapeHtml(row.name)} <span class="dim">→ ${escapeHtml(path)}</span>`;
+      ok++;
+    } catch (err) {
+      console.warn('backfill failed', row.id, err);
+      li.innerHTML = `<span class="err">✗</span> ${escapeHtml(row.name)} <span class="dim">${escapeHtml(err.message || String(err))}</span>`;
+      fail++;
+    }
+  }
+  list.insertAdjacentHTML('afterend', `<p class="dim">Done — ${ok} snapshotted, ${skip} skipped, ${fail} failed.</p>`);
+  btn.disabled = false;
+  btn.textContent = 'Start';
 }
 
 // Promise-based modal that requires the admin to type the target's

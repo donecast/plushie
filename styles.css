@@ -2470,6 +2470,47 @@ body.locked { overflow: hidden; }
   cursor: pointer;
 }
 
+/* Admin tools strip (above the user table). */
+.admin-tools { margin-bottom: 28px; }
+.admin-tool {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--hairline-3);
+  border-radius: 14px;
+  box-shadow: var(--shadow-card-soft);
+}
+.admin-tool > div { flex: 1; min-width: 0; }
+.admin-tool strong { font-family: var(--sans); font-weight: 800; color: var(--ink-2); display: block; margin-bottom: 4px; }
+.admin-tool .dim { margin: 0; line-height: 1.4; font-family: var(--sans); }
+.admin-tool > button { flex: 0 0 auto; }
+.admin-backfill-log {
+  margin-top: 12px;
+  padding: 14px 16px;
+  background: var(--canvas);
+  border: 1px solid var(--hairline-3);
+  border-radius: 12px;
+  font-family: var(--sans);
+  font-size: 0.88rem;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.admin-backfill-list {
+  margin: 8px 0;
+  padding-left: 0;
+  list-style: none;
+}
+.admin-backfill-list li {
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--rose-seam);
+  line-height: 1.4;
+}
+.admin-backfill-list li:last-child { border-bottom: 0; }
+.admin-backfill-list .ok { color: var(--positive-text); font-weight: 800; }
+.admin-backfill-list .err { color: var(--danger-1); font-weight: 800; }
+
 /* Danger zone on the per-user admin inspect view. */
 .admin-danger {
   margin-top: 32px;
