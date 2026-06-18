@@ -385,7 +385,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=52a', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=52b', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -705,7 +705,7 @@ function renderCard(item, kind) {
   // that mode because the card body IS the entry point.
   const collectionBody = `
     ${item.nickname
-      ? `<h3 class="card-name">${escapeHtml(item.nickname)}</h3>
+      ? `<h3 class="card-name nickname">${escapeHtml(item.nickname)}</h3>
          <p class="card-product">${escapeHtml(item.name)}</p>`
       : `<h3 class="card-name">${escapeHtml(item.name)}</h3>`}
     ${meta.length ? `<div class="card-meta">${meta.join('')}</div>` : ''}

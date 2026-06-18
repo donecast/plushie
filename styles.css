@@ -157,12 +157,15 @@
   /* Radii bumped up — the redesign favors softer 16-18px cards. */
   --radius: 16px;
   --radius-sm: 11px;
-  /* Typography. --sans is the new functional default (Nunito). --serif
-     and --display remain Cormorant for the wordmark, headings, prices,
-     and italic flair text. */
+  /* Typography — three-font system.
+     --display: decorative Cinzel for the wordmark and personal
+                plushie nicknames (the interlocking-O moments).
+     --sans:    Nunito for everything functional (nav, buttons, body,
+                meta, prices, eyebrows).
+     --serif:   Cormorant for italic "meaning" quotes only. */
   --sans:    'Nunito', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --serif:   'Cormorant Garamond', Georgia, serif;
-  --display: 'Cormorant Garamond', Georgia, serif;
+  --display: 'Cinzel Decorative', 'Cormorant Garamond', Georgia, serif;
 }
 
 /* Dark theme — the original gothic plum + rose, refined. Opt-in via the
@@ -879,12 +882,16 @@ main {
   color: var(--ink);
   line-height: 1.25;
 }
-/* Larger nickname (Cormorant) on personal collection rows. */
+/* Nickname on personal collection rows — Cinzel display for the
+   decorative "interlocking-O" feel the user specifically called out.
+   The smaller catalog/wishlist card names stay Nunito. */
 .card-name.nickname {
   font-family: var(--display);
   font-weight: 700;
-  font-size: 1.4rem;
-  line-height: 1.1;
+  font-size: 1.25rem;
+  letter-spacing: 0.04em;
+  line-height: 1.15;
+  color: var(--ink-2);
 }
 
 .card-meaning {
