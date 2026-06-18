@@ -14,5 +14,5 @@ window.TERMS_VERSION = '2026-06-10';
 // leave the image hot-linked instead of snapshotted).
 // Replace with the workers.dev URL Cloudflare gave you, or a custom
 // hostname if you've bound one (e.g. https://img.plushcrypt.com).
-window.IMG_PROXY_BASE = '';
+window.IMG_PROXY_BASE = 'https://plush-crypt-img-proxy.scott-e08.workers.dev/';
 
