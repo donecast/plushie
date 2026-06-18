@@ -396,7 +396,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=55', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=55a', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
     const shopify = (json.products || []).filter(isPlushieCollectible);
@@ -440,6 +440,34 @@ async function mergeCustomCatalog(shopifyProducts) {
     console.warn('custom catalog merge skipped', e);
     return shopifyProducts;
   }
+}
+
+// For form-variant catalog items (parent_handle set), fall back to the
+// parent's metadata field-by-field. The variant's own value wins when
+// set; the parent fills in blanks. Once Phase L parses lore/symbolism
+// from Shopify body_html, variants inherit for free without re-creation.
+// Pure function — does not mutate the input.
+function resolveCatalogItem(item) {
+  if (!item || !item.isCustom || !item.parentHandle) return item;
+  const parent = state.catalog.find((c) => c.handle === item.parentHandle && !c.isCustom);
+  if (!parent) return item;
+  return {
+    ...item,
+    // image stays — variants are their own form, photo never inherits
+    type:        item.type ?? parent.type,
+    available:   item.available ?? parent.available,
+    retired:     item.retired ?? parent.retired,
+    price:       item.price ?? parent.price,
+    tags:        (item.tags && item.tags.length) ? item.tags : (parent.tags || []),
+    description: item.description ?? parent.description ?? null,
+    lore:        item.lore ?? parent.lore ?? null,
+    symbolism:   item.symbolism ?? parent.symbolism ?? null,
+    // The shopping URL on a variant uses the parent's handle so Buy
+    // sends people to plushiedreadfuls.com for whatever the upstream
+    // SKU currently is. They can buy the current iteration and still
+    // catalogue the form they actually own.
+    parentShopifyHandle: parent.handle,
+  };
 }
 
 const LIVE_CATALOG_BASE = 'https://plushiedreadfuls.com/products.json?limit=250';
@@ -592,7 +620,11 @@ function filteredCatalog() {
   const cat = CATALOG_CATEGORIES.has(state.catalogFilter) ? state.catalogFilter : 'all';
   const statuses = state.catalogStatuses;
   const theme = state.catalogTheme;
-  const items = state.catalog.filter((it) => {
+  const items = state.catalog.filter((raw) => {
+    // Resolve so variants inherit parent's type / tags / status when
+    // they don't override — keeps them filterable under the same
+    // theme / category as the parent.
+    const it = resolveCatalogItem(raw);
     if (cat !== 'all' && catalogCategory(it) !== cat) return false;
     if (statuses.size > 0 && !statuses.has(itemStatus(it))) return false;
     if (state.catalogUnowned && owned.has(it.id)) return false;
@@ -639,7 +671,8 @@ function renderCatalogMeta(item) {
   return parts.length ? `<div class="card-meta">${parts.join('')}</div>` : '';
 }
 
-function renderCatalogCard(item, owned, wished) {
+function renderCatalogCard(rawItem, owned, wished) {
+  const item = resolveCatalogItem(rawItem);
   const display = cleanCatalogName(item.name);
   // Custom catalog items already carry a signed Storage URL in
   // item.image; only Shopify URLs benefit from the _NNNx variant.
@@ -666,8 +699,14 @@ function renderCatalogCard(item, owned, wished) {
   if (isOwned) badges.push(`<span class="card-status owned">✓ Owned</span>`);
   else if (isWished) badges.push(`<span class="card-status wished">★ Wished</span>`);
 
-  // Custom catalog items don't have a plushiedreadfuls.com URL.
-  const productUrl = item.isCustom ? null : (PRODUCT_URL_BASE + item.handle);
+  // Custom items normally have no Shopify URL — but form variants
+  // resolve through their parent handle so Buy points at the upstream
+  // product page (the buyer gets whatever current iteration upstream
+  // sells; their *collection* still records the form they own).
+  const productHandleForBuy = item.isCustom
+    ? item.parentShopifyHandle
+    : item.handle;
+  const productUrl = productHandleForBuy ? (PRODUCT_URL_BASE + productHandleForBuy) : null;
   const canHave = !(status === 'coming_soon' || status === 'fyc');
   const haveBtn  = canHave  ? `<button class="btn-have" data-action="cat-have" data-cid="${item.id}">🖤 Have</button>` : '';
   const wantBtn  = !isWished ? `<button class="btn-want" data-action="cat-want" data-cid="${item.id}">🕯 Want</button>` : '';
