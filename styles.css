@@ -2350,6 +2350,55 @@ body.locked { overflow: hidden; }
   cursor: pointer;
 }
 
+/* Danger zone on the per-user admin inspect view. */
+.admin-danger {
+  margin-top: 32px;
+  padding: 18px 20px;
+  background: var(--danger-soft);
+  border: 1.5px solid var(--negative-edge);
+  border-radius: 14px;
+}
+.admin-danger h3 {
+  color: var(--danger-1);
+  border-color: var(--negative-edge);
+}
+.admin-danger p { font-family: var(--sans); font-style: normal; }
+.admin-danger strong { color: var(--danger-1); }
+.btn-danger.admin-purge-btn {
+  margin-top: 8px;
+  background: var(--danger-1);
+  color: #fff;
+  border: 1.5px solid var(--danger-1);
+  padding: 11px 22px;
+  border-radius: 11px;
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.btn-danger.admin-purge-btn:hover { background: #971f37; border-color: #971f37; }
+
+/* Typed-username confirm modal — sits above everything (admin only). */
+.admin-confirm-modal { z-index: 1200; }
+.admin-confirm-body { line-height: 1.5; color: var(--ink); margin: 0 0 18px; font-family: var(--sans); }
+.admin-confirm-body code {
+  background: var(--surface-2);
+  color: var(--ink-2);
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+.admin-confirm-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace !important;
+}
+.btn-primary.btn-danger-confirm {
+  background: var(--danger-1);
+  border-color: var(--danger-1);
+}
+.btn-primary.btn-danger-confirm:hover { background: #971f37; border-color: #971f37; }
+
 /* ─── Mobile ────────────────────────────── */
 @media (max-width: 768px) {
   /* Header */

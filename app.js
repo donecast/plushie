@@ -377,7 +377,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=52c', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=52d', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -2920,6 +2920,17 @@ function renderAdminUserView() {
       <h3 class="trader-head"><span>Trades (${snapshot.trades.length})</span></h3>
       <ul class="member-list">${tradesHtml || '<li class="dim">no trades</li>'}</ul>
     </section>
+
+    <section class="admin-danger">
+      <h3 class="trader-head"><span>Danger zone</span></h3>
+      <p class="dim">Purging an account cascades through every table the user touches —
+        profile, collections, wishlist, pens, trade items, trades, feedback, addresses,
+        consent log, and uploaded photos. <strong>Irreversible.</strong></p>
+      <button class="btn-danger admin-purge-btn" data-admin-action="purge-user"
+        data-uid="${user.id}" data-username="${escapeHtml(user.username)}">
+        Delete @${escapeHtml(user.username)}'s account
+      </button>
+    </section>
   `;
 }
 
@@ -2944,10 +2955,18 @@ async function onAdminClick(e) {
     state.adminUserView = null;
     renderAdmin();
   } else if (action === 'del-wish') {
-    if (!confirm('Delete this wishlist entry on behalf of the user?')) return;
+    // Typed-username guard. Modifying another user's data is rare and
+    // potentially confusing — make the admin spell it out.
+    const username = state.adminUserView?.user?.username || '';
+    const ok = await confirmTypingUsername({
+      title: `Delete this wishlist entry?`,
+      body: `You're about to delete a wish list entry on behalf of <strong>@${escapeHtml(username)}</strong>.<br/>Type their username to confirm.`,
+      expected: username,
+      confirmLabel: 'Delete entry',
+    });
+    if (!ok) return;
     try {
       await data.adminDeleteWishlist(btn.dataset.id);
-      // Refresh snapshot
       const uid = state.adminUserView.user.id;
       state.adminUserView.snapshot = await data.adminUserSnapshot(uid);
       renderAdmin();
@@ -2956,7 +2975,67 @@ async function onAdminClick(e) {
       console.error(err);
       toast('Could not delete.');
     }
+  } else if (action === 'purge-user') {
+    const uid = btn.dataset.uid;
+    const username = btn.dataset.username;
+    const ok = await confirmTypingUsername({
+      title: 'Purge this account?',
+      body: `This will permanently delete <strong>@${escapeHtml(username)}</strong>'s account and every row tied to it — collection, wish list, pens, trade items, trades, feedback, addresses, photos, and the auth row. <strong>Irreversible.</strong><br/><br/>Type the username to confirm.`,
+      expected: username,
+      confirmLabel: 'Purge account',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await data.adminPurgeUser(uid);
+      toast(`@${username} purged.`);
+      // Refresh the user list and return to it.
+      state.adminUserView = null;
+      await loadAdminUsers();
+      renderAdmin();
+    } catch (err) {
+      console.error(err);
+      toast('Purge failed: ' + (err.message || err));
+    }
   }
+}
+
+// Promise-based modal that requires the admin to type the target's
+// username to confirm a destructive action. Resolves true if they
+// matched + clicked confirm; false otherwise (cancel, esc, mismatch).
+function confirmTypingUsername({ title, body, expected, confirmLabel = 'Confirm', danger = false }) {
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'modal admin-confirm-modal';
+    wrap.innerHTML = `
+      <div class="modal-backdrop"></div>
+      <div class="modal-card">
+        <h2>${title}</h2>
+        <p class="admin-confirm-body">${body}</p>
+        <label class="field">
+          <span>Type <code>${escapeHtml(expected)}</code> to enable</span>
+          <input type="text" class="admin-confirm-input" autocomplete="off" autocapitalize="none" spellcheck="false" />
+        </label>
+        <div class="form-actions">
+          <button class="btn-ghost" data-confirm-action="cancel">Cancel</button>
+          <button class="btn-primary ${danger ? 'btn-danger-confirm' : ''}" data-confirm-action="confirm" disabled>${confirmLabel}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap);
+    const input = wrap.querySelector('.admin-confirm-input');
+    const submit = wrap.querySelector('[data-confirm-action="confirm"]');
+    const cancel = wrap.querySelector('[data-confirm-action="cancel"]');
+    const close = (result) => { wrap.remove(); resolve(result); };
+    input.addEventListener('input', () => {
+      submit.disabled = input.value.trim() !== expected;
+    });
+    submit.addEventListener('click', () => {
+      if (input.value.trim() === expected) close(true);
+    });
+    cancel.addEventListener('click', () => close(false));
+    wrap.querySelector('.modal-backdrop').addEventListener('click', () => close(false));
+    setTimeout(() => input.focus(), 50);
+  });
 }
 
 // ─── Service worker ──────────────────────────────────────────────────

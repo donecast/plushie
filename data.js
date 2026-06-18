@@ -776,6 +776,15 @@ data.adminUserSnapshot = async function (userId) {
   return { collection: col, plushies, wishlist, pens, trades: trades || [], tradeItems: tradeItems || [], feedback: fb };
 };
 
+// Wipes a user account end-to-end (auth row + cascade through every
+// FK-bound table + storage photos for the user's collections). Backed
+// by the admin_purge_user RPC; the SECURITY DEFINER function rechecks
+// is_admin() on the server so the client-side guard isn't load-bearing.
+data.adminPurgeUser = async function (userId) {
+  const { error } = await sb.rpc('admin_purge_user', { target: userId });
+  if (error) throw error;
+};
+
 data.adminUpdateWishlist = async function (wishlistId, patch) {
   const { error } = await sb
     .from('wishlist')
