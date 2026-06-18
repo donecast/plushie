@@ -1868,6 +1868,32 @@ main {
 }
 .dim { color: var(--ink-dim); font-style: italic; font-size: 0.9rem; }
 
+/* Fell-through confirmation banner. The requester sees the muted
+   .dim variant; the partner sees a danger-tinted version with
+   Confirm / Dispute buttons inline. */
+.fell-through-banner {
+  background: var(--danger-soft);
+  border-left-color: var(--danger-1);
+  padding: 12px 14px;
+  display: block;
+}
+.fell-through-banner.dim {
+  background: var(--surface-2);
+  border-left-color: var(--muted-2);
+}
+.fell-through-banner strong { color: var(--danger-1); display: block; margin-bottom: 4px; }
+.fell-through-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.fell-through-actions button {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+}
+
 /* Offer builder */
 .modal-card-wide { max-width: 600px; }
 .picker-panel {

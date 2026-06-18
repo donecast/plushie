@@ -396,7 +396,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=55a', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=56', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
     const shopify = (json.products || []).filter(isPlushieCollectible);
@@ -2209,6 +2209,7 @@ function renderTradeRow(t, uid) {
       </div>
       ${t.message ? `<p class="trade-message">“${escapeHtml(t.message)}”</p>` : ''}
       ${t.status === 'accepted' ? renderShipFirstBanner(t, isMine) : ''}
+      ${renderFellThroughBanner(t, uid)}
       ${actions ? `<div class="card-actions">${actions}</div>` : ''}
     </article>
   `;
@@ -2284,8 +2285,38 @@ function renderAcceptedTradeActions(t, isMine, uid) {
   } else if (myReceivedAt) {
     parts.push(`<span class="dim">You received ${shortDate(myReceivedAt)}</span>`);
   }
-  parts.push(`<button class="btn-danger" data-action="trade-fall-through" data-id="${t.id}">Fell through</button>`);
+  // "Fell through" routes through a request/confirm dance now — one
+  // party requests, the other confirms or disputes. We hide the
+  // raw "Fell through" button when a request is already in flight;
+  // the banner above the actions row carries the workflow instead.
+  if (!t.fell_through_requested_by) {
+    parts.push(`<button class="btn-danger" data-action="trade-fall-through" data-id="${t.id}">Fell through</button>`);
+  } else if (t.fell_through_requested_by === uid) {
+    parts.push(`<button class="btn-ghost" data-action="trade-withdraw-fall" data-id="${t.id}">Withdraw fell-through</button>`);
+  }
   return parts.join(' ');
+}
+
+// Banner shown above the actions row on accepted trades where one
+// party has requested fall-through. Requester sees a "waiting"
+// version; the other party sees Confirm / Dispute buttons.
+function renderFellThroughBanner(t, uid) {
+  if (t.status !== 'accepted' || !t.fell_through_requested_by) return '';
+  const isRequester = t.fell_through_requested_by === uid;
+  if (isRequester) {
+    return `<div class="ship-first-banner fell-through-banner dim">
+      🕯 You've requested to mark this trade as fallen through.
+      Waiting for the other side to confirm or dispute.
+    </div>`;
+  }
+  return `<div class="ship-first-banner fell-through-banner">
+    <strong>⚠ Your trade partner says this trade fell through.</strong>
+    Both of you have to agree before the trade is cancelled and the items unreserve.
+    <div class="fell-through-actions">
+      <button class="btn-danger" data-action="trade-confirm-fall" data-id="${t.id}">Confirm cancellation</button>
+      <button class="btn-ghost" data-action="trade-dispute-fall" data-id="${t.id}">Dispute — trade is still on</button>
+    </div>
+  </div>`;
 }
 
 function renderCompletedTradeActions(t, isMine, uid) {
@@ -2317,7 +2348,10 @@ async function onTradeClick(e) {
     else if (action === 'trade-reject')      await respondToTrade(id, 'reject');
     else if (action === 'trade-counter')     await openCounterModal(id);
     else if (action === 'trade-cancel')      await respondToTrade(id, 'cancel');
-    else if (action === 'trade-fall-through') await respondToTrade(id, 'cancel');
+    else if (action === 'trade-fall-through') await respondToTrade(id, 'fall-through');
+    else if (action === 'trade-confirm-fall')  await respondToTrade(id, 'confirm-fall');
+    else if (action === 'trade-dispute-fall')  await respondToTrade(id, 'dispute-fall');
+    else if (action === 'trade-withdraw-fall') await respondToTrade(id, 'withdraw-fall');
     else if (action === 'trade-shipped')     await tradeShipped(id, btn.dataset.side);
     else if (action === 'trade-received')    await tradeReceived(id, btn.dataset.side);
     else if (action === 'trade-address')     await openAddressModal(id);
@@ -2375,20 +2409,48 @@ async function adjustMyTradeItem(id) {
 async function respondToTrade(id, action) {
   const t = state.trades.find((x) => x.id === id);
   if (!t) return;
+  let toastMsg = '';
   try {
-    if (action === 'accept')         await data.acceptTrade(id);
-    else if (action === 'reject')    await data.rejectTrade(id);
-    else if (action === 'cancel')    await data.cancelTrade(id, t.status === 'pending' ? 'cancelled' : 'cancelled');
+    if (action === 'accept') {
+      await data.acceptTrade(id);
+      toastMsg = 'Trade accepted.';
+    } else if (action === 'reject') {
+      await data.rejectTrade(id);
+      toastMsg = 'Trade rejected.';
+    } else if (action === 'cancel') {
+      // Cancelling a pending trade (proposer pulls their offer) goes
+      // straight through. Cancelling an accepted trade now requires
+      // the fall-through handshake — handled by 'fall-through' below.
+      await data.cancelTrade(id, 'cancelled');
+      toastMsg = 'Trade cancelled.';
+    } else if (action === 'fall-through') {
+      // Mutual confirmation. The 'pending' status path never reaches
+      // here because pending trades don't show a fall-through button.
+      if (!confirm('Mark this trade as fallen through? Your partner has to confirm before the trade is cancelled.')) return;
+      await data.requestFellThrough(id);
+      toastMsg = 'Fall-through requested. Waiting for partner.';
+    } else if (action === 'withdraw-fall') {
+      await data.withdrawFellThrough(id);
+      toastMsg = 'Fall-through request withdrawn.';
+    } else if (action === 'confirm-fall') {
+      if (!confirm('Confirm that this trade fell through? The trade will be cancelled and reserved items will be freed.')) return;
+      await data.confirmFellThrough(id);
+      toastMsg = 'Trade cancelled.';
+    } else if (action === 'dispute-fall') {
+      if (!confirm('Dispute the fall-through request? The trade stays active and you should follow up with your partner.')) return;
+      await data.disputeFellThrough(id);
+      toastMsg = 'Disputed. The trade is still active.';
+    }
   } catch (err) {
     console.error(err);
     if (err.message === 'item_unavailable') {
       toast('One of those items is no longer available.');
     } else {
-      toast('Couldn’t complete that action.');
+      toast(`Couldn't complete that action: ${err.message || err}`);
     }
     return;
   }
-  toast(action === 'accept' ? 'Trade accepted.' : action === 'reject' ? 'Trade rejected.' : 'Trade cancelled.');
+  if (toastMsg) toast(toastMsg);
   await loadTradeData();
   render();
 }

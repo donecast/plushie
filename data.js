@@ -609,6 +609,11 @@ data.acceptTrade = async function (tradeId) {
 };
 
 data.rejectTrade = async function (tradeId) {
+  // Defensive: a trade reaches 'rejected' from 'pending' (no
+  // reservations yet) in the normal flow, but if something ever
+  // routes a previously-accepted trade through here, drop its
+  // reservations so they don't get stuck.
+  await data._releaseReservations(tradeId).catch(() => {});
   const { error } = await sb
     .from('trades')
     .update({ status: 'rejected', responded_at: new Date().toISOString() })
@@ -617,6 +622,7 @@ data.rejectTrade = async function (tradeId) {
 };
 
 data.markCountered = async function (tradeId) {
+  await data._releaseReservations(tradeId).catch(() => {});
   const { error } = await sb
     .from('trades')
     .update({ status: 'countered', responded_at: new Date().toISOString() })
@@ -624,23 +630,82 @@ data.markCountered = async function (tradeId) {
   if (error) throw error;
 };
 
-// Free reservations from a trade that didn't complete (rejected after accept, etc.)
+// Free reservations from a trade that didn't complete (rejected after
+// accept, fell-through confirmed, etc.). Routes through a SECURITY
+// DEFINER RPC so the decrement bypasses the trade_items.write RLS
+// policy (which only allows the owner) — the canceller is often the
+// other party, and used to silently no-op leaving stuck reservations.
 data._releaseReservations = async function (tradeId) {
-  const { data: lines } = await sb.from('trade_line_items').select('trade_item_id, quantity').eq('trade_id', tradeId);
-  const byItem = new Map();
-  for (const l of (lines || [])) byItem.set(l.trade_item_id, (byItem.get(l.trade_item_id) || 0) + l.quantity);
-  for (const [itemId, qty] of byItem) {
-    const { data: cur } = await sb.from('trade_items').select('quantity, reserved').eq('id', itemId).single();
-    if (!cur) continue;
-    const newReserved = Math.max(0, cur.reserved - qty);
-    await sb.from('trade_items').update({ reserved: newReserved }).eq('id', itemId);
-  }
+  const { error } = await sb.rpc('release_trade_reservations', { target_trade: tradeId });
+  if (error) throw error;
 };
 
 data.cancelTrade = async function (tradeId, status = 'cancelled') {
   await data._releaseReservations(tradeId);
-  const { error } = await sb.from('trades').update({ status }).eq('id', tradeId);
+  const { error } = await sb
+    .from('trades')
+    .update({
+      status,
+      // Clear any in-flight fall-through request — relevant when the
+      // partner confirmed and we're routing through cancelTrade.
+      fell_through_requested_by: null,
+      fell_through_requested_at: null,
+    })
+    .eq('id', tradeId);
   if (error) throw error;
+};
+
+// Two-party fall-through:
+//   * requestFellThrough — caller flags 'I think this fell through'.
+//     Trade stays accepted; partner sees a confirm/dispute banner.
+//   * confirmFellThrough — the OTHER party confirms; we run the full
+//     cancelTrade path (release reservations, status=cancelled).
+//   * disputeFellThrough — the OTHER party disagrees; clear the
+//     request and the trade keeps going.
+//   * withdrawFellThrough — the requester takes it back.
+
+data.requestFellThrough = async function (tradeId) {
+  const { error } = await sb
+    .from('trades')
+    .update({
+      fell_through_requested_by: window.currentUser.id,
+      fell_through_requested_at: new Date().toISOString(),
+    })
+    .eq('id', tradeId);
+  if (error) throw error;
+};
+
+data.withdrawFellThrough = async function (tradeId) {
+  const { error } = await sb
+    .from('trades')
+    .update({
+      fell_through_requested_by: null,
+      fell_through_requested_at: null,
+    })
+    .eq('id', tradeId)
+    .eq('fell_through_requested_by', window.currentUser.id);
+  if (error) throw error;
+};
+
+data.disputeFellThrough = async function (tradeId) {
+  const { error } = await sb
+    .from('trades')
+    .update({
+      fell_through_requested_by: null,
+      fell_through_requested_at: null,
+    })
+    .eq('id', tradeId)
+    // The caller must NOT be the requester — only the partner can
+    // dispute. RLS already restricts to participants; the neq guard
+    // prevents the requester from "disputing" their own request.
+    .neq('fell_through_requested_by', window.currentUser.id);
+  if (error) throw error;
+};
+
+data.confirmFellThrough = async function (tradeId) {
+  // Identical effect to cancelTrade; provided as a separate method
+  // so the UI can be explicit about which path it's taking.
+  await data.cancelTrade(tradeId, 'cancelled');
 };
 
 data.markShipped = async function (tradeId, side) {
