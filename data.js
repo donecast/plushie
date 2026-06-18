@@ -687,6 +687,121 @@ data.withdrawFellThrough = async function (tradeId) {
   if (error) throw error;
 };
 
+// Opening a dispute: caller is the side that disagrees with the
+// fall-through request. We save their statement, mark the trade as
+// disputed, and clear the fell-through request fields (the dispute
+// supersedes them). The other side will get prompted for their own
+// statement next time they open the trade.
+data.openDisputeWithStatement = async function (tradeId, statement) {
+  const uid = window.currentUser.id;
+  // Figure out which side I am so we save into the right column.
+  const { data: t, error: tErr } = await sb
+    .from('trades')
+    .select('proposer_id, recipient_id')
+    .eq('id', tradeId)
+    .single();
+  if (tErr) throw tErr;
+  const sideCol = t.proposer_id === uid ? 'dispute_proposer_statement' : 'dispute_recipient_statement';
+  const sideAtCol = t.proposer_id === uid ? 'dispute_proposer_statement_at' : 'dispute_recipient_statement_at';
+  const update = {
+    dispute_open: true,
+    dispute_opened_by: uid,
+    dispute_opened_at: new Date().toISOString(),
+    fell_through_requested_by: null,
+    fell_through_requested_at: null,
+  };
+  update[sideCol] = statement;
+  update[sideAtCol] = new Date().toISOString();
+  const { error } = await sb
+    .from('trades')
+    .update(update)
+    .eq('id', tradeId);
+  if (error) throw error;
+};
+
+// The non-opening side adds their statement to an already-open dispute.
+data.addDisputeStatement = async function (tradeId, statement) {
+  const uid = window.currentUser.id;
+  const { data: t, error: tErr } = await sb
+    .from('trades')
+    .select('proposer_id, recipient_id')
+    .eq('id', tradeId)
+    .single();
+  if (tErr) throw tErr;
+  const sideCol = t.proposer_id === uid ? 'dispute_proposer_statement' : 'dispute_recipient_statement';
+  const sideAtCol = t.proposer_id === uid ? 'dispute_proposer_statement_at' : 'dispute_recipient_statement_at';
+  const update = {};
+  update[sideCol] = statement;
+  update[sideAtCol] = new Date().toISOString();
+  const { error } = await sb
+    .from('trades')
+    .update(update)
+    .eq('id', tradeId);
+  if (error) throw error;
+};
+
+// Admin queue: every trade in a dispute, regardless of whether both
+// statements are filed yet. Sorted oldest-first so the trickiest get
+// addressed before they age. Returns the full trade row so the queue
+// can render usernames + line items.
+data.adminListDisputes = async function () {
+  const { data: rows, error } = await sb
+    .from('trades')
+    .select(`*,
+      trade_line_items (
+        side, quantity,
+        trade_item:trade_items (id, name, photo_path, catalog_id, owner_id)
+      )
+    `)
+    .eq('dispute_open', true)
+    .order('dispute_opened_at', { ascending: true });
+  if (error) throw error;
+  // Resolve usernames so the UI can show @handles instead of UUIDs.
+  const uids = new Set();
+  for (const r of rows) {
+    if (r.proposer_id) uids.add(r.proposer_id);
+    if (r.recipient_id) uids.add(r.recipient_id);
+  }
+  if (uids.size > 0) {
+    const { data: profs } = await sb.from('profiles').select('id, username').in('id', [...uids]);
+    const map = new Map((profs || []).map((p) => [p.id, p.username]));
+    for (const r of rows) {
+      r.proposer = { username: map.get(r.proposer_id) || '?' };
+      r.recipient = { username: map.get(r.recipient_id) || '?' };
+    }
+  }
+  return rows;
+};
+
+data.adminResolveDispute = async function (tradeId, outcome, notes) {
+  const uid = window.currentUser.id;
+  if (outcome === 'cancelled') {
+    await data._releaseReservations(tradeId);
+  }
+  // 'restored' → trade goes back to accepted, dispute closes.
+  // 'completed' → admin forces the trade complete (rare but possible
+  // if both sides actually received and one is being unreasonable).
+  // 'cancelled' → reservations released above; status flipped here.
+  const update = {
+    dispute_open: false,
+    dispute_outcome: outcome,
+    dispute_admin_notes: notes || null,
+    dispute_resolved_at: new Date().toISOString(),
+    dispute_resolved_by: uid,
+  };
+  if (outcome === 'cancelled') update.status = 'cancelled';
+  if (outcome === 'completed') update.status = 'completed';
+  // 'restored' leaves status as 'accepted' — nothing else to change.
+  const { error } = await sb
+    .from('trades')
+    .update(update)
+    .eq('id', tradeId);
+  if (error) throw error;
+};
+
+// Legacy alias — kept so any cached client builds calling the old
+// name still work. The new flow opens a dispute via the statement
+// modal in the UI; this method is no longer wired from the client.
 data.disputeFellThrough = async function (tradeId) {
   const { error } = await sb
     .from('trades')
@@ -695,9 +810,6 @@ data.disputeFellThrough = async function (tradeId) {
       fell_through_requested_at: null,
     })
     .eq('id', tradeId)
-    // The caller must NOT be the requester — only the partner can
-    // dispute. RLS already restricts to participants; the neq guard
-    // prevents the requester from "disputing" their own request.
     .neq('fell_through_requested_by', window.currentUser.id);
   if (error) throw error;
 };

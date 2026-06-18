@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=56" />
+  <link rel="stylesheet" href="./styles.css?v=57" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -243,6 +243,10 @@
     </section>
 
     <section id="wishlist-view" class="view hidden">
+      <p class="wishlist-hint dim">
+        Your wish list is private — for plushies you want to buy.
+        Hit <strong>↺ Seek in trade</strong> on any card to also broadcast it to other collectors, who'll see it under Trade → My Offerings and may propose a swap.
+      </p>
       <div id="wishlist-grid" class="grid"></div>
       <div id="wishlist-empty" class="empty hidden">
         <div class="ghost">🦇</div>
@@ -512,6 +516,46 @@
         </div>
         <p id="sp-error" class="auth-error hidden"></p>
       </form>
+    </div>
+  </div>
+
+  <!-- Trade dispute: statement modal. Opens when a participant
+       clicks Dispute on a fall-through request, AND when the OTHER
+       side is later asked to file their statement. -->
+  <div id="dispute-statement-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-dispute-stmt></div>
+    <div class="modal-card">
+      <button class="modal-close" data-close-dispute-stmt aria-label="Close">×</button>
+      <h2 id="ds-title">Tell us what happened</h2>
+      <p class="modal-name" id="ds-sub"></p>
+      <p class="dim" style="line-height:1.5;">
+        Write down what happened from your perspective.
+        This is sent to admin (Scott) along with the other party's statement.
+        Be as factual as you can — dates, shipping details, anything in your
+        messages with them.
+      </p>
+      <form id="dispute-statement-form">
+        <label class="field">
+          <span>Your statement</span>
+          <textarea id="ds-statement" rows="6" maxlength="2000" required placeholder="What happened, from your perspective."></textarea>
+        </label>
+        <div class="form-actions">
+          <button type="button" class="btn-ghost" data-close-dispute-stmt>Cancel</button>
+          <button type="submit" class="btn-primary" id="ds-submit">Send to admin</button>
+        </div>
+        <p id="ds-error" class="auth-error hidden"></p>
+      </form>
+    </div>
+  </div>
+
+  <!-- Admin: dispute review modal. Shows both statements + outcome
+       picker; admin clicks Cancelled / Restored / Forced complete. -->
+  <div id="dispute-review-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-dispute-review></div>
+    <div class="modal-card modal-card-wide">
+      <button class="modal-close" data-close-dispute-review aria-label="Close">×</button>
+      <h2 id="dr-title">Review dispute</h2>
+      <div id="dr-body"></div>
     </div>
   </div>
 

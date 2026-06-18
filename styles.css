@@ -1894,6 +1894,52 @@ main {
   font-size: 0.85rem;
 }
 
+/* Dispute statement read-only block in the admin review modal. */
+.dispute-statement-box {
+  background: var(--surface-2);
+  border: 1px solid var(--hairline-3);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 8px 0 16px;
+  font-family: var(--sans);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+/* Hint blurb above the Wish List grid explaining the Seek-in-trade
+   distinction. Reads as light editorial copy, not a banner. */
+.wishlist-hint {
+  font-family: var(--sans);
+  font-style: normal;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  background: var(--blush);
+  border-left: 3px solid var(--rose-edge);
+  border-radius: 8px;
+  color: var(--ink);
+}
+.wishlist-hint strong {
+  color: var(--rose-2);
+  font-weight: 800;
+}
+
+/* Wish List 'Seek in trade' button — was icon-only, now labeled so
+   collectors can see what it does. The base .btn-icon styles set a
+   square; .btn-icon-labeled widens it to fit text. */
+.card-actions-secondary .btn-icon.btn-icon-labeled {
+  flex: 1 1 auto;
+  width: auto;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-family: var(--sans);
+  white-space: nowrap;
+}
+
 /* Offer builder */
 .modal-card-wide { max-width: 600px; }
 .picker-panel {

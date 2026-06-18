@@ -41,7 +41,9 @@ const state = {
   adminUserView: null,        // { user, snapshot } when drilled into a user
   adminPendingCatalog: [],    // pending catalog_items waiting for admin review
   adminPendingPhotos: [],     // pending photo suggestions waiting for admin review
+  adminOpenDisputes: [],      // trades with dispute_open = true (admin review queue)
   suggestPhotoTarget: null,   // { id, kind } for the suggest-photo modal
+  disputeDraft: null,         // { tradeId, mode: 'open' | 'add' } when filing a dispute statement
 };
 
 const PRODUCT_URL_BASE = 'https://plushiedreadfuls.com/products/';
@@ -396,7 +398,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=56', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=57', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
     const shopify = (json.products || []).filter(isPlushieCollectible);
@@ -803,7 +805,7 @@ function renderCard(item, kind) {
       <button class="btn-got" data-action="got" data-id="${item.id}">✓ Got it! — move to collection</button>
       <div class="card-actions-secondary">
         ${item.url && !item.outOfStock ? `<a class="btn-buy" href="${escapeHtml(item.url)}" target="_blank" rel="noopener" title="Buy on plushiedreadfuls.com">Buy ↗</a>` : ''}
-        <button class="btn-icon btn-icon-seek" data-action="seek-trade" data-id="${item.id}" aria-label="Seek in trade" title="Seek in trade">↺</button>
+        <button class="btn-icon btn-icon-seek btn-icon-labeled" data-action="seek-trade" data-id="${item.id}" aria-label="Seek in trade" title="Tell other collectors you'd accept this in a trade">↺ Seek in trade</button>
         <button class="btn-icon btn-icon-danger" data-action="delete" data-id="${item.id}" aria-label="Remove from wish list" title="Remove">🗑</button>
       </div>
     `;
@@ -1706,6 +1708,13 @@ function wireEvents() {
   document.querySelectorAll('[data-close-admin-queue]').forEach((el) =>
     el.addEventListener('click', () => document.getElementById('admin-queue-modal').classList.add('hidden'))
   );
+  document.querySelectorAll('[data-close-dispute-stmt]').forEach((el) =>
+    el.addEventListener('click', () => document.getElementById('dispute-statement-modal').classList.add('hidden'))
+  );
+  document.getElementById('dispute-statement-form').addEventListener('submit', submitDisputeStatementForm);
+  document.querySelectorAll('[data-close-dispute-review]').forEach((el) =>
+    el.addEventListener('click', () => document.getElementById('dispute-review-modal').classList.add('hidden'))
+  );
 
   // Account modal
   document.querySelectorAll('[data-close-account]').forEach((el) =>
@@ -2297,11 +2306,20 @@ function renderAcceptedTradeActions(t, isMine, uid) {
   return parts.join(' ');
 }
 
-// Banner shown above the actions row on accepted trades where one
-// party has requested fall-through. Requester sees a "waiting"
-// version; the other party sees Confirm / Dispute buttons.
+// Banners shown above the actions row on accepted trades. Three
+// possible states, mutually exclusive:
+//   1. fell_through_requested_by is set, no dispute open — partner
+//      sees Confirm / Dispute, requester sees Withdraw.
+//   2. dispute_open true, my side's statement not yet filed — I see
+//      "please write your side" prompt.
+//   3. dispute_open true, both statements filed — both see "admin is
+//      reviewing" placeholder.
 function renderFellThroughBanner(t, uid) {
-  if (t.status !== 'accepted' || !t.fell_through_requested_by) return '';
+  if (t.status !== 'accepted') return '';
+
+  if (t.dispute_open) return renderDisputeBanner(t, uid);
+
+  if (!t.fell_through_requested_by) return '';
   const isRequester = t.fell_through_requested_by === uid;
   if (isRequester) {
     return `<div class="ship-first-banner fell-through-banner dim">
@@ -2316,6 +2334,30 @@ function renderFellThroughBanner(t, uid) {
       <button class="btn-danger" data-action="trade-confirm-fall" data-id="${t.id}">Confirm cancellation</button>
       <button class="btn-ghost" data-action="trade-dispute-fall" data-id="${t.id}">Dispute — trade is still on</button>
     </div>
+  </div>`;
+}
+
+function renderDisputeBanner(t, uid) {
+  const isProposer = t.proposer_id === uid;
+  const myStatement = isProposer ? t.dispute_proposer_statement : t.dispute_recipient_statement;
+  const theirStatement = isProposer ? t.dispute_recipient_statement : t.dispute_proposer_statement;
+  if (!myStatement) {
+    return `<div class="ship-first-banner fell-through-banner">
+      <strong>⚠ This trade is in dispute.</strong>
+      Your trade partner has asked an admin to review what happened. Please share your side — it gets sent to admin alongside theirs.
+      <div class="fell-through-actions">
+        <button class="btn-primary" data-action="trade-dispute-statement" data-id="${t.id}">Write my statement</button>
+      </div>
+    </div>`;
+  }
+  // I've filed; either waiting for them, or both done.
+  if (!theirStatement) {
+    return `<div class="ship-first-banner fell-through-banner dim">
+      🕯 Dispute open — your statement is in. Waiting for the other side to file theirs.
+    </div>`;
+  }
+  return `<div class="ship-first-banner fell-through-banner dim">
+    🕯 Dispute pending admin review. Both sides have filed statements.
   </div>`;
 }
 
@@ -2350,7 +2392,8 @@ async function onTradeClick(e) {
     else if (action === 'trade-cancel')      await respondToTrade(id, 'cancel');
     else if (action === 'trade-fall-through') await respondToTrade(id, 'fall-through');
     else if (action === 'trade-confirm-fall')  await respondToTrade(id, 'confirm-fall');
-    else if (action === 'trade-dispute-fall')  await respondToTrade(id, 'dispute-fall');
+    else if (action === 'trade-dispute-fall')  openDisputeStatementModal(id, 'open');
+    else if (action === 'trade-dispute-statement') openDisputeStatementModal(id, 'add');
     else if (action === 'trade-withdraw-fall') await respondToTrade(id, 'withdraw-fall');
     else if (action === 'trade-shipped')     await tradeShipped(id, btn.dataset.side);
     else if (action === 'trade-received')    await tradeReceived(id, btn.dataset.side);
@@ -2436,10 +2479,6 @@ async function respondToTrade(id, action) {
       if (!confirm('Confirm that this trade fell through? The trade will be cancelled and reserved items will be freed.')) return;
       await data.confirmFellThrough(id);
       toastMsg = 'Trade cancelled.';
-    } else if (action === 'dispute-fall') {
-      if (!confirm('Dispute the fall-through request? The trade stays active and you should follow up with your partner.')) return;
-      await data.disputeFellThrough(id);
-      toastMsg = 'Disputed. The trade is still active.';
     }
   } catch (err) {
     console.error(err);
@@ -3153,6 +3192,16 @@ async function loadAdminUsers() {
   if (!window.currentUser?.isAdmin) return;
   try {
     state.adminUsers = await data.adminListUsers();
+    // Also surface counts on the Tools strip badges. Non-fatal if any
+    // of these fails — the queues still open from their buttons.
+    const [disp, cats, photos] = await Promise.allSettled([
+      data.adminListDisputes(),
+      data.adminListCatalogPending(),
+      data.adminListPhotoSuggestions('pending'),
+    ]);
+    if (disp.status === 'fulfilled') state.adminOpenDisputes = disp.value;
+    if (cats.status === 'fulfilled') state.adminPendingCatalog = cats.value;
+    if (photos.status === 'fulfilled') state.adminPendingPhotos = photos.value;
   } catch (err) {
     console.error('adminListUsers', err);
     toast('Could not load users.');
@@ -3207,6 +3256,14 @@ function renderAdminUserList() {
           <p class="dim">User-submitted catalog items waiting for review.</p>
         </div>
         <button data-admin-action="review-catalog-pending">Review</button>
+      </div>
+
+      <div class="admin-tool">
+        <div>
+          <strong>Trade disputes ${(state.adminOpenDisputes || []).length ? `<span class="badge badge-form">${state.adminOpenDisputes.length} open</span>` : ''}</strong>
+          <p class="dim">Trades where one party requested fall-through and the other disputed. Review both statements and resolve.</p>
+        </div>
+        <button data-admin-action="review-disputes">Review</button>
       </div>
 
       <div class="admin-tool">
@@ -3391,6 +3448,12 @@ async function onAdminClick(e) {
     await openCatalogPendingModal();
   } else if (action === 'review-photo-suggestions') {
     await openPhotoSuggestionsModal();
+  } else if (action === 'review-disputes') {
+    await openDisputesModal();
+  } else if (action === 'open-dispute-detail') {
+    openDisputeDetailModal(btn.dataset.id);
+  } else if (action === 'resolve-dispute') {
+    await adminResolveDispute(btn.dataset.id, btn.dataset.outcome);
   } else if (action === 'approve-catalog-item') {
     await adminApproveCatalogItem(btn.dataset.id);
   } else if (action === 'reject-catalog-item') {
@@ -3471,6 +3534,102 @@ async function adminBackfillPhotos() {
   btn.textContent = 'Start';
 }
 
+// ─── Admin: dispute review ────────────────────────────────────────
+
+async function openDisputesModal() {
+  const body = document.getElementById('aq-body');
+  document.getElementById('aq-title').textContent = 'Open trade disputes';
+  body.innerHTML = '<p class="dim">Loading…</p>';
+  document.getElementById('admin-queue-modal').classList.remove('hidden');
+  try {
+    const rows = await data.adminListDisputes();
+    state.adminOpenDisputes = rows;
+    if (rows.length === 0) {
+      body.innerHTML = '<p class="dim">No open disputes. ✨</p>';
+      return;
+    }
+    body.innerHTML = rows.map(renderDisputeRow).join('');
+  } catch (err) {
+    console.error(err);
+    body.innerHTML = `<p class="dim">Couldn't load: ${escapeHtml(err.message || String(err))}</p>`;
+  }
+}
+
+function renderDisputeRow(t) {
+  const hasProp = !!t.dispute_proposer_statement;
+  const hasRec  = !!t.dispute_recipient_statement;
+  const bothFiled = hasProp && hasRec;
+  return `
+    <article class="catalog-pending-row">
+      <div class="catalog-pending-body">
+        <h3>@${escapeHtml(t.proposer?.username || '?')} ⇄ @${escapeHtml(t.recipient?.username || '?')}</h3>
+        <p class="dim">Opened by ${t.dispute_opened_by === t.proposer_id ? '@' + escapeHtml(t.proposer?.username || '?') : '@' + escapeHtml(t.recipient?.username || '?')}
+          · ${new Date(t.dispute_opened_at).toLocaleString()}</p>
+        <p class="dim">Statements: proposer ${hasProp ? '✓' : '⏳ pending'} · recipient ${hasRec ? '✓' : '⏳ pending'}</p>
+        ${bothFiled
+          ? `<button class="btn-primary" data-admin-action="open-dispute-detail" data-id="${t.id}">Review →</button>`
+          : '<p class="dim">Waiting for both statements before review.</p>'}
+      </div>
+    </article>
+  `;
+}
+
+function openDisputeDetailModal(tradeId) {
+  const t = (state.adminOpenDisputes || []).find((x) => x.id === tradeId);
+  if (!t) return;
+  const body = document.getElementById('dr-body');
+  document.getElementById('dr-title').textContent = `Dispute: @${t.proposer?.username || '?'} ⇄ @${t.recipient?.username || '?'}`;
+  const lines = t.trade_line_items || [];
+  const proposerLines = lines.filter((l) => l.side === 'proposer').map((l) => `${l.quantity}× ${escapeHtml(l.trade_item?.name || '?')}`).join(', ');
+  const recipientLines = lines.filter((l) => l.side === 'recipient').map((l) => `${l.quantity}× ${escapeHtml(l.trade_item?.name || '?')}`).join(', ');
+  body.innerHTML = `
+    <p class="dim">Trade originated ${new Date(t.created_at).toLocaleString()} · accepted ${t.responded_at ? new Date(t.responded_at).toLocaleString() : '?'}</p>
+    <p><strong>Proposer gave:</strong> ${proposerLines || '<em>nothing</em>'}</p>
+    <p><strong>Recipient gave:</strong> ${recipientLines || '<em>nothing</em>'}</p>
+    <p class="dim">Shipped: proposer ${t.proposer_shipped_at ? new Date(t.proposer_shipped_at).toLocaleString() : '—'}
+       · recipient ${t.recipient_shipped_at ? new Date(t.recipient_shipped_at).toLocaleString() : '—'}</p>
+    <p class="dim">Received: proposer ${t.proposer_received_at ? new Date(t.proposer_received_at).toLocaleString() : '—'}
+       · recipient ${t.recipient_received_at ? new Date(t.recipient_received_at).toLocaleString() : '—'}</p>
+
+    <h3 class="trader-head"><span>@${escapeHtml(t.proposer?.username || '?')} says</span></h3>
+    <div class="dispute-statement-box">${t.dispute_proposer_statement ? escapeHtml(t.dispute_proposer_statement).replace(/\n/g, '<br/>') : '<em class="dim">no statement filed</em>'}</div>
+
+    <h3 class="trader-head"><span>@${escapeHtml(t.recipient?.username || '?')} says</span></h3>
+    <div class="dispute-statement-box">${t.dispute_recipient_statement ? escapeHtml(t.dispute_recipient_statement).replace(/\n/g, '<br/>') : '<em class="dim">no statement filed</em>'}</div>
+
+    <h3 class="trader-head"><span>Resolution</span></h3>
+    <label class="field">
+      <span>Admin notes <em class="dim">— optional, visible only to admin</em></span>
+      <textarea id="dr-notes" rows="3" maxlength="2000"></textarea>
+    </label>
+    <div class="form-actions">
+      <button class="btn-ghost" data-admin-action="resolve-dispute" data-id="${t.id}" data-outcome="restored">Restore — trade is still on</button>
+      <button class="btn-primary" data-admin-action="resolve-dispute" data-id="${t.id}" data-outcome="completed">Force complete</button>
+      <button class="btn-danger admin-purge-btn" data-admin-action="resolve-dispute" data-id="${t.id}" data-outcome="cancelled">Cancel trade</button>
+    </div>
+  `;
+  document.getElementById('dispute-review-modal').classList.remove('hidden');
+}
+
+async function adminResolveDispute(tradeId, outcome) {
+  const labels = {
+    cancelled: 'Cancel the trade (release reservations)',
+    restored: 'Restore the trade (it keeps going)',
+    completed: 'Force the trade complete',
+  };
+  if (!confirm(`${labels[outcome]}?`)) return;
+  const notes = (document.getElementById('dr-notes')?.value || '').trim();
+  try {
+    await data.adminResolveDispute(tradeId, outcome, notes);
+    toast('Dispute resolved.');
+    document.getElementById('dispute-review-modal').classList.add('hidden');
+    await openDisputesModal();
+  } catch (err) {
+    console.error(err);
+    toast('Could not resolve: ' + (err.message || err));
+  }
+}
+
 // ─── Catalog item: admin create + queues + suggest-photo flow ────
 
 function openCatalogItemModal() {
@@ -3545,6 +3704,58 @@ async function submitCatalogItemForm(e) {
 // "Do you have this picture?" — opens for catalog cards that have no
 // image. We carry the target's id + kind on the button dataset so the
 // row we insert points to the right place.
+// Dispute statement modal — opened both for the side that initiates
+// the dispute (mode='open') and for the side filing their reply
+// later (mode='add'). The trade row carries everything we need.
+function openDisputeStatementModal(tradeId, mode) {
+  const t = state.trades.find((x) => x.id === tradeId);
+  if (!t) return;
+  state.disputeDraft = { tradeId, mode };
+  const partnerName = t.proposer_id === window.currentUser.id
+    ? (t.recipient?.username || 'partner')
+    : (t.proposer?.username || 'partner');
+  document.getElementById('ds-title').textContent =
+    mode === 'open' ? 'Dispute and tell us what happened' : 'File your dispute statement';
+  document.getElementById('ds-sub').textContent = `Trade with @${partnerName}`;
+  document.getElementById('ds-statement').value = '';
+  document.getElementById('ds-error').classList.add('hidden');
+  document.getElementById('dispute-statement-modal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('ds-statement').focus(), 50);
+}
+
+async function submitDisputeStatementForm(e) {
+  e.preventDefault();
+  const draft = state.disputeDraft;
+  if (!draft) return;
+  const errEl = document.getElementById('ds-error');
+  const submit = document.getElementById('ds-submit');
+  errEl.classList.add('hidden');
+  const text = document.getElementById('ds-statement').value.trim();
+  if (!text) { errEl.textContent = 'Please share your statement.'; errEl.classList.remove('hidden'); return; }
+  submit.disabled = true;
+  submit.textContent = 'Sending…';
+  try {
+    if (draft.mode === 'open') {
+      await data.openDisputeWithStatement(draft.tradeId, text);
+      toast('Dispute opened. Admin notified.');
+    } else {
+      await data.addDisputeStatement(draft.tradeId, text);
+      toast('Statement filed.');
+    }
+    document.getElementById('dispute-statement-modal').classList.add('hidden');
+    state.disputeDraft = null;
+    await loadTradeData();
+    render();
+  } catch (err) {
+    console.error(err);
+    errEl.textContent = err.message || 'Could not send.';
+    errEl.classList.remove('hidden');
+  } finally {
+    submit.disabled = false;
+    submit.textContent = 'Send to admin';
+  }
+}
+
 function openSuggestPhotoModal(targetId, targetKind, targetName) {
   state.suggestPhotoTarget = { id: targetId, kind: targetKind };
   document.getElementById('sp-target-name').textContent = targetName || '';
