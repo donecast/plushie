@@ -882,16 +882,30 @@ main {
   color: var(--ink);
   line-height: 1.25;
 }
-/* Nickname on personal collection rows — Cinzel display for the
-   decorative "interlocking-O" feel the user specifically called out.
-   The smaller catalog/wishlist card names stay Nunito. */
-.card-name.nickname {
+/* Comfortable collection rows always title in Cinzel, whether the user
+   renamed the plushie or not. Without this rule, .card-name (no
+   nickname class) fell through to Nunito while .card-name.nickname
+   used Cinzel — producing visibly mixed rows. */
+.grid-list .card-name {
   font-family: var(--display);
   font-weight: 700;
   font-size: 1.25rem;
   letter-spacing: 0.04em;
   line-height: 1.15;
   color: var(--ink-2);
+}
+/* Renamed plushies stand out in gold so you can scan the list and
+   instantly spot which ones you've named. Gold is the app's "claimed"
+   accent (also used on owned badges and qty steppers) and doesn't
+   compete with the rose product-name subtitle that sits underneath. */
+.grid-list .card-name.nickname,
+.card-name.nickname {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.25rem;
+  letter-spacing: 0.04em;
+  line-height: 1.15;
+  color: var(--gold-1);
 }
 
 .card-meaning {
