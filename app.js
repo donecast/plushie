@@ -378,7 +378,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=52e', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=52f', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -2094,19 +2094,28 @@ async function onTradeClick(e) {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
   const { action, id, uid } = btn.dataset;
-  if (action === 'propose-trade')         await openOfferModal(uid);
-  else if (action === 'quick-trade')      await openOfferModal(uid, null, btn.dataset.itemId);
-  else if (action === 'trade-item-remove') await removeMyTradeItem(id);
-  else if (action === 'trade-item-adjust') await adjustMyTradeItem(id);
-  else if (action === 'trade-accept')      await respondToTrade(id, 'accept');
-  else if (action === 'trade-reject')      await respondToTrade(id, 'reject');
-  else if (action === 'trade-counter')     await openCounterModal(id);
-  else if (action === 'trade-cancel')      await respondToTrade(id, 'cancel');
-  else if (action === 'trade-fall-through') await respondToTrade(id, 'cancel');
-  else if (action === 'trade-shipped')     await tradeShipped(id, btn.dataset.side);
-  else if (action === 'trade-received')    await tradeReceived(id, btn.dataset.side);
-  else if (action === 'trade-address')     await openAddressModal(id);
-  else if (action === 'trade-feedback')    await openFeedbackModal(id);
+  // Wrap the whole dispatch so a thrown error (e.g. an RLS or FK
+  // failure deep in the data layer) surfaces as a toast instead of
+  // silently doing nothing — that was the original "can't remove"
+  // symptom.
+  try {
+    if (action === 'propose-trade')         await openOfferModal(uid);
+    else if (action === 'quick-trade')      await openOfferModal(uid, null, btn.dataset.itemId);
+    else if (action === 'trade-item-remove') await removeMyTradeItem(id);
+    else if (action === 'trade-item-adjust') await adjustMyTradeItem(id);
+    else if (action === 'trade-accept')      await respondToTrade(id, 'accept');
+    else if (action === 'trade-reject')      await respondToTrade(id, 'reject');
+    else if (action === 'trade-counter')     await openCounterModal(id);
+    else if (action === 'trade-cancel')      await respondToTrade(id, 'cancel');
+    else if (action === 'trade-fall-through') await respondToTrade(id, 'cancel');
+    else if (action === 'trade-shipped')     await tradeShipped(id, btn.dataset.side);
+    else if (action === 'trade-received')    await tradeReceived(id, btn.dataset.side);
+    else if (action === 'trade-address')     await openAddressModal(id);
+    else if (action === 'trade-feedback')    await openFeedbackModal(id);
+  } catch (err) {
+    console.error('trade action failed', action, err);
+    toast('Something went wrong: ' + (err.message || 'see console'));
+  }
 }
 // Filter pill clicks inside My Trades use a separate dataset key so
 // they don't fight the generic [data-action] dispatcher.
@@ -2122,9 +2131,18 @@ async function removeMyTradeItem(id) {
   if (!it) return;
   if (it.reserved > 0) { toast('Cannot remove: reserved in an active trade.'); return; }
   if (!confirm('Remove this from your trade list?')) return;
-  await data.deleteTradeItem(id);
-  state.myTradeItems = await data.listMyTradeItems();
-  render();
+  try {
+    // deleteTradeItem hard-deletes when possible, else soft-archives if
+    // the item is referenced by a historical trade. Either way it's gone
+    // from the user's offerings and from Browse afterward.
+    await data.deleteTradeItem(id);
+    state.myTradeItems = await data.listMyTradeItems();
+    render();
+    toast('Removed.');
+  } catch (err) {
+    console.error('removeMyTradeItem', err);
+    toast('Could not remove that item.');
+  }
 }
 
 async function adjustMyTradeItem(id) {
@@ -2133,10 +2151,15 @@ async function adjustMyTradeItem(id) {
   const q = prompt(`New quantity (minimum ${it.reserved} due to active trades):`, String(it.quantity));
   if (q === null) return;
   const n = Math.max(it.reserved, parseInt(q, 10) || 0);
-  if (n === 0) await data.deleteTradeItem(id);
-  else await data.updateTradeItem(id, { quantity: n });
-  state.myTradeItems = await data.listMyTradeItems();
-  render();
+  try {
+    if (n === 0) await data.deleteTradeItem(id);
+    else await data.updateTradeItem(id, { quantity: n });
+    state.myTradeItems = await data.listMyTradeItems();
+    render();
+  } catch (err) {
+    console.error('adjustMyTradeItem', err);
+    toast('Could not update that item.');
+  }
 }
 
 async function respondToTrade(id, action) {

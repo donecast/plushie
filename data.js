@@ -352,6 +352,7 @@ data.listMyTradeItems = async function () {
     .from('trade_items')
     .select('*')
     .eq('owner_id', window.currentUser.id)
+    .eq('archived', false)
     .order('created_at', { ascending: false });
   if (error) throw error;
   const items = rows.map(data._tradeItemFromRow);
@@ -382,8 +383,22 @@ data.updateTradeItem = async function (id, patch) {
 };
 
 data.deleteTradeItem = async function (id) {
+  // Try a hard delete first. If the item is referenced by any
+  // trade_line_items (a current or historical trade), the FK is
+  // ON DELETE RESTRICT and Postgres rejects it with code 23503. In
+  // that case fall back to a soft-delete: mark archived = true so the
+  // item disappears from the owner's offerings and from Browse while
+  // the historical trade record keeps its reference intact.
   const { error } = await sb.from('trade_items').delete().eq('id', id);
-  if (error) throw error;
+  if (!error) return;
+  const isFkViolation = error.code === '23503'
+    || /foreign key|violates|referenced/i.test(error.message || '');
+  if (!isFkViolation) throw error;
+  const { error: archiveErr } = await sb
+    .from('trade_items')
+    .update({ archived: true, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (archiveErr) throw archiveErr;
 };
 
 // ─── Discovery ─────────────────────────────────────────────────────
@@ -393,6 +408,7 @@ data.browseOfferings = async function () {
     .from('trade_items')
     .select('id, owner_id, name, catalog_id, catalog_handle, photo_path, quantity, reserved, notes, created_at, kind')
     .eq('kind', 'offering')
+    .eq('archived', false)
     .neq('owner_id', window.currentUser.id)
     .order('created_at', { ascending: false });
   if (error) throw error;
