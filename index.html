@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#1a0d26" />
+  <meta name="theme-color" content="#f4eff3" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#1a0d26" media="(prefers-color-scheme: dark)" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Plush Crypt" />
@@ -13,14 +14,17 @@
   <link rel="apple-touch-icon" href="./icon-192.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=51" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css?v=52a" />
   <script>
-    // Apply saved theme before paint so the initial render doesn't flash dark.
+    // Apply saved theme before paint so the initial render doesn't flash. The
+    // v2 redesign flips defaults: light parchment is now the baseline, dark
+    // gothic is an opt-in. Older users who explicitly chose 'light' get the
+    // (new) default; explicit 'dark' is preserved.
     (function () {
       try {
         var t = localStorage.getItem('theme');
-        if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+        if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
       } catch (e) { /* localStorage blocked — fall through to default */ }
     })();
   </script>
@@ -43,16 +47,9 @@
                    C 108 26, 106 18, 110 12
                    C 102 6, 92 8, 85 16
                    C 75 14, 65 18, 60 28 Z"
-                fill="url(#batGrad)"/>
-          <path d="M58 26 L60 36 L62 26 Z" fill="#3a1547"/>
-          <circle cx="55" cy="24" r="1.8" fill="#ff5fa8"/>
-          <circle cx="65" cy="24" r="1.8" fill="#ff5fa8"/>
-          <defs>
-            <linearGradient id="batGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#7a3b8f"/>
-              <stop offset="100%" stop-color="#2a0f3d"/>
-            </linearGradient>
-          </defs>
+                fill="var(--bat-fill)"/>
+          <circle cx="55" cy="24" r="1.8" fill="var(--bat-eye)"/>
+          <circle cx="65" cy="24" r="1.8" fill="var(--bat-eye)"/>
         </svg>
         <h1>The Plush Crypt</h1>
       </div>
@@ -572,8 +569,8 @@
           <label class="field">
             <span>Theme</span>
             <select id="acct-theme">
-              <option value="dark">Dark (default)</option>
-              <option value="light">Light</option>
+              <option value="light">Light (default)</option>
+              <option value="dark">Dark</option>
             </select>
           </label>
         </div>

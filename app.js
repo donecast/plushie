@@ -385,7 +385,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=51', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=52a', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const data = await r.json();
     state.catalog = (data.products || []).filter(isPlushieCollectible);
@@ -1510,8 +1510,8 @@ function wireEvents() {
 
   document.getElementById('acct-theme').addEventListener('change', (e) => setTheme(e.target.value));
   document.getElementById('theme-btn').addEventListener('click', () => {
-    const current = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
-    setTheme(current === 'light' ? 'dark' : 'light');
+    const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    setTheme(current === 'dark' ? 'light' : 'dark');
   });
   syncThemeButton();
   document.getElementById('acct-share').addEventListener('click', () => {
@@ -2578,8 +2578,12 @@ async function switchCollection(collectionId) {
 }
 
 // ─── Account modal ───────────────────────────────────────────────────
+// v2 redesign: light parchment is the default; dark gothic is the opt-in
+// theme. We persist localStorage.theme as 'dark' to opt in, or clear it
+// (or save 'light') to use the default. The early-load script in
+// index.html flips on <html data-theme="dark"> before paint.
 function setTheme(t) {
-  if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+  if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
   else document.documentElement.removeAttribute('data-theme');
   try { localStorage.setItem('theme', t); } catch {}
   syncThemeButton();
@@ -2589,9 +2593,9 @@ function setTheme(t) {
 function syncThemeButton() {
   const btn = document.getElementById('theme-btn');
   if (!btn) return;
-  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-  btn.textContent = isLight ? '☀️' : '🌙';
-  btn.title = isLight ? 'Switch to dark' : 'Switch to light';
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  btn.textContent = isDark ? '☀️' : '🌙';
+  btn.title = isDark ? 'Switch to light' : 'Switch to dark';
 }
 
 // Legal modal wiring is delegated on document.body and registered at
@@ -2628,7 +2632,7 @@ async function openAccountModal() {
   document.getElementById('acct-email').value    = window.currentUser?.email ?? '';
   document.getElementById('acct-address').value  = await data.getMyAddress();
   const themeSel = document.getElementById('acct-theme');
-  if (themeSel) themeSel.value = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  if (themeSel) themeSel.value = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
   // Admin tag in the modal header so it's obvious who you're signed in as.
   const heading = document.querySelector('#account-modal h2');
   if (heading) {
