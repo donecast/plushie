@@ -1919,6 +1919,133 @@ main {
   font-size: 0.85rem;
 }
 
+/* ─── Catalog detail modal ─────────────────────── */
+.cd-head {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 22px;
+  align-items: start;
+  margin-bottom: 22px;
+}
+.cd-photo {
+  border-radius: 14px;
+  overflow: hidden;
+  aspect-ratio: 1 / 1;
+  background: linear-gradient(160deg, var(--blush), var(--canvas));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cd-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cd-head-text h2 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.5rem;
+  margin: 6px 0 4px;
+  color: var(--ink-2);
+  letter-spacing: 0.01em;
+}
+.cd-head-text .card-form-label { font-size: 0.95rem; vertical-align: middle; }
+.cd-price {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.35rem;
+  color: var(--ink-2);
+  margin: 0 0 8px;
+}
+.cd-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.cd-actions button, .cd-actions a {
+  flex: 0 0 auto;
+  padding: 9px 16px;
+  border-radius: 10px;
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 0.86rem;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.cd-actions .btn-have {
+  color: var(--rose-1);
+  background: var(--surface);
+  border: 1.5px solid var(--rose-1);
+}
+.cd-actions .btn-have:hover { background: var(--rose-1); color: #fff; }
+.cd-actions .btn-want {
+  color: var(--rose-2);
+  background: var(--surface);
+  border: 1.5px solid var(--rose-edge);
+}
+.cd-actions .btn-want:hover { background: var(--blush); border-color: var(--rose-1); }
+.cd-actions .btn-buy {
+  background: var(--positive-fill);
+  color: var(--positive-text);
+  border: 1.5px solid var(--positive-edge);
+}
+.cd-actions .btn-buy:hover { background: var(--positive-edge); }
+
+.cd-section { margin: 18px 0; }
+.cd-section h3 {
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 0.78rem;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--rose-1);
+  margin: 0 0 8px;
+  padding-bottom: 8px;
+  border-bottom: 1.5px dashed var(--rose-seam);
+}
+.cd-section p {
+  font-family: var(--serif);
+  font-size: 1.04rem;
+  font-style: italic;
+  line-height: 1.55;
+  color: var(--ink);
+  margin: 0 0 12px;
+}
+.cd-section p:last-child { margin-bottom: 0; }
+.cd-list {
+  margin: 0;
+  padding-left: 22px;
+  font-family: var(--sans);
+  font-size: 0.95rem;
+  color: var(--ink);
+  line-height: 1.5;
+}
+.cd-list li { margin-bottom: 4px; }
+
+.cd-symbolism img {
+  max-width: 200px;
+  display: block;
+  margin: 10px auto;
+  border-radius: 12px;
+}
+.cd-symbolism p {
+  font-family: var(--sans);
+  font-style: normal;
+  font-size: 0.95rem;
+  text-align: center;
+  color: var(--muted-1);
+  margin: 4px auto 14px;
+}
+.cd-symbolism strong { color: var(--ink-2); font-weight: 800; }
+
+/* Card title cursor — signals you can click the title to open
+   details. The photo gets cursor:zoom-in already. */
+.card-name-clickable { cursor: pointer; }
+.card-name-clickable:hover { color: var(--rose-2); }
+
+@media (max-width: 640px) {
+  .cd-head { grid-template-columns: 1fr; gap: 14px; }
+  .cd-photo { max-width: 280px; margin: 0 auto; }
+}
+
 /* Dispute statement read-only block in the admin review modal. */
 .dispute-statement-box {
   background: var(--surface-2);

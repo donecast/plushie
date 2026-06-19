@@ -398,7 +398,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=57a', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=58', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
     const shopify = (json.products || []).filter(isPlushieCollectible);
@@ -479,6 +479,7 @@ function normalizeShopifyProduct(p) {
   const available = variants.some((v) => v.available);
   const priceNums = variants.map((v) => parseFloat(v.price)).filter((n) => !isNaN(n));
   const tags = p.tags || [];
+  const parsed = parseBodyHtml(p.body_html);
   return {
     id: String(p.id),
     name: p.title,
@@ -491,7 +492,186 @@ function normalizeShopifyProduct(p) {
     createdAt: p.created_at,
     publishedAt: p.published_at,
     tags,
+    bodyHtml: p.body_html || null,
+    lore: parsed.lore,
+    symbolism: parsed.symbolism,
+    symbolismHtml: parsed.symbolismHtml,
+    accessories: parsed.accessories,
+    isBundle: parsed.isBundle || tags.some((t) => t.toLowerCase().includes('bundle')),
   };
+}
+
+// ─── Lore / Symbolism / Set-Includes parser ──────────────────────
+// Walks Shopify's body_html for a product, strips the boilerplate noise
+// (decorative divider images, charity banners, YouTube embeds, the
+// stock 'IMPORTANT NOTE Regarding the design' paragraph, and the trailing
+// copyright/trademark paragraph), then splits what's left into three
+// sections:
+//   * lore        — everything before the first 'Set Includes' heading
+//   * symbolism   — text under a 'Symbolism:' heading (plus first
+//                   distinct image per group, dupes dropped per Scott's
+//                   option b)
+//   * accessories — items from the 'Set Includes' list, minus the
+//                   single primary plush (which is implied)
+// Returns nulls / empty arrays for sections that don't exist on a given
+// product, which is fine — the UI hides empty sections.
+function parseBodyHtml(html) {
+  const empty = { lore: null, symbolism: null, symbolismHtml: null, accessories: [], isBundle: false };
+  if (!html || typeof html !== 'string') return empty;
+  let doc;
+  try { doc = new DOMParser().parseFromString(html, 'text/html'); }
+  catch { return empty; }
+  const root = doc.body;
+  if (!root) return empty;
+
+  stripBoilerplate(root);
+
+  // Walk nodes once, marking the offsets of section boundaries. We
+  // recognize headings by text content rather than by tag — these
+  // products use bold paragraphs ('<p><b>Set Includes</b></p>') just
+  // as often as <h2>/<h3>.
+  const blocks = [...root.children];
+  let setIncludesIdx = -1;
+  let symbolismIdx = -1;
+  for (let i = 0; i < blocks.length; i++) {
+    const t = (blocks[i].textContent || '').trim();
+    if (setIncludesIdx === -1 && /set\s+includes/i.test(t) && t.length < 80) setIncludesIdx = i;
+    if (symbolismIdx === -1 && /^symbolism\s*:?\s*$/i.test(t)) symbolismIdx = i;
+  }
+
+  // Lore = blocks[0 .. setIncludesIdx) as plain text, joined.
+  const loreEnd = setIncludesIdx === -1 ? blocks.length : setIncludesIdx;
+  const loreParas = [];
+  for (let i = 0; i < loreEnd; i++) {
+    if (symbolismIdx !== -1 && i >= symbolismIdx) break;
+    const txt = textOf(blocks[i]);
+    if (txt) loreParas.push(txt);
+  }
+  const lore = loreParas.length ? loreParas.join('\n\n') : null;
+
+  // Symbolism = blocks[symbolismIdx+1 .. next-divider-or-end).
+  let symbolism = null;
+  let symbolismHtml = null;
+  if (symbolismIdx !== -1) {
+    const symEnd = blocks.length;
+    const symBlocks = [];
+    const seenImgSrcs = new Set();
+    for (let i = symbolismIdx + 1; i < symEnd; i++) {
+      const b = blocks[i];
+      const t = (b.textContent || '').trim();
+      // Stop at the IMPORTANT NOTE we already stripped — but if some
+      // variant slipped through, stop again here.
+      if (/^important\s+note/i.test(t)) break;
+      // Dedupe identical images (the DPDR Rabbit triple-heart case).
+      const img = b.querySelector ? b.querySelector('img') : null;
+      if (img && img.src) {
+        if (seenImgSrcs.has(img.src)) { img.remove(); }
+        else { seenImgSrcs.add(img.src); }
+      }
+      if (b.textContent && b.textContent.trim()) {
+        symBlocks.push(b.outerHTML);
+      }
+    }
+    if (symBlocks.length) {
+      symbolismHtml = symBlocks.join('');
+      symbolism = stripTagsKeepNewlines(symbolismHtml);
+    }
+  }
+
+  // Accessories = bullet list items under 'Set Includes', minus
+  // anything that looks like the primary plush ('1x …Rabbit', '1x …Puppet')
+  // and minus the tote/draw-string bag (which goes in its own field
+  // when we add accessories Phase C).
+  const accessories = setIncludesIdx === -1 ? [] : extractSetIncludes(blocks, setIncludesIdx, symbolismIdx);
+  const isBundle = accessories.length > 1 && accessories.filter((a) => /plush|rabbit|bunny|dinosaur|cat|dog/i.test(a.name)).length >= 2;
+
+  return { lore, symbolism, symbolismHtml, accessories, isBundle };
+}
+
+function stripBoilerplate(root) {
+  // Drop YouTube embeds (iframes + anchor wrappers).
+  for (const el of [...root.querySelectorAll('iframe, lite-youtube, [data-youtube]')]) el.remove();
+  for (const a of [...root.querySelectorAll('a[href*="youtube.com"], a[href*="youtu.be"]')]) {
+    // Drop the entire paragraph if the only meaningful content is the link.
+    const p = a.closest('p,div');
+    if (p && p.textContent.trim().length < 80) p.remove();
+    else a.remove();
+  }
+  // Drop the standard 'IMPORTANT NOTE Regarding the design' paragraph
+  // and any paragraph whose text starts with it. This is the same
+  // boilerplate template across every mental-health rabbit product.
+  for (const el of [...root.querySelectorAll('p, div')]) {
+    const t = (el.textContent || '').trim();
+    if (/^important\s+note\b.*regarding the design/i.test(t)) el.remove();
+  }
+  // Drop the copyright/trademark trailer and 'Beware of imitations'.
+  for (const el of [...root.querySelectorAll('p, div')]) {
+    const t = (el.textContent || '').trim();
+    if (/is copyright of mysterious llc/i.test(t)) el.remove();
+    else if (/^beware of imitations/i.test(t)) el.remove();
+    else if (/plushie dreadfuls is a trademark/i.test(t)) el.remove();
+  }
+  // Drop decorative divider images (and any paragraph whose only
+  // content is one of them). Heuristic: an <img> in a paragraph where
+  // the paragraph carries no text. Charity banner detection: image
+  // URLs/alts mentioning 'pride', 'donat', 'twloha', 'covenant', etc.
+  for (const img of [...root.querySelectorAll('img')]) {
+    const src = (img.getAttribute('src') || '').toLowerCase();
+    const alt = (img.getAttribute('alt') || '').toLowerCase();
+    const wrap = img.closest('p, div');
+    const isCharityHint = /pride|donat|covenant|twloha|charity/i.test(src + ' ' + alt);
+    const isLikelyDivider = wrap && wrap.textContent.trim().length < 4;
+    if (isCharityHint || isLikelyDivider) {
+      if (wrap) wrap.remove();
+      else img.remove();
+    }
+  }
+  // Drop wholly-empty paragraphs left over after the strips above.
+  for (const el of [...root.querySelectorAll('p, div')]) {
+    if (!el.textContent.trim() && !el.querySelector('img')) el.remove();
+  }
+}
+
+function extractSetIncludes(blocks, startIdx, endIdx) {
+  const items = [];
+  const stop = endIdx === -1 ? blocks.length : endIdx;
+  for (let i = startIdx + 1; i < stop; i++) {
+    const b = blocks[i];
+    if (!b) break;
+    // Stop at the next obvious section heading.
+    const t = (b.textContent || '').trim();
+    if (/^(symbolism|important note|fun fact)/i.test(t)) break;
+    // Pick up <li> elements OR paragraphs whose text starts with NNx /
+    // 1× / 1x / "Includes".
+    const lis = b.querySelectorAll('li');
+    if (lis.length) {
+      for (const li of lis) {
+        const name = (li.textContent || '').trim().replace(/^[•·]\s*/, '');
+        if (name) items.push({ name });
+      }
+    } else if (/^\d+\s*[x×]\s+/i.test(t)) {
+      items.push({ name: t });
+    }
+  }
+  // Strip the primary plush (first 'NNx …Rabbit/Bunny/Puppet/Plush') so
+  // accessories are *just* the extras. Same logic the Phase C accessory
+  // checkbox system will use.
+  let primaryDropped = false;
+  return items.filter((it) => {
+    if (!primaryDropped && /\b(rabbit|bunny|puppet|plush|dinosaur)\b/i.test(it.name) && !/bag|tote|backpack|patch|sticker|standee/i.test(it.name)) {
+      primaryDropped = true;
+      return false;
+    }
+    return true;
+  });
+}
+
+function textOf(node) {
+  // Plain-text dump that preserves paragraph breaks.
+  return (node.textContent || '').trim().replace(/\s+/g, ' ');
+}
+function stripTagsKeepNewlines(html) {
+  return html.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n').replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 async function refreshCatalogLive() {
@@ -729,12 +909,12 @@ function renderCatalogCard(rawItem, owned, wished) {
 
   return `
     <article class="card" data-cid="${item.id}" title="${escapeHtml(display)}">
-      <div class="card-photo">
+      <div class="card-photo" data-action="cat-detail" data-cid="${item.id}" role="button" aria-label="View details">
         ${photoHtml}
         ${badges.length ? `<div class="badge-stack">${badges.join('')}</div>` : ''}
       </div>
       <div class="card-body">
-        <h3 class="card-name">${escapeHtml(display)}${item.isCustom && item.formLabel ? ` <span class="card-form-label">${escapeHtml(item.formLabel)}</span>` : ''}</h3>
+        <h3 class="card-name card-name-clickable" data-action="cat-detail" data-cid="${item.id}">${escapeHtml(display)}${item.isCustom && item.formLabel ? ` <span class="card-form-label">${escapeHtml(item.formLabel)}</span>` : ''}</h3>
         ${renderCatalogMeta(item)}
         ${suggestBtn}
       </div>
@@ -1141,6 +1321,8 @@ async function onCardClickInner(btn) {
     await addFromCatalog(cid, 'collection');
   } else if (action === 'cat-want') {
     await addFromCatalog(cid, 'wishlist');
+  } else if (action === 'cat-detail') {
+    openCatalogDetailModal(cid);
   } else if (action === 'cat-suggest-photo') {
     const targetKind = btn.dataset.targetKind || 'shopify';
     const target = state.catalog.find((c) => c.id === cid);
@@ -1703,6 +1885,9 @@ function wireEvents() {
   // Catalog item create + suggest photo + admin queue modals.
   document.querySelectorAll('[data-close-catalog-item]').forEach((el) =>
     el.addEventListener('click', () => document.getElementById('catalog-item-modal').classList.add('hidden'))
+  );
+  document.querySelectorAll('[data-close-catalog-detail]').forEach((el) =>
+    el.addEventListener('click', () => document.getElementById('catalog-detail-modal').classList.add('hidden'))
   );
   document.getElementById('catalog-item-form').addEventListener('submit', submitCatalogItemForm);
   document.querySelectorAll('[data-close-suggest-photo]').forEach((el) =>
@@ -3758,6 +3943,90 @@ async function submitDisputeStatementForm(e) {
     submit.disabled = false;
     submit.textContent = 'Send to admin';
   }
+}
+
+// Catalog detail — opens when the user taps a card's photo or title.
+// Shows parsed lore, symbolism, accessories, and the standard Have /
+// Want / Buy / Suggest-a-photo actions. Variants get their data via
+// resolveCatalogItem so the body reads as if the variant had its own
+// lore even though it inherits from the parent.
+function openCatalogDetailModal(cid) {
+  const raw = state.catalog.find((c) => c.id === cid);
+  if (!raw) return;
+  const item = resolveCatalogItem(raw);
+  const display = cleanCatalogName(item.name);
+  const formLabel = item.isCustom && item.formLabel ? item.formLabel : '';
+  const thumb = item.isCustom ? item.image : (shopifyImageVariant(item.image, 800) || item.image);
+  const { owned, wished } = catalogIdMap();
+  const isOwned = owned.has(item.id);
+  const isWished = wished.has(item.id);
+  const status = itemStatus(item);
+  const productHandleForBuy = item.isCustom ? item.parentShopifyHandle : item.handle;
+  const productUrl = productHandleForBuy ? (PRODUCT_URL_BASE + productHandleForBuy) : null;
+
+  const accessoriesHtml = (item.accessories && item.accessories.length)
+    ? `<section class="cd-section">
+         <h3>Set includes</h3>
+         <ul class="cd-list">${item.accessories.map((a) => `<li>${escapeHtml(a.name)}</li>`).join('')}</ul>
+       </section>` : '';
+  const loreHtml = item.lore
+    ? `<section class="cd-section"><h3>Lore</h3>${item.lore.split(/\n{2,}/).map((p) => `<p>${escapeHtml(p)}</p>`).join('')}</section>`
+    : '';
+  // Symbolism: we keep some HTML from the parsed block (one image per
+  // distinct src already deduped). Sanitized lightly — strip <script>
+  // and inline event handlers — then injected as innerHTML. Source is
+  // plushiedreadfuls.com so this is low-risk, but defensive anyway.
+  const symHtml = item.symbolismHtml
+    ? `<section class="cd-section"><h3>Symbolism</h3><div class="cd-symbolism">${sanitizeBodyHtml(item.symbolismHtml)}</div></section>`
+    : (item.symbolism ? `<section class="cd-section"><h3>Symbolism</h3><p>${escapeHtml(item.symbolism).replace(/\n/g, '<br/>')}</p></section>` : '');
+  const isEmpty = !accessoriesHtml && !loreHtml && !symHtml;
+
+  document.getElementById('cd-body').innerHTML = `
+    <div class="cd-head">
+      <div class="cd-photo">${thumb ? `<img src="${escapeHtml(thumb)}" alt="${escapeHtml(display)}" />` : `<span class="no-photo">🖤</span>`}</div>
+      <div class="cd-head-text">
+        <div class="card-eyebrow">${escapeHtml(item.type || 'plush')}</div>
+        <h2>${escapeHtml(display)}${formLabel ? ` <span class="card-form-label">${escapeHtml(formLabel)}</span>` : ''}</h2>
+        ${item.price != null ? `<p class="cd-price">$${Number(item.price).toFixed(2)}</p>` : ''}
+        <p class="dim">
+          ${isOwned ? '<span class="card-status owned">✓ Owned</span> ' : ''}
+          ${isWished ? '<span class="card-status wished">★ Wished</span> ' : ''}
+          ${status === 'sold_out' ? '<span class="badge badge-oos">Sold Out</span> ' : ''}
+          ${status === 'retired' ? '<span class="badge badge-retired">Retired</span> ' : ''}
+        </p>
+        <div class="cd-actions">
+          ${status !== 'coming_soon' && status !== 'fyc' ? `<button class="btn-have" data-action="cat-have" data-cid="${item.id}">🖤 Have</button>` : ''}
+          ${!isWished ? `<button class="btn-want" data-action="cat-want" data-cid="${item.id}">🕯 Want</button>` : ''}
+          ${productUrl ? `<a class="btn-buy" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener">Buy ↗</a>` : ''}
+        </div>
+      </div>
+    </div>
+    ${isEmpty ? '<p class="dim">No lore or symbolism on this one — the catalog feed didn\'t carry a description, or it was all boilerplate.</p>' : ''}
+    ${loreHtml}
+    ${symHtml}
+    ${accessoriesHtml}
+  `;
+  document.getElementById('catalog-detail-modal').classList.remove('hidden');
+}
+
+// Strip <script>, <iframe>, and inline event handlers from parsed
+// body_html before innerHTML-ing it in the detail modal. The source is
+// plushiedreadfuls.com (we control the upstream domain in the live
+// fetch), so this is a defensive wrap rather than a hard guarantee.
+function sanitizeBodyHtml(html) {
+  try {
+    const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html');
+    const root = doc.body.firstChild;
+    if (!root) return '';
+    for (const el of [...root.querySelectorAll('script, iframe, object, embed')]) el.remove();
+    for (const el of [...root.querySelectorAll('*')]) {
+      for (const attr of [...el.attributes]) {
+        if (/^on/i.test(attr.name)) el.removeAttribute(attr.name);
+        if (attr.name === 'href' && /^javascript:/i.test(attr.value)) el.removeAttribute(attr.name);
+      }
+    }
+    return root.innerHTML;
+  } catch { return ''; }
 }
 
 function openSuggestPhotoModal(targetId, targetKind, targetName) {
