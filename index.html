@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=58" />
+  <link rel="stylesheet" href="./styles.css?v=59" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -101,7 +101,7 @@
           <summary><span class="filter-label">Extras</span><span class="filter-summary" data-empty="None">None</span></summary>
           <div class="filter-options">
             <label><input type="checkbox" data-col-toggle="dupes" /> Duplicates only</label>
-            <label><input type="checkbox" data-col-toggle="nobag" /> No bag</label>
+            <label><input type="checkbox" data-col-toggle="nobag" /> Missing accessories</label>
           </div>
         </details>
         <select id="col-sort" class="filter-select" aria-label="Sort collection">
@@ -316,10 +316,16 @@
           </select>
         </label>
 
-        <label class="checkbox" id="field-bag">
-          <input type="checkbox" id="f-bag" />
-          <span>Has bag</span>
-        </label>
+        <!-- Accessories checklist. Populated from the catalog item's
+             parsed Set Includes when the modal opens; one checkbox
+             per expected accessory. Unchecked = the user is missing
+             that piece (oddful, lost it, etc.). Falls back to a
+             single 'Has bag' checkbox when the catalog has no
+             accessory data (custom items without a parsed list). -->
+        <fieldset id="field-accessories" class="accessory-fieldset">
+          <legend>What's included</legend>
+          <div id="accessory-checklist"></div>
+        </fieldset>
 
         <div class="form-actions">
           <button type="button" class="btn-ghost" data-close>Cancel</button>

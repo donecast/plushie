@@ -262,6 +262,7 @@ const data = {
         dateCollected: r.date_collected,
         acquiredHow: r.acquired_how,
         hasBag: r.has_bag,
+        missingAccessories: Array.isArray(r.missing_accessories) ? r.missing_accessories : [],
         retired: r.retired,
         quantity: r.quantity ?? 1,
       };
@@ -284,13 +285,19 @@ const data = {
       updated_at: new Date().toISOString(),
     };
     if (kind === 'collection') {
+      // Keep has_bag in sync with the new missing_accessories array
+      // for older clients that still read it — flip to false whenever
+      // the new array contains any tote/bag entry.
+      const missing = Array.isArray(item.missingAccessories) ? item.missingAccessories : [];
+      const stillHasBag = !missing.some((a) => /\bbag\b/i.test(a));
       return {
         ...base,
         nickname: item.nickname ?? null,
         meaning: item.meaning ?? null,
         date_collected: item.dateCollected ?? null,
         acquired_how: item.acquiredHow ?? null,
-        has_bag: item.hasBag !== false,
+        has_bag: stillHasBag,
+        missing_accessories: missing,
         retired: !!item.retired,
         quantity: Math.max(1, parseInt(item.quantity, 10) || 1),
       };

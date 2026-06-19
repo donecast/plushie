@@ -1548,6 +1548,29 @@ main {
   letter-spacing: 0;
   color: var(--ink);
 }
+/* Accessory checklist in the edit modal. Renders as a tidy bordered
+   group of checkboxes — one per expected accessory parsed from the
+   catalog item's Set Includes. */
+.accessory-fieldset {
+  border: 1px solid var(--hairline-2);
+  border-radius: 12px;
+  padding: 12px 14px 8px;
+  margin: 0 0 14px;
+  background: var(--surface);
+}
+.accessory-fieldset legend {
+  padding: 0 6px;
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 0.74rem;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--muted-1);
+}
+.accessory-fieldset.hidden { display: none; }
+#accessory-checklist { display: flex; flex-direction: column; gap: 4px; }
+.accessory-row { margin-bottom: 0; padding: 4px 0; }
+
 .checkbox input[type="checkbox"] {
   width: 18px;
   height: 18px;

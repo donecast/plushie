@@ -225,7 +225,7 @@ function syncCollectionChips() {
   if (nobag) nobag.checked = state.colNoBag;
   const labels = [];
   if (state.colDupes) labels.push('Duplicates');
-  if (state.colNoBag) labels.push('No bag');
+  if (state.colNoBag) labels.push('Missing accessories');
   setMultiSummary(document.getElementById('col-extras'), labels);
   const sortEl = document.getElementById('col-sort');
   if (sortEl) sortEl.value = state.colSort;
@@ -398,7 +398,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=58', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=59', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
     const shopify = (json.products || []).filter(isPlushieCollectible);
@@ -657,13 +657,33 @@ function extractSetIncludes(blocks, startIdx, endIdx) {
   // accessories are *just* the extras. Same logic the Phase C accessory
   // checkbox system will use.
   let primaryDropped = false;
-  return items.filter((it) => {
+  const filtered = items.filter((it) => {
     if (!primaryDropped && /\b(rabbit|bunny|puppet|plush|dinosaur)\b/i.test(it.name) && !/bag|tote|backpack|patch|sticker|standee/i.test(it.name)) {
       primaryDropped = true;
       return false;
     }
     return true;
   });
+  // Canonicalize: each accessory carries both a display name (clean,
+  // human) and a key (lowercase, used to match between catalog and
+  // collection rows). Without canonicalization the saved
+  // missing_accessories array would drift whenever Plushie Dreadfuls
+  // re-words their Set Includes line.
+  return filtered.map((it) => {
+    const display = canonicalizeAccessoryName(it.name);
+    return { name: display, key: display.toLowerCase() };
+  });
+}
+
+function canonicalizeAccessoryName(raw) {
+  return (raw || '')
+    // Drop the 'Nx ' or 'N× ' quantity prefix.
+    .replace(/^\d+\s*[x×]\s+/i, '')
+    // Drop anything in trailing parentheses (usually 'measures NNcm…').
+    .replace(/\s*\([^)]*\)\s*$/g, '')
+    // Drop a trailing em-dash sub-clause ('— measures 38cm x 33cm').
+    .replace(/\s*[—–-]\s*measures?.*$/i, '')
+    .trim();
 }
 
 function textOf(node) {
@@ -738,7 +758,14 @@ function filteredCollection() {
     if (state.filter === 'retired' && !it.retired) return false;
     if (state.colCategory !== 'all' && itemCategory(it) !== state.colCategory) return false;
     if (state.colDupes && (it.quantity || 1) <= 1) return false;
-    if (state.colNoBag && it.hasBag !== false) return false;
+    if (state.colNoBag) {
+      // The filter now covers any missing accessory, not just the bag.
+      // Items with a missing_accessories array OR legacy has_bag = false
+      // are 'incomplete'.
+      const missing = Array.isArray(it.missingAccessories) ? it.missingAccessories : [];
+      const incomplete = missing.length > 0 || it.hasBag === false;
+      if (!incomplete) return false;
+    }
     return matchesQuery(it, q);
   });
   return sortCollection(arr, state.colSort);
@@ -940,13 +967,23 @@ function renderCard(item, kind) {
   if (kind === 'collection') {
     if (item.dateCollected) meta.push(`<span>${formatDate(item.dateCollected)}</span>`);
     if (item.acquiredHow) meta.push(`<span>${escapeHtml(item.acquiredHow)}</span>`);
-    // 'No bag' only makes sense on full-size Plushies (catalog type
-    // 'plush'). On pens/charms/accessories we never expected one, so
-    // suppress the warning. Custom items (no catalogId) still show it.
-    if (item.hasBag === false) {
+    // Missing-accessories pill. Generalises the old 'No bag' warning:
+    // any unchecked accessory on the user's row surfaces as a small
+    // warning. The most common case (just the tote bag) keeps the
+    // 'No bag' label for familiarity; multiple missing pieces show
+    // a count instead.
+    const missingAcc = Array.isArray(item.missingAccessories) ? item.missingAccessories : [];
+    const legacyNoBag = (missingAcc.length === 0 && item.hasBag === false);
+    if (missingAcc.length > 0 || legacyNoBag) {
       const cat = item.catalogId ? state.catalog.find((c) => c.id === item.catalogId) : null;
       const isPlushie = !cat || (cat.type || '').toLowerCase() === 'plush';
-      if (isPlushie) meta.push(`<span class="meta-warn">No bag</span>`);
+      if (isPlushie) {
+        const effective = missingAcc.length ? missingAcc : ['tote bag'];
+        const label = effective.length === 1 && /\bbag\b/i.test(effective[0])
+          ? 'No bag'
+          : `Missing ${effective.length} accessor${effective.length === 1 ? 'y' : 'ies'}`;
+        meta.push(`<span class="meta-warn" title="${escapeHtml(effective.join(', '))}">${escapeHtml(label)}</span>`);
+      }
     }
   } else {
     if (item.url) {
@@ -1196,16 +1233,45 @@ function openModal(kind, item) {
   document.getElementById('f-meaning').value = item.meaning ?? '';
   document.getElementById('f-date').value = item.dateCollected ?? '';
   document.getElementById('f-acquired').value = item.acquiredHow ?? '';
-  document.getElementById('f-bag').checked = item.hasBag !== false;
 
-  // 'Has bag' applies only to full-size Plushies (catalog type 'plush');
-  // pens, charms, accessories, and decor never come with the tote bag,
-  // so the field would be permanently meaningless on those. Hide it
-  // entirely. If we can't resolve the catalog (custom item without a
-  // catalogId) we err on showing it.
-  const cat = item.catalogId ? state.catalog.find((c) => c.id === item.catalogId) : null;
+  // Build the accessories checklist from the catalog item's parsed
+  // Set Includes. One checkbox per expected accessory; unchecked
+  // means the user is missing it (oddful, lost it, etc.). On items
+  // where the catalog hasn't yielded an accessories list — pens,
+  // charms, customs without parsed data — fall back to the simple
+  // bag toggle for backwards compatibility, but only on full-size
+  // Plushies. Other types get no accessory section at all.
+  const cat = item.catalogId ? resolveCatalogItem(state.catalog.find((c) => c.id === item.catalogId)) : null;
   const isPlushie = !cat || (cat.type || '').toLowerCase() === 'plush';
-  document.getElementById('field-bag').classList.toggle('hidden', !isPlushie);
+  const expected = (cat && Array.isArray(cat.accessories)) ? cat.accessories : [];
+  const missing = Array.isArray(item.missingAccessories) ? item.missingAccessories : [];
+
+  const checklist = document.getElementById('accessory-checklist');
+  const fieldset = document.getElementById('field-accessories');
+  if (expected.length > 0) {
+    checklist.innerHTML = expected.map((acc, i) => {
+      const name = typeof acc === 'string' ? acc : acc.name;
+      const key = typeof acc === 'string' ? acc.toLowerCase() : (acc.key || name.toLowerCase());
+      const isMissing = missing.includes(key);
+      return `<label class="checkbox accessory-row">
+        <input type="checkbox" data-accessory-key="${escapeHtml(key)}" ${isMissing ? '' : 'checked'} />
+        <span>${escapeHtml(name)}</span>
+      </label>`;
+    }).join('');
+    fieldset.classList.remove('hidden');
+  } else if (isPlushie) {
+    // Fallback for plushies with no parsed accessories: a single
+    // "Tote bag" checkbox so the existing has_bag behavior survives.
+    const hasBag = !missing.some((a) => /\bbag\b/i.test(a));
+    checklist.innerHTML = `<label class="checkbox accessory-row">
+      <input type="checkbox" data-accessory-key="tote bag" ${hasBag ? 'checked' : ''} />
+      <span>Tote bag</span>
+    </label>`;
+    fieldset.classList.remove('hidden');
+  } else {
+    fieldset.classList.add('hidden');
+    checklist.innerHTML = '';
+  }
 
   document.getElementById('modal').dataset.kind = 'collection';
   document.getElementById('modal').classList.remove('hidden');
@@ -1223,13 +1289,21 @@ async function submitForm(e) {
   const existing = state.collection.find((x) => x.id === state.editingId);
   if (!existing) { closeModal(); return; }
 
+  // Collect unchecked accessories. Each input's data-accessory-key is
+  // the canonical lowercase identifier (matches what catalog parser
+  // emits). data._itemToRow syncs has_bag for legacy clients.
+  const missingAccessories = [...document.querySelectorAll('#accessory-checklist input[data-accessory-key]')]
+    .filter((cb) => !cb.checked)
+    .map((cb) => cb.dataset.accessoryKey);
+
   const record = {
     ...existing,
     nickname: document.getElementById('f-nickname').value.trim() || null,
     meaning: document.getElementById('f-meaning').value.trim() || null,
     dateCollected: document.getElementById('f-date').value || null,
     acquiredHow: document.getElementById('f-acquired').value || null,
-    hasBag: document.getElementById('f-bag').checked,
+    missingAccessories,
+    hasBag: !missingAccessories.some((a) => /\bbag\b/i.test(a)),
     updatedAt: Date.now(),
   };
   const kind = 'collection';
@@ -1297,6 +1371,7 @@ async function onCardClickInner(btn) {
       dateCollected: new Date().toISOString().slice(0, 10),
       acquiredHow: null,
       hasBag: true,
+      missingAccessories: [],
       retired: !!item.retired,
       addedAt: Date.now(),
       updatedAt: Date.now(),
@@ -1455,6 +1530,7 @@ async function addFromCatalog(catalogId, kind) {
       dateCollected: new Date().toISOString().slice(0, 10),
       acquiredHow: null,
       hasBag: true,
+      missingAccessories: [],
       retired: !!cat.retired,
       quantity: 1,
     };
