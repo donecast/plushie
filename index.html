@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=59" />
+  <link rel="stylesheet" href="./styles.css?v=60" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -143,6 +143,7 @@
           <option value="plush">Plushies</option>
           <option value="mini">Minis</option>
           <option value="accessory">Accessories</option>
+          <option value="bundle">Bundles</option>
           <option value="other">Other</option>
         </select>
         <details class="filter-multi" id="cat-status-multi">
@@ -521,6 +522,29 @@
           <button type="submit" class="btn-primary" id="sp-submit">Send</button>
         </div>
         <p id="sp-error" class="auth-error hidden"></p>
+      </form>
+    </div>
+  </div>
+
+  <!-- Bundle picker: opens when the user clicks Have on a catalog
+       item flagged as a bundle. Lists each component item parsed
+       from the bundle's Set Includes, with a checkbox per item.
+       Each ticked component is added to the collection independently;
+       the bundle itself is never recorded as a collection row. -->
+  <div id="bundle-picker-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-bundle-picker></div>
+    <div class="modal-card">
+      <button class="modal-close" data-close-bundle-picker aria-label="Close">×</button>
+      <h2>Which of these do you own?</h2>
+      <p class="modal-name" id="bp-title"></p>
+      <p class="dim" style="line-height:1.5;">Bundles aren't tracked as a single item — pick the pieces you actually own and we'll add each to your collection.</p>
+      <form id="bundle-picker-form">
+        <div id="bp-list"></div>
+        <div class="form-actions">
+          <button type="button" class="btn-ghost" data-close-bundle-picker>Cancel</button>
+          <button type="submit" class="btn-primary" id="bp-submit">Add selected</button>
+        </div>
+        <p id="bp-error" class="auth-error hidden"></p>
       </form>
     </div>
   </div>

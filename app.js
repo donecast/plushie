@@ -44,6 +44,7 @@ const state = {
   adminOpenDisputes: [],      // trades with dispute_open = true (admin review queue)
   suggestPhotoTarget: null,   // { id, kind } for the suggest-photo modal
   disputeDraft: null,         // { tradeId, mode: 'open' | 'add' } when filing a dispute statement
+  bundlePicker: null,         // { bundleId, matches } when the bundle component picker is open
 };
 
 const PRODUCT_URL_BASE = 'https://plushiedreadfuls.com/products/';
@@ -310,6 +311,11 @@ function catalogCategory(item) {
   const t = (item.type || '').toLowerCase();
   if (NON_PLUSHIE_NAME.test(item.name || '')) return 'other';     // standees, etc. tagged as 'plush'
   if (OTHER_CATEGORY_TYPES.has(t)) return 'other';                // store merch
+  // Bundles are their own category — they aren't physically a single
+  // plushie, they're a multi-item pack. Clicking Have on one opens
+  // the component picker rather than dropping a 'bundle' row in
+  // the user's collection.
+  if (item.isBundle) return 'bundle';
   if (isMiniPlushie(item)) return 'mini';
   if (t === 'plush' || t === 'toy' || t === 'stuffed toy') return 'plush';
   if (t === 'accessory' || t === 'plush accessory' || t === 'hair clip'
@@ -398,7 +404,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=59', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=60', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
     const shopify = (json.products || []).filter(isPlushieCollectible);
@@ -821,7 +827,7 @@ function catalogIdMap() {
   return { owned, wished };
 }
 
-const CATALOG_CATEGORIES = new Set(['all', 'plush', 'mini', 'accessory', 'other']);
+const CATALOG_CATEGORIES = new Set(['all', 'plush', 'mini', 'accessory', 'bundle', 'other']);
 
 function filteredCatalog() {
   const q = state.query.trim().toLowerCase();
@@ -908,6 +914,9 @@ function renderCatalogCard(rawItem, owned, wished) {
   else if (status === 'fyc') badges.push(`<span class="badge badge-fyc" title="For Your Consideration — under consideration, doesn't exist yet">FYC</span>`);
   else if (status === 'sold_out') badges.push(`<span class="badge badge-oos">Sold Out</span>`);
   if (isMiniPlushie(item)) badges.push(`<span class="badge badge-mini">Mini</span>`);
+  if (item.isBundle) {
+    badges.push(`<span class="badge badge-bundle" title="Bundle — multiple items. Click Have to pick which ones you own.">Bundle</span>`);
+  }
   if (item.isCustom && item.formLabel) {
     badges.push(`<span class="badge badge-form" title="Form variant">${escapeHtml(item.formLabel)}</span>`);
   }
@@ -1393,7 +1402,12 @@ async function onCardClickInner(btn) {
       toast('Could not move to collection.');
     }
   } else if (action === 'cat-have') {
-    await addFromCatalog(cid, 'collection');
+    // Bundles open a 'which of these do you own?' picker instead of
+    // dropping a single bundle row into the collection.
+    const raw = state.catalog.find((c) => c.id === cid);
+    const it = raw ? resolveCatalogItem(raw) : null;
+    if (it && it.isBundle) openBundlePickerModal(cid);
+    else await addFromCatalog(cid, 'collection');
   } else if (action === 'cat-want') {
     await addFromCatalog(cid, 'wishlist');
   } else if (action === 'cat-detail') {
@@ -1965,6 +1979,10 @@ function wireEvents() {
   document.querySelectorAll('[data-close-catalog-detail]').forEach((el) =>
     el.addEventListener('click', () => document.getElementById('catalog-detail-modal').classList.add('hidden'))
   );
+  document.querySelectorAll('[data-close-bundle-picker]').forEach((el) =>
+    el.addEventListener('click', () => document.getElementById('bundle-picker-modal').classList.add('hidden'))
+  );
+  document.getElementById('bundle-picker-form').addEventListener('submit', submitBundlePickerForm);
   document.getElementById('catalog-item-form').addEventListener('submit', submitCatalogItemForm);
   document.querySelectorAll('[data-close-suggest-photo]').forEach((el) =>
     el.addEventListener('click', () => document.getElementById('suggest-photo-modal').classList.add('hidden'))
@@ -4019,6 +4037,135 @@ async function submitDisputeStatementForm(e) {
     submit.disabled = false;
     submit.textContent = 'Send to admin';
   }
+}
+
+// ─── Bundle picker ────────────────────────────────────────────────
+// Maps each accessory string parsed from a bundle's Set Includes back
+// to a concrete catalog item (Shopify or custom). Returns rows shaped
+// { key, label, match }, where match is the catalog item or null if
+// nothing in state.catalog looked close enough. Used by the bundle
+// picker modal so the user can see what they're checking off.
+function matchBundleComponents(bundleCat) {
+  const accessories = Array.isArray(bundleCat.accessories) ? bundleCat.accessories : [];
+  const lookup = state.catalog.filter((c) => !c.isBundle);
+  return accessories.map((acc) => {
+    const label = typeof acc === 'string' ? acc : acc.name;
+    const key = typeof acc === 'string' ? acc.toLowerCase() : (acc.key || label.toLowerCase());
+    const match = findCatalogByName(label, lookup);
+    return { key, label, match };
+  });
+}
+
+function findCatalogByName(query, catalogList) {
+  if (!query) return null;
+  // Normalize the accessory string and each candidate catalog name —
+  // drop the leading 'Plushie Dreadfuls - ' prefix Shopify uses,
+  // trailing parens/sub-clauses, plural / singular noise.
+  const norm = (s) => (s || '')
+    .toLowerCase()
+    .replace(/^plushie dreadfuls\s*-\s*/i, '')
+    .replace(/\s*\([^)]*\)\s*$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const q = norm(query);
+  if (!q) return null;
+  // Best match: catalog name CONTAINS the accessory string, or vice
+  // versa. Among ties, the shortest candidate wins (least extra
+  // noise).
+  const candidates = [];
+  for (const c of catalogList) {
+    const n = norm(c.name);
+    if (!n) continue;
+    if (n.includes(q) || q.includes(n)) candidates.push({ c, n });
+  }
+  candidates.sort((a, b) => a.n.length - b.n.length);
+  return candidates[0]?.c || null;
+}
+
+function openBundlePickerModal(cid) {
+  const raw = state.catalog.find((c) => c.id === cid);
+  if (!raw) return;
+  const bundle = resolveCatalogItem(raw);
+  const matches = matchBundleComponents(bundle);
+  state.bundlePicker = { bundleId: cid, matches };
+
+  document.getElementById('bp-title').textContent = cleanCatalogName(bundle.name);
+  document.getElementById('bp-error').classList.add('hidden');
+  document.getElementById('bp-list').innerHTML = matches.length === 0
+    ? `<p class="dim">We couldn't parse a component list for this bundle. The catalog feed doesn't include one yet.</p>`
+    : matches.map((m, i) => renderBundlePickerRow(m, i)).join('');
+  // The submit button enables only when at least one box is ticked.
+  document.getElementById('bp-submit').disabled = true;
+  document.getElementById('bundle-picker-form').addEventListener('change', refreshBundleSubmit, { once: false });
+  refreshBundleSubmit();
+  document.getElementById('bundle-picker-modal').classList.remove('hidden');
+}
+
+function renderBundlePickerRow(m, i) {
+  if (m.match) {
+    const thumb = m.match.isCustom ? m.match.image : (shopifyImageVariant(m.match.image, 200) || m.match.image);
+    const thumbHtml = thumb
+      ? `<img src="${escapeHtml(thumb)}" alt="" />`
+      : `<span class="no-photo">🖤</span>`;
+    return `
+      <label class="bundle-row">
+        <input type="checkbox" data-bp-i="${i}" checked />
+        <div class="bundle-row-photo">${thumbHtml}</div>
+        <div class="bundle-row-body">
+          <strong>${escapeHtml(cleanCatalogName(m.match.name))}</strong>
+          <span class="dim">from "${escapeHtml(m.label)}"</span>
+        </div>
+      </label>
+    `;
+  }
+  return `
+    <label class="bundle-row bundle-row-unmatched">
+      <input type="checkbox" data-bp-i="${i}" disabled />
+      <div class="bundle-row-photo"><span class="no-photo">?</span></div>
+      <div class="bundle-row-body">
+        <strong>${escapeHtml(m.label)}</strong>
+        <span class="dim">Not in the catalog yet — add it via "Suggest" or skip.</span>
+      </div>
+    </label>
+  `;
+}
+
+function refreshBundleSubmit() {
+  const submit = document.getElementById('bp-submit');
+  if (!submit) return;
+  const any = [...document.querySelectorAll('#bp-list input[type="checkbox"]:not([disabled])')]
+    .some((cb) => cb.checked);
+  submit.disabled = !any;
+}
+
+async function submitBundlePickerForm(e) {
+  e.preventDefault();
+  const draft = state.bundlePicker;
+  if (!draft) return;
+  const submit = document.getElementById('bp-submit');
+  submit.disabled = true;
+  submit.textContent = 'Adding…';
+  const picked = [];
+  document.querySelectorAll('#bp-list input[type="checkbox"]').forEach((cb) => {
+    if (cb.checked && !cb.disabled) {
+      const i = parseInt(cb.dataset.bpI, 10);
+      const m = draft.matches[i];
+      if (m && m.match) picked.push(m.match.id);
+    }
+  });
+  let added = 0;
+  let failed = 0;
+  for (const id of picked) {
+    try { await addFromCatalog(id, 'collection'); added++; }
+    catch (err) { console.warn('bundle component add failed', id, err); failed++; }
+  }
+  toast(failed === 0
+    ? `Added ${added} item${added === 1 ? '' : 's'} to your collection.`
+    : `Added ${added}, ${failed} failed.`);
+  document.getElementById('bundle-picker-modal').classList.add('hidden');
+  state.bundlePicker = null;
+  submit.disabled = false;
+  submit.textContent = 'Add selected';
 }
 
 // Catalog detail — opens when the user taps a card's photo or title.

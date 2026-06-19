@@ -2012,6 +2012,65 @@ main {
 }
 .cd-actions .btn-buy:hover { background: var(--positive-edge); }
 
+/* Bundle component picker (modal opened when Have is clicked on a
+   bundle). One row per parsed component, with a thumbnail of the
+   matched catalog item on the left and a checkbox on the right. */
+#bp-list { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.bundle-row {
+  display: grid;
+  grid-template-columns: 24px 56px 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--hairline-3);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.bundle-row:hover { border-color: var(--rose-edge); background: var(--blush); }
+.bundle-row.bundle-row-unmatched { opacity: 0.6; cursor: not-allowed; background: var(--canvas); }
+.bundle-row.bundle-row-unmatched:hover { background: var(--canvas); border-color: var(--hairline-3); }
+.bundle-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--rose-1);
+  cursor: pointer;
+}
+.bundle-row-photo {
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.bundle-row-photo img { width: 100%; height: 100%; object-fit: cover; }
+.bundle-row-photo .no-photo { font-size: 1.4rem; opacity: 0.5; }
+.bundle-row-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bundle-row-body strong {
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 0.92rem;
+  color: var(--ink);
+}
+.bundle-row-body .dim {
+  font-family: var(--sans);
+  font-style: normal;
+  font-size: 0.78rem;
+  color: var(--muted-1);
+}
+
+/* Bundle badge in the catalog card stack. Distinct from the form
+   variant gold pill — bundles are a structural category. */
+.badge-bundle {
+  background: var(--pending-fill);
+  color: var(--pending-text);
+  border: 1px solid var(--pending-edge);
+}
+
 .cd-section { margin: 18px 0; }
 .cd-section h3 {
   font-family: var(--sans);
