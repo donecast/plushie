@@ -398,7 +398,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=57', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=57a', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
     const shopify = (json.products || []).filter(isPlushieCollectible);
@@ -689,6 +689,12 @@ function renderCatalogCard(rawItem, owned, wished) {
   const isWished = wished.has(item.id);
 
   const badges = [];
+  // Owned / Wished render FIRST so when an item is both Owned and
+  // Sold Out (or Retired etc.) the OWNED badge sits at the leading
+  // edge of the stack — per Wifeosaurus's feedback that 'Owned
+  // should come before Sold Out' for consistency.
+  if (isOwned) badges.push(`<span class="card-status owned">✓ Owned</span>`);
+  else if (isWished) badges.push(`<span class="card-status wished">★ Wished</span>`);
   const status = itemStatus(item);
   if (status === 'retired') badges.push(`<span class="badge badge-retired">Retired</span>`);
   else if (status === 'coming_soon') badges.push(`<span class="badge badge-soon">Coming Soon</span>`);
@@ -698,8 +704,6 @@ function renderCatalogCard(rawItem, owned, wished) {
   if (item.isCustom && item.formLabel) {
     badges.push(`<span class="badge badge-form" title="Form variant">${escapeHtml(item.formLabel)}</span>`);
   }
-  if (isOwned) badges.push(`<span class="card-status owned">✓ Owned</span>`);
-  else if (isWished) badges.push(`<span class="card-status wished">★ Wished</span>`);
 
   // Custom items normally have no Shopify URL — but form variants
   // resolve through their parent handle so Buy points at the upstream
@@ -724,7 +728,7 @@ function renderCatalogCard(rawItem, owned, wished) {
     : `${haveBtn} ${wantBtn} ${linkBtn}`;
 
   return `
-    <article class="card" data-cid="${item.id}">
+    <article class="card" data-cid="${item.id}" title="${escapeHtml(display)}">
       <div class="card-photo">
         ${photoHtml}
         ${badges.length ? `<div class="badge-stack">${badges.join('')}</div>` : ''}
