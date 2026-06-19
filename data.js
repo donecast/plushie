@@ -1064,10 +1064,19 @@ data.uploadCatalogSuggestionImage = async function (blob, slug) {
   return path;
 };
 
-// Create a catalog_items row. Admin path: status='approved' on
-// insert. Trusted-submitter path (Phase X, later) does the same;
-// untrusted path leaves status='pending'.
+// Create a catalog_items row. Three paths:
+//   * Admin: status='approved' on insert (RLS allows because is_admin()).
+//   * Trusted submitter (>=1 prior approved row): status='approved' on
+//     insert, review_seen left false so admin still sees it in queue.
+//   * Untrusted submitter: status='pending'.
+// If the caller doesn't pass an explicit status, we resolve it from
+// the trust check. RLS in 0015 enforces this server-side too.
 data.createCatalogItem = async function (record) {
+  let status = record.status;
+  if (!status) {
+    if (window.currentUser?.isAdmin) status = 'approved';
+    else status = (await data.userIsTrustedSubmitter()) ? 'approved' : 'pending';
+  }
   const insert = {
     name: record.name,
     handle: record.handle,
@@ -1081,11 +1090,13 @@ data.createCatalogItem = async function (record) {
     tags: record.tags || [],
     available: record.available !== false,
     retired: !!record.retired,
-    status: record.status || 'pending',
+    status,
     submitted_by: window.currentUser.id,
     notes_to_admin: record.notes_to_admin || null,
-    approved_by: record.status === 'approved' ? window.currentUser.id : null,
-    approved_at: record.status === 'approved' ? new Date().toISOString() : null,
+    // review_seen stays false on submit so trusted-user submissions
+    // still show up in the admin queue for retroactive review.
+    approved_by: status === 'approved' ? window.currentUser.id : null,
+    approved_at: status === 'approved' ? new Date().toISOString() : null,
   };
   const { data: row, error } = await sb
     .from('catalog_items')
@@ -1094,6 +1105,84 @@ data.createCatalogItem = async function (record) {
     .single();
   if (error) throw error;
   return row;
+};
+
+// True when the current user has at least one approved catalog_items
+// submission. Trusted users' future submissions skip the queue (still
+// flagged for retroactive admin review via review_seen = false).
+data.userIsTrustedSubmitter = async function () {
+  const { count, error } = await sb
+    .from('catalog_items')
+    .select('id', { count: 'exact', head: true })
+    .eq('submitted_by', window.currentUser.id)
+    .eq('status', 'approved');
+  if (error) { console.warn('trust check failed', error); return false; }
+  return (count || 0) >= 1;
+};
+
+// Find users by username prefix — used by the admin 'pick from a
+// user's collection' helper in the Add Catalog Item modal.
+data.adminFindUsersByPrefix = async function (prefix, limit = 8) {
+  if (!prefix) return [];
+  const { data: rows, error } = await sb
+    .from('profiles')
+    .select('id, username')
+    .ilike('username', prefix + '%')
+    .limit(limit);
+  if (error) throw error;
+  return rows || [];
+};
+
+// Read a single user's plushies (admin-only via 0005 RLS). Used by
+// the admin photo picker — admin types a username, sees that user's
+// collection thumbnails, clicks one to copy as the catalog item's
+// image.
+data.adminListUserPlushies = async function (userId) {
+  const { data: rows, error } = await sb
+    .from('plushies')
+    .select('id, name, nickname, catalog_id, photo_path, collection_id')
+    .eq('collection_id', sb.from('collections').select('id').eq('owner_id', userId).limit(1))
+    .order('added_at', { ascending: false });
+  if (error) {
+    // Fall back to a two-step lookup if the embedded subquery shape
+    // isn't accepted by PostgREST.
+    const { data: col } = await sb.from('collections').select('id').eq('owner_id', userId).limit(1).single();
+    if (!col) return [];
+    const { data: rows2, error: e2 } = await sb
+      .from('plushies')
+      .select('id, name, nickname, catalog_id, photo_path, collection_id')
+      .eq('collection_id', col.id)
+      .order('added_at', { ascending: false });
+    if (e2) throw e2;
+    return rows2 || [];
+  }
+  return rows || [];
+};
+
+// Copy a photo from the 'photos' bucket (per-collection scoped) into
+// the 'catalog' bucket (admin-only writes). Used by the picker. The
+// admin RLS on photos lets us read; admin RLS on catalog lets us
+// write. Returns the new catalog/* path.
+data.adminCopyPhotoToCatalog = async function (sourcePhotoPath, slugHint) {
+  const { data: signed, error: e1 } = await sb
+    .storage.from('photos')
+    .createSignedUrl(sourcePhotoPath, 300);
+  if (e1) throw e1;
+  const resp = await fetch(signed.signedUrl, { mode: 'cors' });
+  if (!resp.ok) throw new Error(`fetch ${resp.status}`);
+  const blob = await resp.blob();
+  return await data.uploadCatalogImage(blob, slugHint || 'item');
+};
+
+// Merge a duplicate catalog_items submission into a canonical
+// catalog item. winner_id can be a Shopify id (numeric string) or a
+// catalog_items UUID. See migration 0015.
+data.adminMergeCatalogItem = async function (duplicateId, winnerId) {
+  const { error } = await sb.rpc('admin_merge_catalog_item', {
+    duplicate_id: duplicateId,
+    winner_id: winnerId,
+  });
+  if (error) throw error;
 };
 
 data.adminApproveCatalogItem = async function (id) {
@@ -1163,11 +1252,13 @@ data.adminListPhotoSuggestions = async function (status = 'pending') {
   return rows;
 };
 
-// Approve a suggestion: copy the image into the canonical catalog
-// items/ path (so the suggestions/ object can be cleaned later) and
-// set the target's image_path. Returns the new image_path.
-data.adminApprovePhotoSuggestion = async function (suggestionId) {
-  // Pull the suggestion row first to find out what we're approving.
+// Approve a suggestion. If the target is a catalog_items UUID, the
+// image_path is copied onto that row. If the target is a raw Shopify
+// id, we now AUTO-CREATE a catalog_items row first using the Shopify
+// product info the caller passes in (name/handle/type — from
+// state.catalog client-side). Replaces the earlier 'create one first'
+// error path.
+data.adminApprovePhotoSuggestion = async function (suggestionId, shopifyProductIfNeeded) {
   const { data: row, error: e1 } = await sb
     .from('catalog_photo_suggestions')
     .select('*')
@@ -1175,18 +1266,41 @@ data.adminApprovePhotoSuggestion = async function (suggestionId) {
     .single();
   if (e1) throw e1;
 
-  // If the target is a catalog_items UUID, drop the path into its
-  // image_path. If it's a Shopify product, we don't have a row to
-  // write to — admin needs to create a catalog_items row first, or
-  // (later) we extend the schema with a Shopify-id-keyed table.
-  if (!row.target_catalog_item_id) {
-    throw new Error('Approving photo suggestions for raw Shopify products needs a catalog_items row first.');
+  let targetCatalogId = row.target_catalog_item_id;
+
+  if (!targetCatalogId) {
+    if (!shopifyProductIfNeeded || !shopifyProductIfNeeded.name || !shopifyProductIfNeeded.handle) {
+      throw new Error('Shopify-targeted suggestion needs the upstream product info passed in.');
+    }
+    // Don't double-create if a catalog_items row already covers this
+    // Shopify product (matched on handle).
+    const { data: existing } = await sb
+      .from('catalog_items')
+      .select('id, image_path')
+      .eq('handle', shopifyProductIfNeeded.handle)
+      .maybeSingle();
+    if (existing) {
+      targetCatalogId = existing.id;
+    } else {
+      const created = await data.createCatalogItem({
+        name: shopifyProductIfNeeded.name,
+        handle: shopifyProductIfNeeded.handle,
+        type: shopifyProductIfNeeded.type || 'plush',
+        image_path: row.image_path,
+        status: 'approved',
+      });
+      targetCatalogId = created.id;
+    }
   }
+
+  // Always write the image_path through (handles the existing-catalog
+  // case AND the freshly-created case where image_path was set on insert).
   const { error: e2 } = await sb
     .from('catalog_items')
     .update({ image_path: row.image_path })
-    .eq('id', row.target_catalog_item_id);
+    .eq('id', targetCatalogId);
   if (e2) throw e2;
+
   const { error: e3 } = await sb
     .from('catalog_photo_suggestions')
     .update({

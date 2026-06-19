@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=60" />
+  <link rel="stylesheet" href="./styles.css?v=61" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -209,6 +209,7 @@
           <option value="price_desc">Price high→low</option>
         </select>
         <button class="filter-clear" data-clear-tab="catalog">Clear filters</button>
+        <button class="filter-action" id="suggest-plushie-btn" title="Submit a plushie that's not in the catalog (Patreon, retired, off-catalog, or a form variant)">+ Suggest a plushie</button>
       </div>
     </div>
 
@@ -443,8 +444,8 @@
     <div class="modal-backdrop" data-close-catalog-item></div>
     <div class="modal-card modal-card-wide">
       <button class="modal-close" data-close-catalog-item aria-label="Close">×</button>
-      <h2>Create catalog item</h2>
-      <p class="modal-name">Approved immediately; appears in the Catalog tab right after save.</p>
+      <h2 id="ci-title">Suggest a plushie</h2>
+      <p class="modal-name" id="ci-subtitle">Goes to admin (Scott) for review. He may edit the entry before approving.</p>
       <form id="catalog-item-form">
         <label class="field">
           <span>Name</span>
@@ -469,10 +470,27 @@
             <option value="other">Other</option>
           </select>
         </label>
-        <label class="field">
-          <span>Photo <em class="dim">— upload from your device</em></span>
-          <input type="file" id="ci-photo" accept="image/*" />
-        </label>
+
+        <!-- Photo source picker. End users see only the upload field;
+             admins also see a 'Pick from a user's collection' tab that
+             searches for a username and lets them choose one of that
+             user's plushie photos as the source. -->
+        <div class="field">
+          <span>Photo</span>
+          <div id="ci-photo-source-tabs" class="hidden" style="display:none; gap:8px; margin-bottom:8px;">
+            <button type="button" class="ci-source-tab active" data-ci-source="upload">Upload</button>
+            <button type="button" class="ci-source-tab" data-ci-source="pick">Pick from a user's collection</button>
+          </div>
+          <div id="ci-source-upload">
+            <input type="file" id="ci-photo" accept="image/*" />
+          </div>
+          <div id="ci-source-pick" class="hidden">
+            <input type="text" id="ci-pick-user" placeholder="Type a username (e.g., amber)" autocomplete="off" autocapitalize="none" spellcheck="false" />
+            <div id="ci-pick-user-list" class="ci-user-list"></div>
+            <div id="ci-pick-plushie-list" class="ci-plushie-list"></div>
+            <p id="ci-pick-selected" class="dim"></p>
+          </div>
+        </div>
         <p id="ci-photo-preview-wrap" class="dim" style="margin:6px 0 0;"></p>
         <details>
           <summary class="dim" style="cursor:pointer; margin: 12px 0;">Optional fields</summary>
@@ -488,10 +506,14 @@
             <span>Lore / description</span>
             <textarea id="ci-lore" rows="4" maxlength="2000"></textarea>
           </label>
+          <label class="field" id="ci-notes-field">
+            <span>Notes to admin <em class="dim">— optional</em></span>
+            <textarea id="ci-notes" rows="2" maxlength="500" placeholder="Anything Scott should know."></textarea>
+          </label>
         </details>
         <div class="form-actions">
           <button type="button" class="btn-ghost" data-close-catalog-item>Cancel</button>
-          <button type="submit" class="btn-primary" id="ci-submit">Create</button>
+          <button type="submit" class="btn-primary" id="ci-submit">Submit</button>
         </div>
         <p id="ci-error" class="auth-error hidden"></p>
       </form>
@@ -523,6 +545,32 @@
         </div>
         <p id="sp-error" class="auth-error hidden"></p>
       </form>
+    </div>
+  </div>
+
+  <!-- Admin: merge duplicate submission into an existing canonical
+       catalog item. Type a name, pick a candidate, confirm. -->
+  <div id="catalog-merge-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-catalog-merge></div>
+    <div class="modal-card">
+      <button class="modal-close" data-close-catalog-merge aria-label="Close">×</button>
+      <h2>Merge into existing catalog item</h2>
+      <p class="modal-name" id="cm-source"></p>
+      <p class="dim" style="line-height:1.5;">
+        The duplicate submission will be marked rejected with a note pointing to the winner.
+        Every collection / wishlist / trade item that pointed at the duplicate is re-pointed at the winner.
+      </p>
+      <label class="field">
+        <span>Search for the winner</span>
+        <input type="text" id="cm-search" placeholder="Name or handle" autocomplete="off" autocapitalize="none" />
+      </label>
+      <div id="cm-results"></div>
+      <p id="cm-selected" class="dim"></p>
+      <div class="form-actions">
+        <button type="button" class="btn-ghost" data-close-catalog-merge>Cancel</button>
+        <button type="button" class="btn-primary" id="cm-submit" disabled>Merge</button>
+      </div>
+      <p id="cm-error" class="auth-error hidden"></p>
     </div>
   </div>
 

@@ -2012,6 +2012,61 @@ main {
 }
 .cd-actions .btn-buy:hover { background: var(--positive-edge); }
 
+/* Admin photo source tabs in the catalog-item modal. */
+.ci-source-tab {
+  background: var(--surface);
+  border: 1px solid var(--hairline-2);
+  color: var(--muted-1);
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.ci-source-tab.active { background: var(--rose-1); border-color: var(--rose-1); color: #fff; }
+#ci-pick-user { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--hairline-2); font-family: var(--sans); font-size: 0.95rem; }
+.ci-user-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; }
+.ci-user-row {
+  background: var(--surface);
+  border: 1px solid var(--hairline-2);
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.ci-user-row:hover { background: var(--blush); border-color: var(--rose-edge); }
+.ci-plushie-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+  margin: 10px 0 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.ci-plushie-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--hairline-3);
+  border-radius: 10px;
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  text-align: left;
+  color: var(--ink-2);
+}
+.ci-plushie-tile:hover { border-color: var(--rose-1); }
+.ci-plushie-tile img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; display: block; }
+.ci-plushie-tile .no-photo { font-size: 1.8rem; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; }
+
+/* Merge picker results reuse the .bundle-row styles. */
+#cm-results { margin: 8px 0; max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+
 /* Bundle component picker (modal opened when Have is clicked on a
    bundle). One row per parsed component, with a thumbnail of the
    matched catalog item on the left and a checkbox on the right. */

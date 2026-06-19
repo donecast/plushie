@@ -45,6 +45,9 @@ const state = {
   suggestPhotoTarget: null,   // { id, kind } for the suggest-photo modal
   disputeDraft: null,         // { tradeId, mode: 'open' | 'add' } when filing a dispute statement
   bundlePicker: null,         // { bundleId, matches } when the bundle component picker is open
+  catalogItemModalMode: 'admin', // 'admin' | 'user' — drives the Add Catalog Item modal copy + UI
+  catalogItemPicked: null,    // { photoPath } when admin picked an image from a user's collection
+  catalogMerge: null,         // { duplicateId, winnerId } for the admin merge tool
 };
 
 const PRODUCT_URL_BASE = 'https://plushiedreadfuls.com/products/';
@@ -404,7 +407,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=60', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=61', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
     const shopify = (json.products || []).filter(isPlushieCollectible);
@@ -589,9 +592,11 @@ function parseBodyHtml(html) {
   // and minus the tote/draw-string bag (which goes in its own field
   // when we add accessories Phase C).
   const accessories = setIncludesIdx === -1 ? [] : extractSetIncludes(blocks, setIncludesIdx, symbolismIdx);
-  const isBundle = accessories.length > 1 && accessories.filter((a) => /plush|rabbit|bunny|dinosaur|cat|dog/i.test(a.name)).length >= 2;
-
-  return { lore, symbolism, symbolismHtml, accessories, isBundle };
+  // Bundle detection is tag-only now. The earlier heuristic of '2+ plush
+  // items in the Set Includes' false-flagged single products like the
+  // Gemini Rabbit, which legitimately ships with multiple plushie pieces.
+  // The Shopify-side 'bundle' tag is the authoritative signal.
+  return { lore, symbolism, symbolismHtml, accessories, isBundle: false };
 }
 
 function stripBoilerplate(root) {
@@ -1983,7 +1988,32 @@ function wireEvents() {
     el.addEventListener('click', () => document.getElementById('bundle-picker-modal').classList.add('hidden'))
   );
   document.getElementById('bundle-picker-form').addEventListener('submit', submitBundlePickerForm);
+  // Merge tool wiring.
+  document.querySelectorAll('[data-close-catalog-merge]').forEach((el) =>
+    el.addEventListener('click', () => document.getElementById('catalog-merge-modal').classList.add('hidden'))
+  );
+  document.getElementById('cm-search').addEventListener('input', onMergeSearchInput);
+  document.getElementById('cm-results').addEventListener('click', (e) => {
+    const t = e.target.closest('[data-merge-id]');
+    if (t) onMergeSelectWinner(t.dataset.mergeId, t.dataset.mergeName, t.dataset.mergeHandle);
+  });
+  document.getElementById('cm-submit').addEventListener('click', submitCatalogMerge);
   document.getElementById('catalog-item-form').addEventListener('submit', submitCatalogItemForm);
+  // Public 'Suggest a plushie' button on the catalog toolbar.
+  document.getElementById('suggest-plushie-btn')?.addEventListener('click', () => openCatalogItemModal('user'));
+  // Photo source tabs (admin-only) + user picker autocomplete + plushie thumb click.
+  document.querySelectorAll('.ci-source-tab').forEach((b) =>
+    b.addEventListener('click', () => setSourceTab(b.dataset.ciSource))
+  );
+  document.getElementById('ci-pick-user').addEventListener('input', onPickUserInput);
+  document.getElementById('ci-pick-user-list').addEventListener('click', (e) => {
+    const t = e.target.closest('[data-pick-uid]');
+    if (t) onPickUserSelect(t.dataset.pickUid, t.dataset.pickUsername);
+  });
+  document.getElementById('ci-pick-plushie-list').addEventListener('click', (e) => {
+    const t = e.target.closest('[data-pick-photo-path]');
+    if (t) onPickPlushieSelect(t.dataset.pickPhotoPath, t.dataset.pickName);
+  });
   document.querySelectorAll('[data-close-suggest-photo]').forEach((el) =>
     el.addEventListener('click', () => document.getElementById('suggest-photo-modal').classList.add('hidden'))
   );
@@ -3726,7 +3756,7 @@ async function onAdminClick(e) {
   } else if (action === 'backfill-photos') {
     await adminBackfillPhotos();
   } else if (action === 'new-catalog-item') {
-    openCatalogItemModal();
+    openCatalogItemModal('admin');
   } else if (action === 'review-catalog-pending') {
     await openCatalogPendingModal();
   } else if (action === 'review-photo-suggestions') {
@@ -3741,6 +3771,8 @@ async function onAdminClick(e) {
     await adminApproveCatalogItem(btn.dataset.id);
   } else if (action === 'reject-catalog-item') {
     await adminRejectCatalogItem(btn.dataset.id);
+  } else if (action === 'merge-catalog-item') {
+    openCatalogMergeModal(btn.dataset.id, btn.dataset.handle);
   } else if (action === 'approve-photo-suggestion') {
     await adminApprovePhotoSuggestion(btn.dataset.id);
   } else if (action === 'reject-photo-suggestion') {
@@ -3915,12 +3947,99 @@ async function adminResolveDispute(tradeId, outcome) {
 
 // ─── Catalog item: admin create + queues + suggest-photo flow ────
 
-function openCatalogItemModal() {
+// Opens the catalog-item creation modal. Mode 'admin' shows the title
+// 'Create catalog item' (auto-approved on submit, includes the pick-
+// from-a-user's-collection photo source) and mode 'user' shows
+// 'Suggest a plushie' (status defaulted by trust check; only the
+// upload photo source).
+function openCatalogItemModal(mode = 'admin') {
+  state.catalogItemModalMode = mode;
   document.getElementById('catalog-item-form').reset();
   document.getElementById('ci-photo-preview-wrap').innerHTML = '';
   document.getElementById('ci-error').classList.add('hidden');
+  state.catalogItemPicked = null;
+
+  const isAdmin = mode === 'admin';
+  document.getElementById('ci-title').textContent = isAdmin ? 'Create catalog item' : 'Suggest a plushie';
+  document.getElementById('ci-subtitle').textContent = isAdmin
+    ? 'Approved immediately; appears in the Catalog tab right after save.'
+    : 'Goes to admin (Scott) for review. He may edit the entry before approving.';
+  document.getElementById('ci-submit').textContent = isAdmin ? 'Create' : 'Submit';
+
+  // Admins get the source-picker tabs (Upload / Pick from user). Users
+  // only see the Upload field.
+  const tabs = document.getElementById('ci-photo-source-tabs');
+  tabs.classList.toggle('hidden', !isAdmin);
+  tabs.style.display = isAdmin ? 'flex' : 'none';
+  // Default back to upload tab when the modal re-opens.
+  setSourceTab('upload');
+
   document.getElementById('catalog-item-modal').classList.remove('hidden');
   setTimeout(() => document.getElementById('ci-name').focus(), 50);
+}
+
+function setSourceTab(which) {
+  document.querySelectorAll('.ci-source-tab').forEach((b) =>
+    b.classList.toggle('active', b.dataset.ciSource === which)
+  );
+  document.getElementById('ci-source-upload').classList.toggle('hidden', which !== 'upload');
+  document.getElementById('ci-source-pick').classList.toggle('hidden', which !== 'pick');
+  if (which === 'pick') setTimeout(() => document.getElementById('ci-pick-user').focus(), 50);
+}
+
+// Picker autocomplete: type a username, see matching profiles, click
+// one to load their plushies. Click a plushie thumbnail to set it as
+// the source. The actual image copy happens in submitCatalogItemForm.
+async function onPickUserInput(e) {
+  const q = e.target.value.trim();
+  const userList = document.getElementById('ci-pick-user-list');
+  if (q.length < 2) { userList.innerHTML = ''; return; }
+  try {
+    const users = await data.adminFindUsersByPrefix(q);
+    userList.innerHTML = users.map((u) =>
+      `<button type="button" class="ci-user-row" data-pick-uid="${u.id}" data-pick-username="${escapeHtml(u.username)}">@${escapeHtml(u.username)}</button>`
+    ).join('');
+  } catch (err) {
+    console.error(err);
+    userList.innerHTML = `<p class="dim">Search failed.</p>`;
+  }
+}
+
+async function onPickUserSelect(userId, username) {
+  document.getElementById('ci-pick-user').value = '@' + username;
+  document.getElementById('ci-pick-user-list').innerHTML = '';
+  const plushiesList = document.getElementById('ci-pick-plushie-list');
+  plushiesList.innerHTML = '<p class="dim">Loading…</p>';
+  try {
+    const plushies = await data.adminListUserPlushies(userId);
+    if (plushies.length === 0) {
+      plushiesList.innerHTML = '<p class="dim">No plushies in this user\'s collection.</p>';
+      return;
+    }
+    // Resolve photo URLs in parallel.
+    const withUrls = await Promise.all(plushies.map(async (p) => {
+      const url = p.photo_path ? await data.photoUrl(p.photo_path) : null;
+      return { ...p, url };
+    }));
+    plushiesList.innerHTML = withUrls.map((p) => `
+      <button type="button" class="ci-plushie-tile" data-pick-photo-path="${escapeHtml(p.photo_path || '')}" data-pick-name="${escapeHtml(p.nickname || p.name)}">
+        ${p.url ? `<img src="${escapeHtml(p.url)}" alt="" />` : '<span class="no-photo">🖤</span>'}
+        <span>${escapeHtml(p.nickname || p.name)}</span>
+      </button>
+    `).join('');
+  } catch (err) {
+    console.error(err);
+    plushiesList.innerHTML = `<p class="dim">Couldn't load: ${escapeHtml(err.message || String(err))}</p>`;
+  }
+}
+
+function onPickPlushieSelect(photoPath, displayName) {
+  if (!photoPath) {
+    document.getElementById('ci-pick-selected').textContent = 'That plushie has no stored photo to copy.';
+    return;
+  }
+  state.catalogItemPicked = { photoPath };
+  document.getElementById('ci-pick-selected').innerHTML = `<strong>Picked:</strong> ${escapeHtml(displayName)} <span class="dim">— will be copied as the catalog photo on save.</span>`;
 }
 
 // Slugify a name into a URL-safe handle. Mirrors what Shopify would
@@ -3947,17 +4066,26 @@ async function submitCatalogItemForm(e) {
   const tags = (document.getElementById('ci-tags').value || '')
     .split(',').map((t) => t.trim()).filter(Boolean);
   const lore = document.getElementById('ci-lore').value.trim() || null;
+  const notes = (document.getElementById('ci-notes')?.value || '').trim() || null;
   const photoFile = document.getElementById('ci-photo').files[0] || null;
+  const mode = state.catalogItemModalMode || 'admin';
+  const isAdmin = mode === 'admin';
 
   const submit = document.getElementById('ci-submit');
   submit.disabled = true;
   submit.textContent = 'Working…';
   try {
     let imagePath = null;
-    if (photoFile) {
+    if (isAdmin && state.catalogItemPicked?.photoPath) {
+      // Admin chose 'Pick from a user's collection' → copy the source
+      // photo through to the catalog bucket (admin-only writes).
+      imagePath = await data.adminCopyPhotoToCatalog(state.catalogItemPicked.photoPath, handle);
+    } else if (photoFile) {
       const compressed = await compressImage(photoFile).catch(() => photoFile);
       imagePath = await data.uploadCatalogImage(compressed, handle);
     }
+    // Admin-created items go straight to 'approved'. User submissions
+    // let data.createCatalogItem resolve status via userIsTrustedSubmitter().
     await data.createCatalogItem({
       name,
       handle,
@@ -3967,20 +4095,20 @@ async function submitCatalogItemForm(e) {
       image_path: imagePath,
       lore,
       tags,
-      status: 'approved',                // admin-created → auto-approved
+      notes_to_admin: notes,
+      status: isAdmin ? 'approved' : undefined,
     });
-    toast('Catalog item created.');
+    toast(isAdmin ? 'Catalog item created.' : 'Submitted to admin for review. Thanks!');
     document.getElementById('catalog-item-modal').classList.add('hidden');
-    // Refresh the catalog so the new item is visible immediately.
     await loadCatalog();
     if (state.tab === 'catalog') render();
   } catch (err) {
     console.error(err);
-    errEl.textContent = err.message || 'Could not create item.';
+    errEl.textContent = err.message || 'Could not submit.';
     errEl.classList.remove('hidden');
   } finally {
     submit.disabled = false;
-    submit.textContent = 'Create';
+    submit.textContent = isAdmin ? 'Create' : 'Submit';
   }
 }
 
@@ -4329,6 +4457,7 @@ function renderPendingCatalogRow(row) {
       <div class="catalog-pending-actions">
         ${row.status === 'pending'
           ? `<button class="btn-primary" data-admin-action="approve-catalog-item" data-id="${row.id}">Approve</button>
+             <button data-admin-action="merge-catalog-item" data-id="${row.id}" data-handle="${escapeHtml(row.handle)}">Merge into…</button>
              <button class="btn-ghost" data-admin-action="reject-catalog-item" data-id="${row.id}">Reject</button>`
           : `<p class="dim">${row.status}</p>`
         }
@@ -4347,6 +4476,76 @@ async function adminApproveCatalogItem(id) {
   } catch (err) {
     console.error(err);
     toast('Could not approve: ' + (err.message || err));
+  }
+}
+
+// Merge: type-ahead search through state.catalog for a winner, pick
+// one, confirm. The chosen winner.id is text (Shopify numeric or
+// custom uuid string) — admin_merge_catalog_item handles both.
+function openCatalogMergeModal(duplicateId, duplicateHandle) {
+  state.catalogMerge = { duplicateId, winnerId: null };
+  document.getElementById('cm-source').textContent = `Duplicate: ${duplicateHandle}`;
+  document.getElementById('cm-search').value = '';
+  document.getElementById('cm-results').innerHTML = '';
+  document.getElementById('cm-selected').textContent = '';
+  document.getElementById('cm-error').classList.add('hidden');
+  document.getElementById('cm-submit').disabled = true;
+  document.getElementById('catalog-merge-modal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('cm-search').focus(), 50);
+}
+
+function onMergeSearchInput(e) {
+  const q = e.target.value.trim().toLowerCase();
+  const results = document.getElementById('cm-results');
+  if (q.length < 2) { results.innerHTML = ''; return; }
+  const dupId = state.catalogMerge?.duplicateId;
+  const candidates = state.catalog
+    .filter((c) => c.id !== dupId
+      && (cleanCatalogName(c.name).toLowerCase().includes(q) || (c.handle || '').toLowerCase().includes(q)))
+    .slice(0, 12);
+  if (candidates.length === 0) {
+    results.innerHTML = '<p class="dim">No matches.</p>';
+    return;
+  }
+  results.innerHTML = candidates.map((c) => {
+    const thumb = c.isCustom ? c.image : (shopifyImageVariant(c.image, 200) || c.image);
+    return `<button type="button" class="bundle-row" data-merge-id="${escapeHtml(c.id)}" data-merge-name="${escapeHtml(cleanCatalogName(c.name))}" data-merge-handle="${escapeHtml(c.handle || '')}">
+      <span></span>
+      <span class="bundle-row-photo">${thumb ? `<img src="${escapeHtml(thumb)}" alt="" />` : '<span class="no-photo">🖤</span>'}</span>
+      <span class="bundle-row-body"><strong>${escapeHtml(cleanCatalogName(c.name))}</strong><span class="dim">${escapeHtml(c.handle || '')}${c.isCustom ? ' · custom' : ' · shopify'}</span></span>
+    </button>`;
+  }).join('');
+}
+
+function onMergeSelectWinner(id, name, handle) {
+  state.catalogMerge.winnerId = id;
+  document.getElementById('cm-selected').innerHTML = `<strong>Winner:</strong> ${escapeHtml(name)} <code>${escapeHtml(handle)}</code>`;
+  document.getElementById('cm-submit').disabled = false;
+}
+
+async function submitCatalogMerge() {
+  const m = state.catalogMerge;
+  if (!m || !m.winnerId) return;
+  const submit = document.getElementById('cm-submit');
+  const errEl = document.getElementById('cm-error');
+  errEl.classList.add('hidden');
+  submit.disabled = true;
+  submit.textContent = 'Merging…';
+  try {
+    await data.adminMergeCatalogItem(m.duplicateId, m.winnerId);
+    toast('Merged.');
+    document.getElementById('catalog-merge-modal').classList.add('hidden');
+    state.catalogMerge = null;
+    await openCatalogPendingModal();
+    await loadCatalog();
+    if (state.tab === 'catalog') render();
+  } catch (err) {
+    console.error(err);
+    errEl.textContent = err.message || 'Merge failed.';
+    errEl.classList.remove('hidden');
+  } finally {
+    submit.disabled = false;
+    submit.textContent = 'Merge';
   }
 }
 
@@ -4407,7 +4606,23 @@ function renderPendingPhotoRow(row) {
 
 async function adminApprovePhotoSuggestion(id) {
   try {
-    await data.adminApprovePhotoSuggestion(id);
+    // For suggestions targeting a raw Shopify product, find the upstream
+    // product in state.catalog and pass its info through so
+    // adminApprovePhotoSuggestion can auto-create the catalog_items
+    // row instead of erroring.
+    const row = (state.adminPendingPhotos || []).find((r) => r.id === id);
+    let shopifyInfo;
+    if (row && row.target_shopify_id && !row.target_catalog_item_id) {
+      const prod = state.catalog.find((c) => c.id === row.target_shopify_id && !c.isCustom);
+      if (prod) {
+        shopifyInfo = {
+          name: prod.name,
+          handle: prod.handle,
+          type: prod.type || 'plush',
+        };
+      }
+    }
+    await data.adminApprovePhotoSuggestion(id, shopifyInfo);
     toast('Photo approved.');
     await openPhotoSuggestionsModal();
     await loadCatalog();
