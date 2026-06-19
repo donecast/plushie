@@ -407,7 +407,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=61', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=61a', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
     const shopify = (json.products || []).filter(isPlushieCollectible);
@@ -445,6 +445,8 @@ async function mergeCustomCatalog(shopifyProducts) {
       description: c.description || null,
       lore: c.lore || null,
       symbolism: c.symbolism || null,
+      accessories: Array.isArray(c.accessories) ? c.accessories : [],
+      isBundle: false,
     }));
     return [...shopifyProducts, ...normalised];
   } catch (e) {
@@ -473,6 +475,13 @@ function resolveCatalogItem(item) {
     description: item.description ?? parent.description ?? null,
     lore:        item.lore ?? parent.lore ?? null,
     symbolism:   item.symbolism ?? parent.symbolism ?? null,
+    // Accessories inherit from the parent only when the variant
+    // didn't declare its own list. This lets a form variant override
+    // the Set Includes (e.g., the Original came without the tote
+    // bag) by entering even one row in the admin modal.
+    accessories: (item.accessories && item.accessories.length)
+      ? item.accessories
+      : (parent.accessories || []),
     // The shopping URL on a variant uses the parent's handle so Buy
     // sends people to plushiedreadfuls.com for whatever the upstream
     // SKU currently is. They can buy the current iteration and still
@@ -4067,6 +4076,16 @@ async function submitCatalogItemForm(e) {
     .split(',').map((t) => t.trim()).filter(Boolean);
   const lore = document.getElementById('ci-lore').value.trim() || null;
   const notes = (document.getElementById('ci-notes')?.value || '').trim() || null;
+  // Parse one accessory per non-empty line. Each carries a display
+  // name + lowercase key — same shape the body_html parser produces
+  // for Shopify items, so the collection-row checklist treats both
+  // sources identically (resolveCatalogItem variants inherit either
+  // way).
+  const accessories = (document.getElementById('ci-accessories')?.value || '')
+    .split('\n')
+    .map((s) => canonicalizeAccessoryName(s))
+    .filter(Boolean)
+    .map((name) => ({ name, key: name.toLowerCase() }));
   const photoFile = document.getElementById('ci-photo').files[0] || null;
   const mode = state.catalogItemModalMode || 'admin';
   const isAdmin = mode === 'admin';
@@ -4095,6 +4114,7 @@ async function submitCatalogItemForm(e) {
       image_path: imagePath,
       lore,
       tags,
+      accessories,
       notes_to_admin: notes,
       status: isAdmin ? 'approved' : undefined,
     });

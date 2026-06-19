@@ -1088,6 +1088,7 @@ data.createCatalogItem = async function (record) {
     lore: record.lore || null,
     symbolism: record.symbolism || null,
     tags: record.tags || [],
+    accessories: Array.isArray(record.accessories) ? record.accessories : [],
     available: record.available !== false,
     retired: !!record.retired,
     status,
