@@ -1229,15 +1229,32 @@ data.adminMarkCatalogReviewSeen = async function (id) {
 // then insert a row here pointing to the storage path. Admin reviews
 // from the queue, accepts → copy path to catalog_items.image_path.
 
-data.suggestCatalogPhoto = async function ({ targetShopifyId, targetCatalogItemId, imagePath, notes }) {
+data.suggestCatalogPhoto = async function ({ targetShopifyId, targetCatalogItemId, targetPenId, imagePath, notes }) {
   const { error } = await sb.from('catalog_photo_suggestions').insert({
     target_shopify_id: targetShopifyId || null,
     target_catalog_item_id: targetCatalogItemId || null,
+    target_pen_id: targetPenId || null,
     image_path: imagePath,
     notes: notes || null,
     submitted_by: window.currentUser.id,
   });
   if (error) throw error;
+};
+
+// Pen metadata + photo URLs (one row per pen across all users).
+// Distinct from data.listPens which returns the CURRENT user's per-pen
+// COUNTS. Loaded once at boot; cached in state.pensMeta and merged
+// with state.pensOwned at render time.
+data.listPenMeta = async function () {
+  const { data: rows, error } = await sb
+    .from('pens')
+    .select('*')
+    .order('position', { ascending: true });
+  if (error) throw error;
+  await Promise.all(rows.map(async (r) => {
+    r.image = r.image_path ? await data.catalogImageUrl(r.image_path) : null;
+  }));
+  return rows;
 };
 
 data.adminListPhotoSuggestions = async function (status = 'pending') {
@@ -1266,6 +1283,25 @@ data.adminApprovePhotoSuggestion = async function (suggestionId, shopifyProductI
     .eq('id', suggestionId)
     .single();
   if (e1) throw e1;
+
+  // Pen target — direct path. Drop the image_path into the pens row.
+  if (row.target_pen_id) {
+    const { error: ep } = await sb
+      .from('pens')
+      .update({ image_path: row.image_path })
+      .eq('id', row.target_pen_id);
+    if (ep) throw ep;
+    const { error: e3 } = await sb
+      .from('catalog_photo_suggestions')
+      .update({
+        status: 'approved',
+        reviewed_by: window.currentUser.id,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq('id', suggestionId);
+    if (e3) throw e3;
+    return;
+  }
 
   let targetCatalogId = row.target_catalog_item_id;
 

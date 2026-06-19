@@ -22,6 +22,7 @@ const state = {
   wishlist: [],
   catalog: [],                // loaded from catalog.json
   pensOwned: new Map(),       // id → count (omitted = 0)
+  pensMeta: [],               // catalog of pens (id, line, name, image_path, image URL) — loaded from DB
   blobUrls: new Map(),
 
   // ─── Trade state ──────────────────────────────────────────────────
@@ -52,6 +53,10 @@ const state = {
 
 const PRODUCT_URL_BASE = 'https://plushiedreadfuls.com/products/';
 
+// Hardcoded fallback list. Renders if state.pensMeta hasn't loaded
+// yet (offline launch, slow network); otherwise the DB-backed
+// state.pensMeta wins via the activePens() getter below — which
+// carries image URLs.
 const PENS = [
   { line: 'Plushie Dreadfuls', id: 'pd-bpd',         name: 'Borderline Personality Disorder' },
   { line: 'Plushie Dreadfuls', id: 'pd-ptsd',        name: 'PTSD' },
@@ -74,6 +79,12 @@ const PENS = [
   { line: 'Victorian McGee',   id: 'vm-rrh',         name: 'Red Riding Hood' },
   { line: 'Victorian McGee',   id: 'vm-hyst',        name: 'Hysteria' },
 ];
+
+// Resolves to the DB-backed pen catalog when loaded (includes image
+// URLs); falls back to the hardcoded list before the first load.
+function activePens() {
+  return (state.pensMeta && state.pensMeta.length) ? state.pensMeta : PENS;
+}
 
 function cleanCatalogName(name) {
   const afterPrefix = name.replace(/^Plushie Dreadfuls\s*-?\s*/i, '').trim() || name;
@@ -407,7 +418,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=61a', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=62', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
     const shopify = (json.products || []).filter(isPlushieCollectible);
@@ -1145,7 +1156,7 @@ function render() {
     renderPens();
     const unique = state.pensOwned.size;
     const total = [...state.pensOwned.values()].reduce((a, b) => a + b, 0);
-    const pensBadge = `${unique}/${PENS.length}`;
+    const pensBadge = `${unique}/${activePens().length}`;
     document.getElementById('col-subtab-count-plushies').textContent = `· ${state.collection.length}`;
     document.getElementById('col-subtab-count-pens').textContent = `· ${pensBadge}`;
     // When Pens sub-tab is showing, the count-label is hidden (handled
@@ -1180,27 +1191,35 @@ function render() {
 }
 
 function renderPens() {
-  const lines = [...new Set(PENS.map((p) => p.line))];
+  const pens = activePens();
+  const lines = [...new Set(pens.map((p) => p.line))];
   const unique = state.pensOwned.size;
   const total = [...state.pensOwned.values()].reduce((a, b) => a + b, 0);
-  const progressPct = Math.round((unique / PENS.length) * 100);
+  const progressPct = Math.round((unique / pens.length) * 100);
   document.getElementById('pens-progress').innerHTML = `
     <div class="pens-progress-text">
       <span class="pens-count">${unique}</span>
-      <span class="pens-total">/ ${PENS.length} unique</span>
+      <span class="pens-total">/ ${pens.length} unique</span>
       <span class="pens-total-grand">· ${total} total</span>
     </div>
     <div class="pens-bar"><div class="pens-bar-fill" style="width: ${progressPct}%"></div></div>
   `;
 
   document.getElementById('pens-list').innerHTML = lines.map((line) => {
-    const items = PENS.filter((p) => p.line === line);
+    const items = pens.filter((p) => p.line === line);
     const ownedUnique = items.filter((p) => state.pensOwned.has(p.id)).length;
     const ownedTotal = items.reduce((sum, p) => sum + (state.pensOwned.get(p.id) || 0), 0);
     const rows = items.map((p) => {
       const count = state.pensOwned.get(p.id) || 0;
+      // Thumbnail when the pen has an image_path on its DB row;
+      // otherwise a placeholder + 🤍 'suggest a photo' button so
+      // collectors can submit one.
+      const photo = p.image
+        ? `<img class="pen-thumb" src="${escapeHtml(p.image)}" alt="" loading="lazy" />`
+        : `<button type="button" class="pen-thumb-placeholder" data-action="pen-suggest-photo" data-pen-id="${p.id}" data-pen-name="${escapeHtml(p.name)}" title="Suggest a photo of this pen">🤍</button>`;
       return `
         <div class="pen-row ${count > 0 ? 'owned' : ''}">
+          ${photo}
           <span class="pen-name">${escapeHtml(p.name)}</span>
           <div class="pen-qty">
             <button class="pen-btn" data-pen-id="${p.id}" data-pen-delta="-1" aria-label="Decrease">−</button>
@@ -2084,10 +2103,17 @@ function wireEvents() {
 
   document.getElementById('pens-list').addEventListener('click', (e) => {
     const btn = e.target.closest('.pen-btn');
-    if (!btn) return;
-    const id = btn.dataset.penId;
-    const delta = parseInt(btn.dataset.penDelta, 10);
-    if (id && delta) adjustPen(id, delta);
+    if (btn) {
+      const id = btn.dataset.penId;
+      const delta = parseInt(btn.dataset.penDelta, 10);
+      if (id && delta) adjustPen(id, delta);
+      return;
+    }
+    // Suggest-a-photo on a pen with no image yet.
+    const suggest = e.target.closest('[data-action="pen-suggest-photo"]');
+    if (suggest) {
+      openSuggestPhotoModal(suggest.dataset.penId, 'pen', suggest.dataset.penName);
+    }
   });
 
   document.addEventListener('keydown', (e) => {
@@ -4427,6 +4453,7 @@ async function submitSuggestPhotoForm(e) {
     await data.suggestCatalogPhoto({
       targetShopifyId: target.kind === 'shopify' ? target.id : null,
       targetCatalogItemId: target.kind === 'custom' ? target.id : null,
+      targetPenId: target.kind === 'pen' ? target.id : null,
       imagePath: path,
       notes,
     });
@@ -4604,9 +4631,15 @@ function renderPendingPhotoRow(row) {
   const thumb = row.image
     ? `<img src="${escapeHtml(row.image)}" alt="" />`
     : `<span class="no-photo">🖤</span>`;
-  const target = row.target_catalog_item_id
-    ? `catalog_items: <code>${escapeHtml(row.target_catalog_item_id)}</code>`
-    : `Shopify id: <code>${escapeHtml(row.target_shopify_id || '?')}</code>`;
+  let target;
+  if (row.target_pen_id) {
+    const pen = activePens().find((p) => p.id === row.target_pen_id);
+    target = `Pen: <code>${escapeHtml(row.target_pen_id)}</code>${pen ? ` (${escapeHtml(pen.line)} — ${escapeHtml(pen.name)})` : ''}`;
+  } else if (row.target_catalog_item_id) {
+    target = `catalog_items: <code>${escapeHtml(row.target_catalog_item_id)}</code>`;
+  } else {
+    target = `Shopify id: <code>${escapeHtml(row.target_shopify_id || '?')}</code>`;
+  }
   return `
     <article class="catalog-pending-row">
       <div class="catalog-pending-photo">${thumb}</div>
@@ -4721,6 +4754,7 @@ async function boot() {
   await data.migrateFromIDB();    // one-time IDB → Supabase upload per account
   await loadAll();
   state.pensOwned = await data.listPens();
+  try { state.pensMeta = await data.listPenMeta(); } catch (e) { console.warn('pens meta load skipped', e); }
   await loadTradeData();
   render();
   updateNotifyButton();
