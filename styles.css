@@ -817,6 +817,15 @@ main {
   position: relative;
   overflow: hidden;
   cursor: zoom-in;
+  /* Defensive: make sure the click reaches the photo div even if a
+     child (img / badge stack / no-photo) tries to capture it. The
+     badge stack already sets pointer-events:none; this asserts the
+     parent stays clickable. */
+  pointer-events: auto;
+}
+.card-photo img,
+.card-photo .no-photo {
+  pointer-events: none;
 }
 .card-photo img {
   width: 100%;

@@ -418,7 +418,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=62', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=62a', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
     const shopify = (json.products || []).filter(isPlushieCollectible);
@@ -4347,9 +4347,28 @@ async function submitBundlePickerForm(e) {
 // Want / Buy / Suggest-a-photo actions. Variants get their data via
 // resolveCatalogItem so the body reads as if the variant had its own
 // lore even though it inherits from the parent.
-function openCatalogDetailModal(cid) {
+async function openCatalogDetailModal(cid) {
   const raw = state.catalog.find((c) => c.id === cid);
-  if (!raw) return;
+  if (!raw) {
+    console.warn('openCatalogDetailModal: item not in state.catalog', cid);
+    toast('That item is no longer in the catalog.');
+    return;
+  }
+  // If the catalog hasn't had a live refresh yet, the lore / symbolism
+  // / accessories fields are empty even on Shopify items. Trigger a
+  // refresh on-demand the first time the user opens a detail — the
+  // modal will paint with the empty-state copy and we'll re-render
+  // when the refresh lands.
+  if (!raw.bodyHtml && !raw.isCustom && !state._catalogRefreshAttempted) {
+    state._catalogRefreshAttempted = true;
+    refreshCatalogLive().then(() => {
+      // If the modal is still open, repaint with the now-populated row.
+      const modal = document.getElementById('catalog-detail-modal');
+      if (modal && !modal.classList.contains('hidden')) {
+        openCatalogDetailModal(cid);
+      }
+    }).catch((e) => console.warn('on-demand catalog refresh', e));
+  }
   const item = resolveCatalogItem(raw);
   const display = cleanCatalogName(item.name);
   const formLabel = item.isCustom && item.formLabel ? item.formLabel : '';
@@ -4398,7 +4417,10 @@ function openCatalogDetailModal(cid) {
         </div>
       </div>
     </div>
-    ${isEmpty ? '<p class="dim">No lore or symbolism on this one — the catalog feed didn\'t carry a description, or it was all boilerplate.</p>' : ''}
+    ${isEmpty ? (raw.isCustom
+      ? '<p class="dim">No lore, symbolism, or accessories on this one yet — the admin can add them via Admin → Tools.</p>'
+      : '<p class="dim">Loading lore from the catalog feed… <small>If this stays here after a moment, the upstream product just doesn\'t carry a description.</small></p>'
+    ) : ''}
     ${loreHtml}
     ${symHtml}
     ${accessoriesHtml}
