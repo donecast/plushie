@@ -1,6 +1,6 @@
 // ─── State ────────────────────────────────────────────────────────────
 const state = {
-  tab: 'catalog',             // 'catalog' | 'collection' | 'wishlist' | 'trade' | 'admin'
+  tab: 'social',              // landing tab — 'social' | 'catalog' | 'collection' | 'wishlist' | 'trade' | 'admin'
   colSubTab: 'plushies',      // collection sub-tab: 'plushies' | 'pens' (Pens fold-in)
   filter: 'all',              // collection: all | active | retired
   colCategory: 'all',         // collection category chip
@@ -2055,8 +2055,11 @@ function loadFilters() {
     const s = JSON.parse(raw);
     if (typeof s !== 'object' || !s) return;
     // Copy known scalar keys, fall back to current default if missing.
+    // Note: 'tab' is intentionally NOT restored — the app always lands on
+    // the Social tab (the default) when reopened. Filters/sub-tabs still
+    // persist so each tab keeps its settings once you switch to it.
     const scalars = [
-      'tab', 'colSubTab', 'filter', 'colCategory', 'colSort', 'wishCategory', 'wishSort',
+      'colSubTab', 'filter', 'colCategory', 'colSort', 'wishCategory', 'wishSort',
       'catalogFilter', 'catalogTheme', 'catalogColor', 'catalogSort', 'query', 'tradeSubTab', 'tradeFilter',
     ];
     for (const k of scalars) if (k in s) state[k] = s[k];
@@ -5973,7 +5976,12 @@ async function boot() {
   try { state.pensMeta = await data.listPenMeta(); } catch (e) { console.warn('pens meta load skipped', e); }
   await loadTradeData();
   render();
-  refreshSocialBadge();   // show pending friend-request pip even before opening Social
+  // Social is the landing tab — load its feed/friends/requests and
+  // repaint when ready (also fires friend-request notifications + badge).
+  loadSocialData().then(() => {
+    updateSocialBadge();
+    if (state.tab === 'social') renderSocial();
+  });
   scheduleSocialCheck();  // keep polling for new requests while the app is open
   updateNotifyButton();
   registerSW();
