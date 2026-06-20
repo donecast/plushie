@@ -3413,10 +3413,12 @@ body.locked { overflow: hidden; }
 /* ── Worn-by: clothing accessories attached to their plush ────────── */
 .col-entry.outfitted {
   grid-column: 1 / -1;           /* outfitted plushes take a full row */
-  display: flex; gap: 12px; align-items: stretch;
+  display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap;
 }
-.col-entry.outfitted > .card { flex: 1 1 0; min-width: 0; }
-.attached-wrap { display: flex; gap: 10px; align-items: stretch; }
+.col-entry.outfitted > .card { flex: 2 1 260px; min-width: 0; }
+/* Accessories cluster beside the plush; wraps for multiple, drops below
+   when the row gets tight. */
+.attached-wrap { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; flex: 1 1 280px; }
 .attached-acc {
   position: relative; width: 150px; flex: 0 0 auto;
   background: var(--surface); border: 1px solid var(--border-rose-mild);
@@ -3465,9 +3467,8 @@ body.locked { overflow: hidden; }
 }
 
 @media (max-width: 560px) {
-  .col-entry.outfitted { flex-direction: column; }
-  .attached-wrap { flex-wrap: wrap; }
-  .attached-acc { width: 120px; }
+  .col-entry.outfitted { gap: 10px; }
+  .attached-acc { width: 108px; }
 }
 
 /* Attached accessory: photo + name open the edit modal (rename/reassign) */
@@ -3477,3 +3478,11 @@ body.locked { overflow: hidden; }
 /* Top 8 Buns: keep/excommunicate Tom toggle */
 .soc-keep-tom { display: flex; align-items: center; gap: 8px; margin: 4px 0 12px; font-size: 0.9rem; }
 .soc-keep-tom-note { color: var(--ink-mute); font-size: 0.8rem; }
+
+/* Collection split: unworn clothing section */
+.collection-section { margin-top: 22px; }
+.collection-section-head {
+  font-family: var(--display); font-size: 1.05rem; margin: 0 0 10px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--hairline);
+}
+.collection-section-head .dim { font-family: var(--sans); font-size: 0.85rem; }

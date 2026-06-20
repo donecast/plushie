@@ -1368,11 +1368,23 @@ function render() {
       attByPlush.get(it.wornBy).push(it);
     }
     state._attByPlush = attByPlush;
-    const items = filteredCollection().filter((i) => !i.wornBy);
-    document.getElementById('collection-grid').innerHTML = items.map((i) => renderCollectionEntry(i)).join('');
-    document.getElementById('collection-empty').classList.toggle('hidden', items.length > 0);
+    const shown = filteredCollection().filter((i) => !i.wornBy);
+    // Split: unworn clothing (wearables with no wearer) gets its own
+    // section; everything else (plushes + non-clothing accessories) stays
+    // in the main grid, plushes carrying their attached clothing.
+    const mainItems = shown.filter((i) => !isWearableItem(i));
+    const unworn = shown.filter((i) => isWearableItem(i));
+    document.getElementById('collection-grid').innerHTML = mainItems.map((i) => renderCollectionEntry(i)).join('');
+    const unwornSection = document.getElementById('unworn-clothing-section');
+    if (unwornSection) {
+      document.getElementById('unworn-clothing-grid').innerHTML = unworn.map((i) => renderCard(i, 'collection')).join('');
+      unwornSection.classList.toggle('hidden', unworn.length === 0);
+      const cnt = document.getElementById('unworn-clothing-count');
+      if (cnt) cnt.textContent = unworn.length ? `· ${unworn.length}` : '';
+    }
+    document.getElementById('collection-empty').classList.toggle('hidden', shown.length > 0);
     document.getElementById('count-label').textContent =
-      `${items.length} of ${state.collection.length} item${state.collection.length === 1 ? '' : 's'}`;
+      `${shown.length} of ${state.collection.length} item${state.collection.length === 1 ? '' : 's'}`;
     // Pens sub-tab — always re-render so the counts stay current even
     // when the user is on Plushies (the sub-tab badge totals show
     // through). renderPens() updates #pens-progress + #pens-list.
@@ -2350,6 +2362,7 @@ function wireEvents() {
   document.getElementById('plushie-form').addEventListener('submit', submitForm);
 
   document.getElementById('collection-grid').addEventListener('click', onCardClick);
+  document.getElementById('unworn-clothing-grid').addEventListener('click', onCardClick);
   document.getElementById('wishlist-grid').addEventListener('click', onCardClick);
   document.getElementById('catalog-grid').addEventListener('click', onCardClick);
   // Wearer picker modal — pick a plush to attach an accessory to.
