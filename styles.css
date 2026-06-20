@@ -3469,3 +3469,7 @@ body.locked { overflow: hidden; }
   .attached-wrap { flex-wrap: wrap; }
   .attached-acc { width: 120px; }
 }
+
+/* Attached accessory: photo + name open the edit modal (rename/reassign) */
+.attached-acc-photo[data-action], .attached-acc-name[data-action] { cursor: pointer; }
+.attached-acc-name[data-action]:hover { text-decoration: underline; }

@@ -1088,9 +1088,9 @@ function renderAttachedAccessory(a) {
     : '<span class="no-photo">🧥</span>';
   return `
     <div class="attached-acc" data-acc-id="${a.id}">
-      <div class="attached-acc-photo">${photo}</div>
+      <div class="attached-acc-photo" data-action="open-detail" data-id="${a.id}" role="button" title="Edit / rename / reassign">${photo}</div>
       <div class="attached-acc-info">
-        <span class="attached-acc-name">${escapeHtml(a.nickname || a.name)}</span>
+        <span class="attached-acc-name" data-action="open-detail" data-id="${a.id}" role="button">${escapeHtml(a.nickname || a.name)}</span>
         <button class="attached-detach" data-action="detach-acc" data-id="${a.id}" title="Detach from this plush">✕ Detach</button>
       </div>
     </div>`;
@@ -1408,11 +1408,14 @@ function adjustPen(id, delta) {
 }
 
 // ─── Edit modal (collection items only — name & photo are catalog-sourced) ──
-function openModal(kind, item) {
+function openModal(kind, item, { fresh = false } = {}) {
   if (kind !== 'collection' || !item) return; // wishlist has no editable fields
   state.editingId = item.id;
 
-  document.getElementById('modal-title').textContent = 'Edit Plushie';
+  const wearable = isWearableItem(item);
+  document.getElementById('modal-title').textContent = fresh
+    ? (wearable ? 'Added! Who’s wearing it?' : 'Added! Make it yours')
+    : 'Edit Plushie';
   document.getElementById('modal-name').textContent = item.name || '';
 
   document.getElementById('f-nickname').value = item.nickname ?? '';
@@ -1459,9 +1462,37 @@ function openModal(kind, item) {
     checklist.innerHTML = '';
   }
 
+  // "Worn by" picker — only for plush clothing. Lists the user's full
+  // plushes (not other wearables), preselecting the current assignment
+  // or auto-suggesting from a possessive name ("Ni'ni's …" → Ni'ni).
+  const wornField = document.getElementById('field-worn-by');
+  const wornSel = document.getElementById('f-worn-by');
+  if (wearable) {
+    const candidates = state.collection.filter((c) => c.id !== item.id && !isWearableItem(c));
+    let suggestedId = item.wornBy || null;
+    if (!suggestedId) {
+      const m = (item.nickname || item.name || '').match(/^([\p{L}\p{N}'’.\- ]+?)['’]s\b/u);
+      const hint = m ? m[1].trim().toLowerCase() : null;
+      if (hint) {
+        const match = candidates.find((c) => (c.nickname || c.name || '').toLowerCase().startsWith(hint));
+        if (match) suggestedId = match.id;
+      }
+    }
+    wornSel.innerHTML = ['<option value="">— not assigned —</option>']
+      .concat(candidates.map((c) =>
+        `<option value="${escapeHtml(c.id)}" ${c.id === suggestedId ? 'selected' : ''}>${escapeHtml(c.nickname || c.name)}</option>`))
+      .join('');
+    wornField.classList.remove('hidden');
+  } else {
+    wornField.classList.add('hidden');
+    wornSel.innerHTML = '';
+  }
+
   document.getElementById('modal').dataset.kind = 'collection';
   document.getElementById('modal').classList.remove('hidden');
-  setTimeout(() => document.getElementById('f-meaning').focus(), 50);
+  // Focus the rename field on a fresh add (the discovery moment), else
+  // the meaning field as before.
+  setTimeout(() => document.getElementById(fresh ? 'f-nickname' : 'f-meaning').focus(), 50);
 }
 
 function closeModal() {
@@ -1554,6 +1585,18 @@ async function submitForm(e) {
   const kind = 'collection';
 
   await data.put(kind, record);
+
+  // Persist the "worn by" assignment when the field is shown (clothing
+  // accessories). Dedicated update so it never rides through _itemToRow.
+  const wornField = document.getElementById('field-worn-by');
+  if (wornField && !wornField.classList.contains('hidden')) {
+    const wornVal = document.getElementById('f-worn-by').value || null;
+    if ((existing.wornBy || null) !== wornVal) {
+      try { await data.setWornBy(existing.id, wornVal); }
+      catch (err) { console.warn('setWornBy', err); }
+    }
+  }
+
   await loadAll();
   closeModal();
   render();
@@ -1643,7 +1686,7 @@ async function onCardClickInner(btn) {
     const raw = state.catalog.find((c) => c.id === cid);
     const it = raw ? resolveCatalogItem(raw) : null;
     if (it && it.isBundle) openBundlePickerModal(cid);
-    else await addFromCatalog(cid, 'collection');
+    else await addFromCatalog(cid, 'collection', { customize: true });
   } else if (action === 'cat-want') {
     await addFromCatalog(cid, 'wishlist');
   } else if (action === 'cat-detail') {
@@ -1711,7 +1754,7 @@ async function onCardClickInner(btn) {
 // catalog-sourced fields and sensible defaults. If the user already owns
 // this catalog id (collection only), bumps quantity on the existing row
 // instead of creating a duplicate — duplicates are how trades happen.
-async function addFromCatalog(catalogId, kind) {
+async function addFromCatalog(catalogId, kind, { customize = false } = {}) {
   const cat = state.catalog.find((c) => c.id === catalogId);
   if (!cat) return;
 
@@ -1806,6 +1849,17 @@ async function addFromCatalog(catalogId, kind) {
   render();
   if (kind === 'collection') {
     toast(`Added “${cleanCatalogName(cat.name)}” to your collection. 🖤`);
+    // Pop the customize modal so people discover they can rename it, add
+    // meaning/date, mark missing accessories — and, for plush clothing,
+    // say which plush is wearing it. Only on the single Have add, not
+    // bulk/bundle/quantity paths.
+    if (customize) {
+      // If the Have came from the catalog detail modal, close it so the
+      // customize modal isn't stacked on top.
+      document.getElementById('catalog-detail-modal')?.classList.add('hidden');
+      const justAdded = state.collection.find((x) => x.id === record.id);
+      if (justAdded) openModal('collection', justAdded, { fresh: true });
+    }
   } else {
     toast('Added to wish list. 🕯');
   }
