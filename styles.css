@@ -3409,3 +3409,63 @@ body.locked { overflow: hidden; }
 .soc-edit-thumb {
   max-width: 140px; border-radius: 10px; border: 1px solid var(--border-rose-mild);
 }
+
+/* ── Worn-by: clothing accessories attached to their plush ────────── */
+.col-entry.outfitted {
+  grid-column: 1 / -1;           /* outfitted plushes take a full row */
+  display: flex; gap: 12px; align-items: stretch;
+}
+.col-entry.outfitted > .card { flex: 1 1 0; min-width: 0; }
+.attached-wrap { display: flex; gap: 10px; align-items: stretch; }
+.attached-acc {
+  position: relative; width: 150px; flex: 0 0 auto;
+  background: var(--surface); border: 1px solid var(--border-rose-mild);
+  border-radius: 14px; box-shadow: var(--shadow-card);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.attached-acc::before {
+  content: '👕 worn'; position: absolute; top: 6px; left: 6px; z-index: 1;
+  font-size: 0.66rem; padding: 1px 7px; border-radius: 999px;
+  background: var(--gold); color: var(--text-on-gold); font-weight: 800;
+}
+.attached-acc-photo {
+  aspect-ratio: 1; background: var(--blush);
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.attached-acc-photo img { width: 100%; height: 100%; object-fit: cover; }
+.attached-acc-info { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.attached-acc-name {
+  font-weight: 700; font-size: 0.82rem; line-height: 1.2;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.attached-detach {
+  background: none; border: 1px solid var(--hairline); border-radius: 8px;
+  cursor: pointer; color: var(--ink-mute); font-size: 0.72rem; padding: 3px 6px;
+}
+.attached-detach:hover { color: var(--danger); border-color: var(--danger-border); }
+
+/* Wearer picker modal */
+.wearer-list { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 14px; max-height: 55vh; overflow-y: auto; }
+.wearer-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: var(--surface-2); border: 1px solid var(--border-rose-faint);
+  border-radius: 10px; padding: 8px; cursor: pointer; font: inherit; color: var(--ink);
+}
+.wearer-row:hover { background: var(--blush); }
+.wearer-row.suggested { border-color: var(--gold-border); background: var(--gold-soft-bg); }
+.wearer-photo {
+  width: 44px; height: 44px; border-radius: 8px; overflow: hidden; flex: 0 0 auto;
+  background: var(--blush); display: flex; align-items: center; justify-content: center;
+}
+.wearer-photo img { width: 100%; height: 100%; object-fit: cover; }
+.wearer-name { font-weight: 700; }
+.wearer-suggest {
+  font-size: 0.66rem; color: var(--gold); border: 1px solid var(--gold-border);
+  padding: 0 6px; border-radius: 999px; margin-left: 4px; font-weight: 800;
+}
+
+@media (max-width: 560px) {
+  .col-entry.outfitted { flex-direction: column; }
+  .attached-wrap { flex-wrap: wrap; }
+  .attached-acc { width: 120px; }
+}
