@@ -418,7 +418,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=62a', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=62b', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
     const shopify = (json.products || []).filter(isPlushieCollectible);
@@ -1966,6 +1966,12 @@ function wireEvents() {
   document.getElementById('trade-view').addEventListener('click', onTradeClick);
   document.getElementById('trade-view').addEventListener('click', onTradeFilterClick);
   document.getElementById('admin-view').addEventListener('click', onAdminClick);
+  // The admin queue + dispute review modals live OUTSIDE #admin-view
+  // (top-level siblings) so their clicks don't bubble to the handler
+  // above. Bind those modals to the same dispatcher so Approve /
+  // Reject / Merge / Resolve buttons fire.
+  document.getElementById('admin-queue-modal').addEventListener('click', onAdminClick);
+  document.getElementById('dispute-review-modal')?.addEventListener('click', onAdminClick);
 
   // Offer modal
   document.querySelectorAll('[data-close-offer]').forEach((el) =>
