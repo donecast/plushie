@@ -2336,6 +2336,13 @@ function wireEvents() {
 
   document.getElementById('acct-theme').addEventListener('change', (e) => setTheme(e.target.value));
   document.getElementById('theme-btn').addEventListener('click', () => {
+    // Debounce: this is a *relative* toggle, so if the handler ever fires
+    // twice for one tap (stacked listeners from a re-run, a synthesized
+    // click on touch, etc.) the two flips cancel out and the theme
+    // appears not to change. Swallow a second invocation within 300ms.
+    const now = Date.now();
+    if (now - (window._lastThemeToggle || 0) < 300) return;
+    window._lastThemeToggle = now;
     const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
     setTheme(current === 'dark' ? 'light' : 'dark');
   });
@@ -5961,9 +5968,12 @@ function rerenderSocialCurrent() {
 let eventsWired = false;
 async function boot() {
   if (!eventsWired) {
+    // Set the flag FIRST: if wiring throws partway, a later boot() must
+    // not re-run it and stack a second set of listeners on everything
+    // that did bind (which is how the theme toggle ends up double-firing).
+    eventsWired = true;
     wireEvents();
     wireSocialEvents();
-    eventsWired = true;
   }
   loadFilters();                  // restore filter state + active tab from localStorage
   await data.loadActiveCollection();
