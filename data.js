@@ -1661,4 +1661,374 @@ data.whoShipsFirst = function (myNet, theirNet) {
   return myNet < theirNet ? 'me' : 'them';
 };
 
+// ════════════════════════════════════════════════════════════════════
+// Social — friends (Coven), Inner Coffin, posts, likes, comments, Top 8.
+// Mirrors the trade layer's conventions: denormalized snapshots instead
+// of cross-user FKs, usernames resolved in a separate batch query, and
+// photos routed through the same storage helpers (here, the 'social'
+// bucket from migration 0021).
+// ════════════════════════════════════════════════════════════════════
+
+// ─── Social photos ──────────────────────────────────────────────────
+data.uploadSocialPhoto = async function (blob) {
+  const uid = window.currentUser.id;
+  const ext = (blob.type && blob.type.split('/')[1]) || 'jpg';
+  const rand = crypto.randomUUID();
+  const path = `${uid}/${rand}.${ext === 'jpeg' ? 'jpg' : ext}`;
+  return await data._uploadToStorage('social', path, blob);
+};
+
+data.socialPhotoUrl = async function (path) {
+  if (!path) return null;
+  // Absolute URLs and same-origin asset paths (e.g. the seeded
+  // '/tom.jpg' mascot) are served as-is; everything else is a 'social'
+  // bucket object key that needs a signed/R2 URL.
+  if (path.startsWith('http') || path.startsWith('/')) return path;
+  return await data._urlFor('social', path);
+};
+
+// Copy one of MY collection photos (in the collection-scoped 'photos'
+// bucket, unreadable by other users) into the 'social' bucket so it can
+// be shown on a public profile / feed. Returns the new social path.
+data._copyPhotoToSocial = async function (photosPath) {
+  if (!photosPath) return null;
+  if (photosPath.startsWith('http')) return photosPath;   // already an external URL
+  const url = await data.photoUrl(photosPath);             // signed/R2 url I can read
+  if (!url) return null;
+  const resp = await fetch(url, { mode: 'cors' });
+  if (!resp.ok) throw new Error(`copy-to-social fetch ${resp.status}`);
+  return await data.uploadSocialPhoto(await resp.blob());
+};
+
+// Batch-resolve profiles → { id → {username, bio, avatar_path, avatarUrl} }.
+data._resolveProfiles = async function (ids) {
+  const uniq = [...new Set(ids.filter(Boolean))];
+  const map = new Map();
+  if (!uniq.length) return map;
+  const { data: rows } = await sb
+    .from('profiles')
+    .select('id, username, bio, avatar_path')
+    .in('id', uniq);
+  await Promise.all((rows || []).map(async (p) => {
+    map.set(p.id, { ...p, avatarUrl: p.avatar_path ? await data.socialPhotoUrl(p.avatar_path) : null });
+  }));
+  return map;
+};
+
+// ─── Friend graph ───────────────────────────────────────────────────
+data.listFriends = async function () {
+  const uid = window.currentUser.id;
+  const { data: rows, error } = await sb
+    .from('friendships')
+    .select('requester_id, addressee_id, status')
+    .eq('status', 'accepted')
+    .or(`requester_id.eq.${uid},addressee_id.eq.${uid}`);
+  if (error) throw error;
+  const otherIds = rows.map((r) => (r.requester_id === uid ? r.addressee_id : r.requester_id));
+  const { data: inner } = await sb.from('inner_circle').select('member_id').eq('owner_id', uid);
+  const innerSet = new Set((inner || []).map((r) => r.member_id));
+  const profs = await data._resolveProfiles(otherIds);
+  return otherIds.map((id) => ({
+    userId: id,
+    username: profs.get(id)?.username ?? 'unknown',
+    avatarUrl: profs.get(id)?.avatarUrl ?? null,
+    isInner: innerSet.has(id),
+  })).sort((a, b) => a.username.localeCompare(b.username));
+};
+
+data.listIncomingRequests = async function () {
+  const uid = window.currentUser.id;
+  const { data: rows, error } = await sb
+    .from('friendships')
+    .select('requester_id, created_at')
+    .eq('addressee_id', uid)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  const profs = await data._resolveProfiles(rows.map((r) => r.requester_id));
+  return rows.map((r) => ({
+    userId: r.requester_id,
+    username: profs.get(r.requester_id)?.username ?? 'unknown',
+    avatarUrl: profs.get(r.requester_id)?.avatarUrl ?? null,
+    createdAt: r.created_at,
+  }));
+};
+
+data.countPendingFriendRequests = async function () {
+  const { count, error } = await sb
+    .from('friendships')
+    .select('requester_id', { count: 'exact', head: true })
+    .eq('addressee_id', window.currentUser.id)
+    .eq('status', 'pending');
+  if (error) { console.warn('friend req count', error); return 0; }
+  return count || 0;
+};
+
+// 'none' | 'friends' | 'incoming' (they asked me) | 'outgoing' (I asked)
+data.friendshipWith = async function (otherId) {
+  const uid = window.currentUser.id;
+  const { data: rows, error } = await sb
+    .from('friendships')
+    .select('requester_id, addressee_id, status')
+    .or(`and(requester_id.eq.${uid},addressee_id.eq.${otherId}),and(requester_id.eq.${otherId},addressee_id.eq.${uid})`);
+  if (error) throw error;
+  const row = (rows || [])[0];
+  if (!row) return 'none';
+  if (row.status === 'accepted') return 'friends';
+  return row.requester_id === uid ? 'outgoing' : 'incoming';
+};
+
+data.sendFriendRequest = async function (otherId) {
+  const { error } = await sb.from('friendships').insert({
+    requester_id: window.currentUser.id,
+    addressee_id: otherId,
+  });
+  if (error) throw error;
+};
+
+data.acceptFriendRequest = async function (requesterId) {
+  const { error } = await sb
+    .from('friendships')
+    .update({ status: 'accepted', responded_at: new Date().toISOString() })
+    .eq('requester_id', requesterId)
+    .eq('addressee_id', window.currentUser.id);
+  if (error) throw error;
+};
+
+// Decline an incoming request, cancel an outgoing one, or unfriend —
+// all are "delete the row in whichever direction it exists".
+data.removeFriend = async function (otherId) {
+  const uid = window.currentUser.id;
+  const { error } = await sb
+    .from('friendships')
+    .delete()
+    .or(`and(requester_id.eq.${uid},addressee_id.eq.${otherId}),and(requester_id.eq.${otherId},addressee_id.eq.${uid})`);
+  if (error) throw error;
+  // Also drop them from my Inner Coffin if present (best-effort).
+  try { await sb.from('inner_circle').delete().eq('owner_id', uid).eq('member_id', otherId); }
+  catch (e) { console.warn('inner cleanup', e); }
+};
+
+data.setInner = async function (otherId, on) {
+  const uid = window.currentUser.id;
+  if (on) {
+    const { error } = await sb.from('inner_circle').upsert({ owner_id: uid, member_id: otherId });
+    if (error) throw error;
+  } else {
+    const { error } = await sb.from('inner_circle').delete().eq('owner_id', uid).eq('member_id', otherId);
+    if (error) throw error;
+  }
+};
+
+data.searchUsers = async function (prefix, limit = 12) {
+  const q = (prefix || '').trim();
+  if (!q) return [];
+  const { data: rows, error } = await sb
+    .from('profiles')
+    .select('id, username, avatar_path')
+    .ilike('username', q + '%')
+    .neq('id', window.currentUser.id)
+    .limit(limit);
+  if (error) throw error;
+  return await Promise.all((rows || []).map(async (r) => ({
+    userId: r.id,
+    username: r.username,
+    avatarUrl: r.avatar_path ? await data.socialPhotoUrl(r.avatar_path) : null,
+  })));
+};
+
+// ─── Profile ────────────────────────────────────────────────────────
+data.getSocialProfile = async function (userId) {
+  const { data: row, error } = await sb
+    .from('profiles')
+    .select('id, username, bio, avatar_path')
+    .eq('id', userId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!row) return null;
+  return { ...row, avatarUrl: row.avatar_path ? await data.socialPhotoUrl(row.avatar_path) : null };
+};
+
+data.updateMyProfile = async function ({ bio, avatarBlob }) {
+  const patch = {};
+  if (bio !== undefined) patch.bio = bio;
+  if (avatarBlob instanceof Blob) patch.avatar_path = await data.uploadSocialPhoto(avatarBlob);
+  if (Object.keys(patch).length === 0) return;
+  const { error } = await sb.from('profiles').update(patch).eq('id', window.currentUser.id);
+  if (error) throw error;
+};
+
+// ─── Posts ──────────────────────────────────────────────────────────
+data.createPost = async function ({ body, visibility, photoBlob, catalogId, plushName }) {
+  let photoPath = null;
+  if (photoBlob instanceof Blob) photoPath = await data.uploadSocialPhoto(photoBlob);
+  const { data: row, error } = await sb.from('posts').insert({
+    author_id: window.currentUser.id,
+    body: body || null,
+    photo_path: photoPath,
+    catalog_id: catalogId || null,
+    plush_name: plushName || null,
+    visibility: visibility || 'friends',
+  }).select().single();
+  if (error) throw error;
+  return row;
+};
+
+data.deletePost = async function (postId) {
+  const { error } = await sb.from('posts').delete().eq('id', postId);
+  if (error) throw error;
+};
+
+// Shared post → view-object hydration (profiles, likes, comments, photo
+// URLs). Used by both the feed and a single profile's post list.
+data._hydratePosts = async function (rows) {
+  if (!rows || !rows.length) return [];
+  const uid = window.currentUser.id;
+  const postIds = rows.map((r) => r.id);
+
+  const [{ data: likes }, { data: comments }] = await Promise.all([
+    sb.from('post_likes').select('post_id, user_id').in('post_id', postIds),
+    sb.from('post_comments').select('id, post_id, author_id, body, created_at').in('post_id', postIds).order('created_at', { ascending: true }),
+  ]);
+
+  const likeCount = new Map();
+  const likedByMe = new Set();
+  for (const l of (likes || [])) {
+    likeCount.set(l.post_id, (likeCount.get(l.post_id) || 0) + 1);
+    if (l.user_id === uid) likedByMe.add(l.post_id);
+  }
+  const commentsByPost = new Map();
+  for (const c of (comments || [])) {
+    if (!commentsByPost.has(c.post_id)) commentsByPost.set(c.post_id, []);
+    commentsByPost.get(c.post_id).push(c);
+  }
+
+  // Resolve every author (posts + comment authors) in one batch.
+  const ids = new Set(rows.map((r) => r.author_id));
+  for (const c of (comments || [])) ids.add(c.author_id);
+  const profs = await data._resolveProfiles([...ids]);
+
+  return await Promise.all(rows.map(async (r) => ({
+    id: r.id,
+    authorId: r.author_id,
+    authorName: profs.get(r.author_id)?.username ?? 'unknown',
+    authorAvatar: profs.get(r.author_id)?.avatarUrl ?? null,
+    body: r.body,
+    photoUrl: r.photo_path ? await data.socialPhotoUrl(r.photo_path) : null,
+    catalogId: r.catalog_id,
+    plushName: r.plush_name,
+    visibility: r.visibility,
+    createdAt: r.created_at,
+    mine: r.author_id === uid,
+    likeCount: likeCount.get(r.id) || 0,
+    likedByMe: likedByMe.has(r.id),
+    comments: (commentsByPost.get(r.id) || []).map((c) => ({
+      id: c.id,
+      authorId: c.author_id,
+      authorName: profs.get(c.author_id)?.username ?? 'unknown',
+      body: c.body,
+      createdAt: c.created_at,
+      mine: c.author_id === uid,
+      canDelete: c.author_id === uid || r.author_id === uid,
+    })),
+  })));
+};
+
+// The feed: every post RLS lets me see (mine + friends' + public),
+// newest first. Early-Facebook style — one global-ish river.
+data.listFeed = async function (limit = 60) {
+  const { data: rows, error } = await sb
+    .from('posts')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return await data._hydratePosts(rows);
+};
+
+data.listUserPosts = async function (userId, limit = 40) {
+  const { data: rows, error } = await sb
+    .from('posts')
+    .select('*')
+    .eq('author_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return await data._hydratePosts(rows);
+};
+
+data.toggleLike = async function (postId, on) {
+  if (on) {
+    const { error } = await sb.from('post_likes').upsert({ post_id: postId, user_id: window.currentUser.id });
+    if (error) throw error;
+  } else {
+    const { error } = await sb.from('post_likes').delete().eq('post_id', postId).eq('user_id', window.currentUser.id);
+    if (error) throw error;
+  }
+};
+
+data.addComment = async function (postId, body) {
+  const { data: row, error } = await sb.from('post_comments').insert({
+    post_id: postId,
+    author_id: window.currentUser.id,
+    body,
+  }).select().single();
+  if (error) throw error;
+  return row;
+};
+
+data.deleteComment = async function (commentId) {
+  const { error } = await sb.from('post_comments').delete().eq('id', commentId);
+  if (error) throw error;
+};
+
+// ─── Top 8 ──────────────────────────────────────────────────────────
+data.getTopPlushes = async function (userId) {
+  const { data: rows, error } = await sb
+    .from('top_plushes')
+    .select('position, plush_name, catalog_id, photo_path')
+    .eq('owner_id', userId)
+    .order('position', { ascending: true });
+  if (error) throw error;
+  return await Promise.all((rows || []).map(async (r) => ({
+    position: r.position,
+    plushName: r.plush_name,
+    catalogId: r.catalog_id,
+    photoUrl: r.photo_path ? await data.socialPhotoUrl(r.photo_path) : null,
+  })));
+};
+
+// Replace my whole Top 8 with `entries` (ordered array, max 8). Each
+// entry: { plushName, catalogId?, photoPath? }. photoPath here is the
+// item's ORIGINAL 'photos'-bucket path; we copy it into 'social' so
+// viewers can see it. Items with a catalogId skip the copy (the client
+// renders the catalog image as a reliable fallback).
+data.setTopPlushes = async function (entries) {
+  const uid = window.currentUser.id;
+  const clean = (entries || []).slice(0, 8);
+  const rows = [];
+  for (let i = 0; i < clean.length; i++) {
+    const e = clean[i];
+    let socialPath = null;
+    if (!e.catalogId && e.photoPath) {
+      try { socialPath = await data._copyPhotoToSocial(e.photoPath); }
+      catch (err) { console.warn('top8 photo copy failed', err); }
+    }
+    rows.push({
+      owner_id: uid,
+      position: i + 1,
+      plush_name: e.plushName,
+      catalog_id: e.catalogId || null,
+      photo_path: socialPath,
+    });
+  }
+  // Replace-all: clear then insert the new ordering.
+  const { error: delErr } = await sb.from('top_plushes').delete().eq('owner_id', uid);
+  if (delErr) throw delErr;
+  if (rows.length) {
+    const { error } = await sb.from('top_plushes').insert(rows);
+    if (error) throw error;
+  }
+};
+
 window.data = data;
