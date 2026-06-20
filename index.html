@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=71" />
+  <link rel="stylesheet" href="./styles.css?v=72" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -356,6 +356,12 @@
   <div id="social-modal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-backdrop" data-close-social></div>
     <div class="modal-card" id="social-modal-card"></div>
+  </div>
+
+  <!-- Wearer picker — "who's wearing this accessory?" Filled by app.js. -->
+  <div id="wearer-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-wearer></div>
+    <div class="modal-card" id="wearer-modal-card"></div>
   </div>
 
   <footer class="app-footer">
@@ -942,7 +948,7 @@
   <script src="./config.js?v=51"></script>
   <script src="./auth.js?v=54"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=54"></script>
-  <script src="./app.js?v=54"></script>
+  <script src="./data.js?v=55"></script>
+  <script src="./app.js?v=55"></script>
 </body>
 </html>

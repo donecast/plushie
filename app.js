@@ -1047,6 +1047,55 @@ function photoSrc(item) {
   return null;
 }
 
+// ─── Wearable accessories (clothing) ────────────────────────────────
+// Detect plush clothing so it can be attached to the plush wearing it.
+// Plushie Dreadfuls' wearables are the "Plush Outfit" / "Mini Plush
+// Outfit" / "Dreadful Disguises" lines (all catalog type 'accessory'),
+// plus anything with a clothing keyword on an accessory-typed item.
+const PLUSH_CLOTHING_LINES = /plush outfit|dreadful disguises/i;
+const CLOTHING_RE = /\b(outfit|hoodie|sweater|sweatshirt|cardigan|jacket|coat|dress|gown|skirt|overalls|romper|onesie|jumpsuit|jumper|pinafore|pajamas?|robe|vest|tunic|kimono|poncho|cape|capelet|cloak|costume|wings|tutu|scarf|shawl|beanie|bonnet)\b/i;
+
+function catalogForItem(item) {
+  return item.catalogId ? state.catalog.find((c) => c.id === item.catalogId) : null;
+}
+
+function isWearableItem(item) {
+  const cat = catalogForItem(item);
+  const catName = (cat?.name || '').toLowerCase();
+  const type = (cat?.type || '').toLowerCase();
+  if (PLUSH_CLOTHING_LINES.test(catName)) return true;
+  if (type === 'accessory' && CLOTHING_RE.test(catName)) return true;
+  // Pre-catalog / custom items: fall back to the user's own name, which
+  // is often possessive ("Ni'ni's Purple Overalls").
+  if (!cat && CLOTHING_RE.test((item.name || '').toLowerCase())) return true;
+  return false;
+}
+
+// A collection entry = a plush card, plus any accessories attached to it
+// shown side-by-side on the right. Plain plushes render as a bare card.
+function renderCollectionEntry(item) {
+  const card = renderCard(item, 'collection');
+  const attached = state._attByPlush ? (state._attByPlush.get(item.id) || []) : [];
+  if (!attached.length) return card;
+  const accs = attached.map(renderAttachedAccessory).join('');
+  return `<div class="col-entry outfitted">${card}<div class="attached-wrap">${accs}</div></div>`;
+}
+
+function renderAttachedAccessory(a) {
+  const src = photoSrc(a) || catalogImageFor(a.catalogId);
+  const photo = src
+    ? `<img src="${escapeHtml(src)}" loading="lazy" alt="" />`
+    : '<span class="no-photo">🧥</span>';
+  return `
+    <div class="attached-acc" data-acc-id="${a.id}">
+      <div class="attached-acc-photo">${photo}</div>
+      <div class="attached-acc-info">
+        <span class="attached-acc-name">${escapeHtml(a.nickname || a.name)}</span>
+        <button class="attached-detach" data-action="detach-acc" data-id="${a.id}" title="Detach from this plush">✕ Detach</button>
+      </div>
+    </div>`;
+}
+
 function renderCard(item, kind) {
   const src = photoSrc(item);
   const photoHtml = src
@@ -1109,9 +1158,15 @@ function renderCard(item, kind) {
   const isSeeking = kind === 'wishlist' && item.catalogId
     && state.myTradeItems.some((t) => t.kind === 'seeking' && t.catalogId === item.catalogId);
 
+  // Wearable accessory that isn't attached yet → offer to attach it.
+  const wearerBtn = (kind === 'collection' && isWearableItem(item) && !item.wornBy)
+    ? `<button data-action="assign-wearer" data-id="${item.id}" title="Attach this to the plush wearing it">🧥 Who's wearing this?</button>`
+    : '';
+
   const actions = kind === 'collection'
     ? `
       ${qtyControl}
+      ${wearerBtn}
       ${tradeBtn}
       <button class="btn-trash" data-action="delete" data-id="${item.id}" aria-label="Delete" title="Delete">🗑</button>
     `
@@ -1217,8 +1272,18 @@ function render() {
   if (tab === 'collection') {
     // Plushies sub-tab — the original list view.
     syncCollectionChips();
-    const items = filteredCollection();
-    document.getElementById('collection-grid').innerHTML = items.map((i) => renderCard(i, 'collection')).join('');
+    // Map every attached accessory to the plush wearing it (computed from
+    // the whole collection so attachments survive search/filters), then
+    // hide the attached accessories from the grid itself.
+    const attByPlush = new Map();
+    for (const it of state.collection) {
+      if (!it.wornBy) continue;
+      if (!attByPlush.has(it.wornBy)) attByPlush.set(it.wornBy, []);
+      attByPlush.get(it.wornBy).push(it);
+    }
+    state._attByPlush = attByPlush;
+    const items = filteredCollection().filter((i) => !i.wornBy);
+    document.getElementById('collection-grid').innerHTML = items.map((i) => renderCollectionEntry(i)).join('');
     document.getElementById('collection-empty').classList.toggle('hidden', items.length > 0);
     document.getElementById('count-label').textContent =
       `${items.length} of ${state.collection.length} item${state.collection.length === 1 ? '' : 's'}`;
@@ -1405,6 +1470,65 @@ function closeModal() {
   state.editingId = null;
 }
 
+// ─── Wearer picker (attach a clothing accessory to a plush) ─────────
+async function setWearer(accId, plushId) {
+  try {
+    await data.setWornBy(accId, plushId);
+    const it = state.collection.find((i) => i.id === accId);
+    if (it) it.wornBy = plushId;
+    closeWearerModal();
+    render();
+    toast(plushId ? 'Attached. 🧥' : 'Detached.');
+  } catch (e) {
+    console.error('setWornBy', e);
+    toast(/column.*worn_by/i.test(e?.message || '')
+      ? 'Run the latest migration (db/0023_worn_by.sql) — the worn_by column is missing.'
+      : 'Could not update.');
+  }
+}
+
+function openWearerPicker(accId) {
+  const acc = state.collection.find((i) => i.id === accId);
+  if (!acc) return;
+  // Candidates = your plushes (not other wearables, not this item).
+  const candidates = state.collection.filter((i) => i.id !== accId && !isWearableItem(i));
+  // Auto-suggest from a possessive name: "Ni'ni's Purple Overalls" → ni'ni.
+  const m = (acc.nickname || acc.name || '').match(/^([\p{L}\p{N}'’.\- ]+?)['’]s\b/u);
+  const hint = m ? m[1].trim().toLowerCase() : null;
+  const nameOf = (i) => (i.nickname || i.name || '').toLowerCase();
+  const score = (i) => (hint && nameOf(i).startsWith(hint) ? 1 : 0);
+  candidates.sort((a, b) => score(b) - score(a) || nameOf(a).localeCompare(nameOf(b)));
+
+  const rows = candidates.map((p) => {
+    const src = photoSrc(p) || catalogImageFor(p.catalogId);
+    const photo = src ? `<img src="${escapeHtml(src)}" loading="lazy" alt="" />` : '<span class="no-photo">🖤</span>';
+    const suggested = hint && nameOf(p).startsWith(hint);
+    return `
+      <button class="wearer-row ${suggested ? 'suggested' : ''}" data-action="pick-wearer" data-acc-id="${accId}" data-plush-id="${p.id}">
+        <span class="wearer-photo">${photo}</span>
+        <span class="wearer-name">${escapeHtml(p.nickname || p.name)}${suggested ? ' <span class="wearer-suggest">suggested</span>' : ''}</span>
+      </button>`;
+  }).join('');
+
+  const accName = escapeHtml(acc.nickname || acc.name);
+  document.getElementById('wearer-modal-card').innerHTML = `
+    <button class="modal-close" data-close-wearer aria-label="Close">×</button>
+    <h2>Who's wearing this?</h2>
+    <p class="modal-name">${accName}</p>
+    ${candidates.length
+      ? `<div class="wearer-list">${rows}</div>`
+      : `<p class="empty-note">No plushes to attach to yet — add a plush to your collection first.</p>`}
+    <div class="form-actions">
+      <button type="button" class="btn-ghost" data-close-wearer>Cancel</button>
+    </div>`;
+  document.getElementById('wearer-modal').classList.remove('hidden');
+}
+
+function closeWearerModal() {
+  document.getElementById('wearer-modal').classList.add('hidden');
+  document.getElementById('wearer-modal-card').innerHTML = '';
+}
+
 async function submitForm(e) {
   e.preventDefault();
   const existing = state.collection.find((x) => x.id === state.editingId);
@@ -1539,6 +1663,10 @@ async function onCardClickInner(btn) {
   } else if (action === 'seek-trade') {
     const item = state.wishlist.find((x) => x.id === id);
     if (item) await markForTrade(item, 'seeking');
+  } else if (action === 'assign-wearer') {
+    openWearerPicker(id);
+  } else if (action === 'detach-acc') {
+    await setWearer(id, null);
   } else if (action === 'col-inc') {
     if (Date.now() - _lastQtyTap < 150) return;
     _lastQtyTap = Date.now();
@@ -2045,6 +2173,12 @@ function wireEvents() {
   document.getElementById('collection-grid').addEventListener('click', onCardClick);
   document.getElementById('wishlist-grid').addEventListener('click', onCardClick);
   document.getElementById('catalog-grid').addEventListener('click', onCardClick);
+  // Wearer picker modal — pick a plush to attach an accessory to.
+  document.getElementById('wearer-modal').addEventListener('click', (e) => {
+    if (e.target.closest('[data-close-wearer]')) { closeWearerModal(); return; }
+    const pick = e.target.closest('[data-action="pick-wearer"]');
+    if (pick) setWearer(pick.dataset.accId, pick.dataset.plushId);
+  });
   // The detail modal also renders data-action buttons (Have, Want, Buy,
   // admin Edit). Wire them through the same dispatcher.
   document.getElementById('catalog-detail-modal').addEventListener('click', onCardClick);

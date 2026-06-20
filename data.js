@@ -195,6 +195,18 @@ const data = {
     }
   },
 
+  // Attach a clothing accessory (a collection row) to the plush wearing
+  // it, or pass null to detach. A dedicated column update so it never
+  // rides through _itemToRow / put() — edits and qty changes leave
+  // worn_by untouched because that column isn't in the upsert payload.
+  async setWornBy(itemId, wearerId) {
+    const { error } = await sb
+      .from('plushies')
+      .update({ worn_by: wearerId, updated_at: new Date().toISOString() })
+      .eq('id', itemId);
+    if (error) throw error;
+  },
+
   // ─── Photos (R2 via Worker, with Supabase Storage fallback) ──────
   // Routing is controlled by window.R2_BASE in config.js:
   //   * empty / unset → legacy Supabase Storage 'photos' bucket
@@ -324,6 +336,7 @@ const data = {
         missingAccessories: Array.isArray(r.missing_accessories) ? r.missing_accessories : [],
         retired: r.retired,
         quantity: r.quantity ?? 1,
+        wornBy: r.worn_by || null,
       };
     }
     return {
