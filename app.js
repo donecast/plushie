@@ -470,28 +470,33 @@ async function mergeCustomCatalog(shopifyProducts) {
     // are kept out of the client catalog entirely — no grid, search, or
     // Own/Want. `hidden` is undefined on older rows → treated as visible.
     const customs = (await data.listApprovedCatalogItems()).filter((c) => !c.hidden);
-    const normalised = customs.map((c) => ({
-      id: c.id,                       // UUID — collectors' plushies.catalog_id will hold this
-      name: c.name,
-      handle: c.handle,
-      type: c.type || 'plush',
-      image: c.image || null,         // signed URL produced by data.listApprovedCatalogItems
-      price: null,
-      available: !!c.available,
-      retired: !!c.retired,
-      createdAt: c.created_at,
-      publishedAt: c.created_at,
-      tags: c.tags || [],
-      parentHandle: c.parent_handle || null,
-      formLabel: c.form_label || null,
-      isCustom: true,
-      description: c.description || null,
-      lore: c.lore || null,
-      symbolism: c.symbolism || null,
-      accessories: Array.isArray(c.accessories) ? c.accessories : [],
-      releaseYear: c.release_year ?? null,
-      isBundle: false,
-    }));
+    const normalised = customs.map((c) => {
+      const item = {
+        id: c.id,                       // UUID — collectors' plushies.catalog_id will hold this
+        name: c.name,
+        handle: c.handle,
+        type: c.type || 'plush',
+        image: c.image || null,         // signed URL produced by data.listApprovedCatalogItems
+        price: null,
+        available: !!c.available,
+        retired: !!c.retired,
+        createdAt: c.created_at,
+        publishedAt: c.created_at,
+        tags: c.tags || [],
+        parentHandle: c.parent_handle || null,
+        formLabel: c.form_label || null,
+        isCustom: true,
+        description: c.description || null,
+        lore: c.lore || null,
+        symbolism: c.symbolism || null,
+        accessories: [],
+        releaseYear: c.release_year ?? null,
+        isBundle: false,
+      };
+      // Same gate + de-noise as Shopify items so customs stay consistent.
+      item.accessories = categoryHasAccessories(item) ? normalizeAccessories(c.accessories) : [];
+      return item;
+    });
     return [...shopifyProducts, ...normalised];
   } catch (e) {
     console.warn('custom catalog merge skipped', e);
@@ -549,7 +554,7 @@ function normalizeShopifyProduct(p) {
   const priceNums = variants.map((v) => parseFloat(v.price)).filter((n) => !isNaN(n));
   const tags = p.tags || [];
   const parsed = parseBodyHtml(p.body_html);
-  return {
+  const item = {
     id: String(p.id),
     name: p.title,
     handle: p.handle,
@@ -565,9 +570,13 @@ function normalizeShopifyProduct(p) {
     lore: parsed.lore,
     symbolism: parsed.symbolism,
     symbolismHtml: parsed.symbolismHtml,
-    accessories: parsed.accessories,
+    accessories: [],
     isBundle: parsed.isBundle || tags.some((t) => t.toLowerCase().includes('bundle')),
   };
+  // Only plushes/bundles carry accessories, and the raw parse needs
+  // de-noising (features, specs, duplicates) before it's a checklist.
+  item.accessories = categoryHasAccessories(item) ? normalizeAccessories(parsed.accessories) : [];
+  return item;
 }
 
 // ─── Lore / Symbolism / Set-Includes parser ──────────────────────
@@ -755,6 +764,75 @@ function canonicalizeAccessoryName(raw) {
     // Drop a trailing em-dash sub-clause ('— measures 38cm x 33cm').
     .replace(/\s*[—–-]\s*measures?.*$/i, '')
     .trim();
+}
+
+// ─── Accessory list hygiene ──────────────────────────────────────────
+// The "Set Includes" text is freeform prose, so the raw parse drags in
+// three kinds of noise: product *features* (poses, articulation,
+// embroidery, body construction), *measurements*, and plain duplicates of
+// the same physical extra worded two ways. Strip all three so the
+// checklist is just the actual included items. Only plushes/bundles get a
+// list at all — see categoryHasAccessories.
+
+// A line matching this reads as a feature/spec, not a physical accessory.
+const NON_ACCESSORY_RE = new RegExp([
+  'pose', 'poseable', 'articulat', 'magnetic', 'connects? to',
+  'attach(es|ed)? to (the )?(face|body|head)', 'embroider', 'printed',
+  'stitched (on|in)', 'pouch body', 'zipper(ed)? body', 'hidden zip',
+  'measures?', '\\d+\\s*cm', '\\d+\\s*(inch|in\\b|")', 'tall',
+  'ears? to toes?', 'head to toe', 'machine wash', 'spot clean',
+  'surface wash', 'washable', 'polyester', 'stuffing',
+].join('|'), 'i');
+
+// Identity key for de-duping: drop counts, size/material adjectives, and
+// articles so "Sturdy Cotton Tote Bag" and "Anxiety Rabbit Tote Bag" both
+// reduce toward their core noun, and "Tiny Worry Bunnies" collapses with
+// "Two Tiny Worry Bunnies".
+const ACC_FILLER_RE = /\b(a|an|the|with|for|and|of|in|on|one|two|three|four|five|six|seven|eight|nine|ten|tiny|small|mini|little|large|big|xl|sturdy|soft|plush|cotton|cloth|fabric|fluffy|extra|set|pair|brand|new|limited|edition|official|\d+)\b/g;
+function accessoryDedupKey(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/['’"“”]/g, '')
+    .replace(ACC_FILLER_RE, ' ')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\b(\w+?)s\b/g, '$1')   // crude singularise
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Clean + de-dupe a parsed accessory list. Accepts strings or {name}.
+// Returns the existing {name, key} shape so missing-accessories matching
+// keeps working. Keeps the first (leaner) phrasing of any duplicate.
+function normalizeAccessories(list) {
+  const kept = [];
+  for (const raw of (Array.isArray(list) ? list : [])) {
+    const name = canonicalizeAccessoryName(typeof raw === 'string' ? raw : (raw && raw.name) || '');
+    if (!name) continue;
+    if (NON_ACCESSORY_RE.test(name)) continue;          // feature / spec, not an item
+    const dk = accessoryDedupKey(name);
+    if (!dk) continue;
+    const tokens = dk.split(' ').filter(Boolean);
+    const dup = kept.some((k) => {
+      if (k.dk === dk) return true;
+      // Subset merge: collapse when one phrasing's core (≥2 tokens, so we
+      // never merge on a lone generic word like "bag") is wholly contained
+      // in the other.
+      const kt = k.dk.split(' ').filter(Boolean);
+      const small = tokens.length <= kt.length ? tokens : kt;
+      const big   = tokens.length <= kt.length ? kt : tokens;
+      return small.length >= 2 && small.every((t) => big.includes(t));
+    });
+    if (dup) continue;
+    kept.push({ name, key: name.toLowerCase(), dk });
+  }
+  return kept.map(({ name, key }) => ({ name, key }));
+}
+
+// Only plushes and multi-item bundles ship with accessories. Store merch,
+// minis, standees, etc. don't get a checklist at all.
+function categoryHasAccessories(item) {
+  const cat = catalogCategory(item);
+  return cat === 'plush' || cat === 'bundle';
 }
 
 function textOf(node) {
