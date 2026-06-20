@@ -36,14 +36,22 @@ const auth = {
   async getProfile() {
     const session = await auth.getSession();
     if (!session) return null;
-    // First try with is_admin (added by migration 0005). If the column
-    // doesn't exist yet, fall back to the base columns and treat is_admin
-    // as false so the user can still sign in.
+    // First try the full column set. If a newer column hasn't been
+    // migrated yet, fall back progressively so a fresh install can
+    // still sign in before all migrations have been applied.
     let { data, error } = await sb
       .from('profiles')
-      .select('id, username, is_admin')
+      .select('id, username, is_admin, photo_uploads_enabled')
       .eq('id', session.user.id)
       .maybeSingle();
+    if (error && /column.*photo_uploads_enabled/i.test(error.message || '')) {
+      console.warn('[auth] profiles.photo_uploads_enabled missing; run migration 0019');
+      ({ data, error } = await sb
+        .from('profiles')
+        .select('id, username, is_admin')
+        .eq('id', session.user.id)
+        .maybeSingle());
+    }
     if (error && /column.*is_admin/i.test(error.message || '')) {
       console.warn('[auth] profiles.is_admin missing; run migration 0005');
       ({ data, error } = await sb
@@ -149,6 +157,10 @@ async function runAuthGate(onReady) {
         email: session.user.email,
         username: profile.username,
         isAdmin: !!profile.is_admin,
+        // Default true: when the column hasn't been migrated yet, or
+        // for users older than 0019. Admin override happens at the
+        // featureEnabled() call site.
+        photoUploadsEnabled: profile.photo_uploads_enabled !== false,
       };
       updateUserBadge();
       hide();

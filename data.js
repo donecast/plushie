@@ -984,7 +984,7 @@ data.updateEmail = async function (email) {
 data.adminListUsers = async function () {
   const { data: rows, error } = await sb
     .from('profiles')
-    .select('id, username, is_admin, created_at')
+    .select('id, username, is_admin, created_at, photo_uploads_enabled')
     .order('created_at', { ascending: false });
   if (error) throw error;
   // Enrich with feedback summary
@@ -1592,9 +1592,28 @@ data.loadAppSettings = async function () {
 };
 
 data.featureEnabled = function (key, defaultValue = true) {
+  // Per-user photo uploads: profiles.photo_uploads_enabled, with an
+  // unconditional admin override. The global app_settings row from
+  // 0017 is no longer consulted for this key — toggling now happens
+  // on the per-user admin page.
+  if (key === 'feature.user_photo_uploads') {
+    if (window.currentUser?.isAdmin) return true;
+    return window.currentUser?.photoUploadsEnabled !== false;
+  }
   const v = data.appSettings[key];
   if (v === undefined || v === null) return defaultValue;
   return v !== false;
+};
+
+// Admin toggles another user's photo-upload permission. RLS lets
+// admins update any profile row (covered by the existing admin
+// policy on profiles); regular users can only update their own.
+data.adminSetPhotoUploads = async function (userId, enabled) {
+  const { error } = await sb
+    .from('profiles')
+    .update({ photo_uploads_enabled: !!enabled })
+    .eq('id', userId);
+  if (error) throw error;
 };
 
 data.adminSetSetting = async function (key, value) {

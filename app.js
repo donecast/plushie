@@ -13,6 +13,7 @@ const state = {
   catalogFilter: 'all',       // catalog category: all | plush | accessory | other
   catalogStatuses: new Set(), // empty = any; otherwise OR of: available/sold_out/coming_soon/retired/fyc
   catalogUnowned: false,      // toggle: hide ones already in collection
+  catalogOriginal: false,     // toggle: only show items tagged 'original' (early forms / OG versions)
   catalogTheme: 'all',        // tag value to require; 'all' = no constraint
   catalogColor: 'all',        // color tag substring match; 'all' = no constraint
   catalogSort: 'newest',      // newest | oldest | name_asc | name_desc | price_asc | price_desc
@@ -142,6 +143,7 @@ function renderActiveFilters(shownCount) {
     pills.push(`<button class="active-pill" data-clear="status:${s}">${escapeHtml(s.replace('_',' '))} ×</button>`);
   }
   if (state.catalogUnowned)  pills.push(`<button class="active-pill" data-clear="unowned">Unowned ×</button>`);
+  if (state.catalogOriginal) pills.push(`<button class="active-pill" data-clear="original">Original forms ×</button>`);
   if (state.catalogTheme && state.catalogTheme !== 'all') {
     pills.push(`<button class="active-pill" data-clear="theme">Theme: ${escapeHtml(state.catalogTheme)} ×</button>`);
   }
@@ -165,6 +167,7 @@ function clearTabFilters(tab) {
     state.catalogFilter = 'all';
     state.catalogStatuses = new Set();
     state.catalogUnowned = false;
+    state.catalogOriginal = false;
     state.catalogTheme = 'all';
     state.catalogColor = 'all';
     state.catalogSort = 'newest';
@@ -193,6 +196,7 @@ function clearFilter(key) {
     state.catalogFilter = 'all';
     state.catalogStatuses = new Set();
     state.catalogUnowned = false;
+    state.catalogOriginal = false;
     state.catalogTheme = 'all';
     state.catalogColor = 'all';
     state.query = '';
@@ -207,6 +211,8 @@ function clearFilter(key) {
     state.catalogStatuses.delete(key.slice(7));
   } else if (key === 'unowned') {
     state.catalogUnowned = false;
+  } else if (key === 'original') {
+    state.catalogOriginal = false;
   } else if (key === 'theme') {
     state.catalogTheme = 'all';
     const themeEl = document.getElementById('cat-theme');
@@ -270,10 +276,12 @@ function syncCatalogChips() {
     [...state.catalogStatuses].map((s) => STATUS_LABELS[s] || s),
   );
   document.querySelectorAll('#cat-extras input[data-cat-toggle]').forEach((c) => {
-    c.checked = (c.dataset.catToggle === 'unowned' && state.catalogUnowned);
+    if (c.dataset.catToggle === 'unowned') c.checked = !!state.catalogUnowned;
+    else if (c.dataset.catToggle === 'original') c.checked = !!state.catalogOriginal;
   });
   const exLabels = [];
   if (state.catalogUnowned) exLabels.push('Unowned');
+  if (state.catalogOriginal) exLabels.push('Original forms');
   setMultiSummary(document.getElementById('cat-extras'), exLabels);
   const themeEl = document.getElementById('cat-theme');
   if (themeEl) themeEl.value = state.catalogTheme;
@@ -418,7 +426,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=67', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=68', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
     const shopify = (json.products || []).filter(isPlushieCollectible);
@@ -869,6 +877,12 @@ function filteredCatalog() {
     if (cat !== 'all' && catalogCategory(it) !== cat) return false;
     if (statuses.size > 0 && !statuses.has(itemStatus(it))) return false;
     if (state.catalogUnowned && owned.has(it.id)) return false;
+    if (state.catalogOriginal) {
+      const tags = (it.tags || []).map((t) => String(t).toLowerCase());
+      const isOriginalForm = tags.includes('original')
+        || (it.formLabel && /original/i.test(it.formLabel));
+      if (!isOriginalForm) return false;
+    }
     if (theme && theme !== 'all') {
       const tags = (it.tags || []).map((t) => t.toLowerCase());
       if (!tags.includes(theme)) return false;
@@ -1824,6 +1838,7 @@ function saveFilters() {
       catalogFilter: state.catalogFilter,
       catalogStatuses: [...state.catalogStatuses],
       catalogUnowned: state.catalogUnowned,
+      catalogOriginal: state.catalogOriginal,
       catalogTheme: state.catalogTheme,
       catalogColor: state.catalogColor,
       catalogSort: state.catalogSort,
@@ -1846,7 +1861,7 @@ function loadFilters() {
       'catalogFilter', 'catalogTheme', 'catalogColor', 'catalogSort', 'query', 'tradeSubTab', 'tradeFilter',
     ];
     for (const k of scalars) if (k in s) state[k] = s[k];
-    const bools = ['colDupes', 'colNoBag', 'wishInStock', 'catalogUnowned'];
+    const bools = ['colDupes', 'colNoBag', 'wishInStock', 'catalogUnowned', 'catalogOriginal'];
     for (const k of bools) if (k in s) state[k] = !!s[k];
     if (Array.isArray(s.catalogStatuses)) state.catalogStatuses = new Set(s.catalogStatuses);
     // Legacy migration: 'pens' was a top-level tab pre-v52; users who had
@@ -1942,6 +1957,7 @@ function wireEvents() {
   document.querySelectorAll('#cat-extras input[data-cat-toggle]').forEach((cb) => {
     cb.addEventListener('change', () => {
       if (cb.dataset.catToggle === 'unowned') state.catalogUnowned = cb.checked;
+      else if (cb.dataset.catToggle === 'original') state.catalogOriginal = cb.checked;
       syncCatalogChips();
       render();
     });
@@ -1990,6 +2006,9 @@ function wireEvents() {
   document.getElementById('collection-grid').addEventListener('click', onCardClick);
   document.getElementById('wishlist-grid').addEventListener('click', onCardClick);
   document.getElementById('catalog-grid').addEventListener('click', onCardClick);
+  // The detail modal also renders data-action buttons (Have, Want, Buy,
+  // admin Edit). Wire them through the same dispatcher.
+  document.getElementById('catalog-detail-modal').addEventListener('click', onCardClick);
 
   // Trade tab wiring
   document.querySelectorAll('.subtab').forEach((s) => {
@@ -3642,21 +3661,9 @@ function renderAdminUserList() {
     ? `<span class="badge badge-form">${state.adminPendingCatalog.length} pending</span>` : '';
   const pendingPhotoBadge = (state.adminPendingPhotos || []).length
     ? `<span class="badge badge-form">${state.adminPendingPhotos.length} pending</span>` : '';
-  const photoUploadsOn = data.featureEnabled('feature.user_photo_uploads');
   document.getElementById('admin-content').innerHTML = `
     <section class="admin-tools">
       <h2 class="trader-head"><span>Tools</span></h2>
-
-      <div class="admin-tool">
-        <div>
-          <strong>User photo uploads</strong>
-          <p class="dim">Lets regular users contribute photos: "Suggest a photo" on catalog cards + pens, and the "Suggest a plushie" submission form. Turn off ahead of paywalling the feature. Admins are always allowed.</p>
-        </div>
-        <label class="checkbox" style="white-space:nowrap;">
-          <input type="checkbox" id="admin-setting-photo-uploads" ${photoUploadsOn ? 'checked' : ''} />
-          <span>${photoUploadsOn ? 'Enabled' : 'Disabled'}</span>
-        </label>
-      </div>
 
       <div class="admin-tool">
         <div>
@@ -3705,19 +3712,30 @@ function renderAdminUserList() {
       <tbody>${rows}</tbody>
     </table>
   `;
-  document.getElementById('admin-setting-photo-uploads')?.addEventListener('change', onTogglePhotoUploads);
 }
 
-async function onTogglePhotoUploads(e) {
+async function onTogglePhotoUploadsForUser(e) {
   const cb = e.target;
+  const userId = cb.dataset.userId;
   const next = cb.checked;
   cb.disabled = true;
   try {
-    await data.adminSetSetting('feature.user_photo_uploads', next);
-    applyFeatureFlags();
-    renderAdminUserList();
-    if (state.tab === 'catalog') render();
-    toast(next ? 'User photo uploads enabled.' : 'User photo uploads disabled.');
+    await data.adminSetPhotoUploads(userId, next);
+    // Reflect the change locally so the surrounding UI updates without
+    // a full admin re-fetch.
+    const u = state.adminUsers.find((x) => x.id === userId);
+    if (u) u.photo_uploads_enabled = next;
+    if (state.adminUserView?.user?.id === userId) {
+      state.adminUserView.user.photo_uploads_enabled = next;
+    }
+    // If admin toggled their own account, update the live currentUser
+    // shadow so the catalog/pens views re-gate buttons correctly.
+    if (userId === window.currentUser?.id) {
+      window.currentUser.photoUploadsEnabled = next;
+      applyFeatureFlags();
+      if (state.tab === 'catalog') render();
+    }
+    toast(next ? 'Photo uploads enabled for this user.' : 'Photo uploads disabled for this user.');
   } catch (err) {
     console.error(err);
     cb.checked = !next;
@@ -3779,6 +3797,20 @@ function renderAdminUserView() {
     </div>
 
     <section class="my-items-section">
+      <h3 class="trader-head"><span>Permissions</span></h3>
+      <div class="admin-tool">
+        <div>
+          <strong>Photo uploads</strong>
+          <p class="dim">Lets this user contribute photos: 🤍 suggest-a-photo on catalog cards + pens, and the "Suggest a plushie" form. Admins are always allowed regardless of this setting.</p>
+        </div>
+        <label class="checkbox" style="white-space:nowrap;">
+          <input type="checkbox" data-admin-toggle="photo-uploads" data-user-id="${user.id}" ${user.photo_uploads_enabled !== false ? 'checked' : ''} ${user.is_admin ? 'disabled title="Admins always allowed"' : ''} />
+          <span>${user.is_admin ? 'Always on (admin)' : (user.photo_uploads_enabled !== false ? 'Enabled' : 'Disabled')}</span>
+        </label>
+      </div>
+    </section>
+
+    <section class="my-items-section">
       <h3 class="trader-head"><span>Collection (${snapshot.plushies.length})</span><span class="dim">read-only</span></h3>
       <div class="grid grid-list">${snapshot.plushies.map((i) => renderItemRow(i, 'collection')).join('')}</div>
     </section>
@@ -3811,6 +3843,8 @@ function renderAdminUserView() {
       </button>
     </section>
   `;
+  document.querySelector('[data-admin-toggle="photo-uploads"]')
+    ?.addEventListener('change', onTogglePhotoUploadsForUser);
 }
 
 async function onAdminClick(e) {
@@ -4099,7 +4133,7 @@ function openCatalogItemModal(mode = 'admin', editId = null) {
     ? 'Updates the public catalog row immediately.'
     : (isAdmin
       ? 'Approved immediately; appears in the Catalog tab right after save.'
-      : 'Goes to admin (Scott) for review. He may edit the entry before approving.');
+      : 'Goes to the catalog team for review — they may edit the entry before approving.');
   document.getElementById('ci-submit').textContent = isEdit ? 'Save' : (isAdmin ? 'Create' : 'Submit');
 
   // Admins get the source-picker tabs (Upload / Pick from user). Users
@@ -4567,12 +4601,13 @@ async function openCatalogDetailModal(cid) {
           ${status !== 'coming_soon' && status !== 'fyc' ? `<button class="btn-have" data-action="cat-have" data-cid="${item.id}">🖤 Have</button>` : ''}
           ${!isWished ? `<button class="btn-want" data-action="cat-want" data-cid="${item.id}">🕯 Want</button>` : ''}
           ${productUrl ? `<a class="btn-buy" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener">Buy ↗</a>` : ''}
+          ${window.currentUser?.isAdmin && item.isCustom ? `<button class="btn-ghost" data-action="cat-admin-edit" data-cid="${item.id}">✎ Edit entry</button>` : ''}
         </div>
       </div>
     </div>
     ${isEmpty ? (raw.isCustom
-      ? '<p class="dim">No lore, symbolism, or accessories on this one yet — the admin can add them via Admin → Tools.</p>'
-      : '<p class="dim">Loading lore from the catalog feed… <small>If this stays here after a moment, the upstream product just doesn\'t carry a description.</small></p>'
+      ? '<p class="dim">No lore, symbolism, or accessories on this one yet.</p>'
+      : '<p class="dim">Loading lore from the catalog… <small>If this stays here after a moment, the catalog entry just doesn\'t carry a description.</small></p>'
     ) : ''}
     ${loreHtml}
     ${symHtml}
