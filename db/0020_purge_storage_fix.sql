@@ -14,6 +14,11 @@
 -- wipe photos through the Storage API (or the R2 Worker, once the
 -- migration is complete) — RLS already gives admins delete rights.
 
+-- The return type changes from void to uuid[]; Postgres won't allow
+-- that via CREATE OR REPLACE, so drop the old signature first. Safe
+-- to re-run (IF EXISTS).
+drop function if exists admin_purge_user(uuid);
+
 create or replace function admin_purge_user(target uuid)
 returns uuid[]
 language plpgsql
