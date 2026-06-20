@@ -418,7 +418,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=64', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=65', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
     const shopify = (json.products || []).filter(isPlushieCollectible);
@@ -960,8 +960,10 @@ function renderCatalogCard(rawItem, owned, wished) {
   const linkBtn  = productUrl ? `<a class="btn-buy" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener" title="Open product page">Buy</a>` : '';
   // "Suggest a photo" appears when the item has no image. We thread
   // the target id through dataset so the handler knows whether to
-  // attach it to a Shopify id or a catalog_items uuid.
-  const suggestBtn = !thumb
+  // attach it to a Shopify id or a catalog_items uuid. Hidden when
+  // the user_photo_uploads feature flag is off (admins still see it).
+  const canSuggestPhotos = window.currentUser?.isAdmin || data.featureEnabled('feature.user_photo_uploads');
+  const suggestBtn = (!thumb && canSuggestPhotos)
     ? `<button class="btn-suggest" data-action="cat-suggest-photo" data-cid="${item.id}" data-target-kind="${item.isCustom ? 'custom' : 'shopify'}">🤍 Suggest a photo</button>`
     : '';
   const actions = isOwned
@@ -1099,6 +1101,16 @@ function renderCard(item, kind) {
   `;
 }
 
+// Apply the current data.appSettings to DOM elements that aren't
+// re-rendered on every change (the catalog/pens lists already gate
+// their own buttons inline). Called on boot and after any admin
+// settings change.
+function applyFeatureFlags() {
+  const canSuggest = window.currentUser?.isAdmin || data.featureEnabled('feature.user_photo_uploads');
+  const suggestBtn = document.getElementById('suggest-plushie-btn');
+  if (suggestBtn) suggestBtn.classList.toggle('hidden', !canSuggest);
+}
+
 function render() {
   revokeAllBlobUrls();
 
@@ -1213,10 +1225,14 @@ function renderPens() {
       const count = state.pensOwned.get(p.id) || 0;
       // Thumbnail when the pen has an image_path on its DB row;
       // otherwise a placeholder + 🤍 'suggest a photo' button so
-      // collectors can submit one.
+      // collectors can submit one. The button is hidden when the
+      // user_photo_uploads feature flag is off (admins still see it).
+      const canSuggestPhotos = window.currentUser?.isAdmin || data.featureEnabled('feature.user_photo_uploads');
       const photo = p.image
         ? `<img class="pen-thumb" src="${escapeHtml(p.image)}" alt="" loading="lazy" />`
-        : `<button type="button" class="pen-thumb-placeholder" data-action="pen-suggest-photo" data-pen-id="${p.id}" data-pen-name="${escapeHtml(p.name)}" title="Suggest a photo of this pen">🤍</button>`;
+        : canSuggestPhotos
+          ? `<button type="button" class="pen-thumb-placeholder" data-action="pen-suggest-photo" data-pen-id="${p.id}" data-pen-name="${escapeHtml(p.name)}" title="Suggest a photo of this pen">🤍</button>`
+          : `<span class="pen-thumb-placeholder" aria-hidden="true">🖤</span>`;
       return `
         <div class="pen-row ${count > 0 ? 'owned' : ''}">
           ${photo}
@@ -3610,9 +3626,21 @@ function renderAdminUserList() {
     ? `<span class="badge badge-form">${state.adminPendingCatalog.length} pending</span>` : '';
   const pendingPhotoBadge = (state.adminPendingPhotos || []).length
     ? `<span class="badge badge-form">${state.adminPendingPhotos.length} pending</span>` : '';
+  const photoUploadsOn = data.featureEnabled('feature.user_photo_uploads');
   document.getElementById('admin-content').innerHTML = `
     <section class="admin-tools">
       <h2 class="trader-head"><span>Tools</span></h2>
+
+      <div class="admin-tool">
+        <div>
+          <strong>User photo uploads</strong>
+          <p class="dim">Lets regular users contribute photos: "Suggest a photo" on catalog cards + pens, and the "Suggest a plushie" submission form. Turn off ahead of paywalling the feature. Admins are always allowed.</p>
+        </div>
+        <label class="checkbox" style="white-space:nowrap;">
+          <input type="checkbox" id="admin-setting-photo-uploads" ${photoUploadsOn ? 'checked' : ''} />
+          <span>${photoUploadsOn ? 'Enabled' : 'Disabled'}</span>
+        </label>
+      </div>
 
       <div class="admin-tool">
         <div>
@@ -3661,6 +3689,26 @@ function renderAdminUserList() {
       <tbody>${rows}</tbody>
     </table>
   `;
+  document.getElementById('admin-setting-photo-uploads')?.addEventListener('change', onTogglePhotoUploads);
+}
+
+async function onTogglePhotoUploads(e) {
+  const cb = e.target;
+  const next = cb.checked;
+  cb.disabled = true;
+  try {
+    await data.adminSetSetting('feature.user_photo_uploads', next);
+    applyFeatureFlags();
+    renderAdminUserList();
+    if (state.tab === 'catalog') render();
+    toast(next ? 'User photo uploads enabled.' : 'User photo uploads disabled.');
+  } catch (err) {
+    console.error(err);
+    cb.checked = !next;
+    toast('Could not save: ' + (err.message || err));
+  } finally {
+    cb.disabled = false;
+  }
 }
 
 function renderAdminUserView() {
@@ -4012,6 +4060,10 @@ async function adminResolveDispute(tradeId, outcome) {
 // 'Suggest a plushie' (status defaulted by trust check; only the
 // upload photo source).
 function openCatalogItemModal(mode = 'admin') {
+  if (mode === 'user' && !data.featureEnabled('feature.user_photo_uploads')) {
+    toast('Plushie submissions are paused right now.');
+    return;
+  }
   state.catalogItemModalMode = mode;
   document.getElementById('catalog-item-form').reset();
   document.getElementById('ci-photo-preview-wrap').innerHTML = '';
@@ -4485,6 +4537,10 @@ function openLightbox(src, caption) {
 }
 
 function openSuggestPhotoModal(targetId, targetKind, targetName) {
+  if (!window.currentUser?.isAdmin && !data.featureEnabled('feature.user_photo_uploads')) {
+    toast('Photo submissions are paused right now.');
+    return;
+  }
   state.suggestPhotoTarget = { id: targetId, kind: targetKind };
   document.getElementById('sp-target-name').textContent = targetName || '';
   document.getElementById('suggest-photo-form').reset();
@@ -4810,6 +4866,8 @@ async function boot() {
   await data.loadActiveCollection();
   await handleJoinToken();        // ?join=<token> redeems and switches in
   await data.migrateFromIDB();    // one-time IDB → Supabase upload per account
+  await data.loadAppSettings();   // feature flags (e.g. user photo uploads)
+  applyFeatureFlags();
   await loadAll();
   state.pensOwned = await data.listPens();
   try { state.pensMeta = await data.listPenMeta(); } catch (e) { console.warn('pens meta load skipped', e); }

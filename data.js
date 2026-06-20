@@ -15,6 +15,7 @@
 const data = {
   collectionId: null,
   _photoUrlCache: new Map(),    // path → signed URL
+  appSettings: {},              // key → parsed jsonb value, loaded at boot
 
   // ─── Bootstrap ────────────────────────────────────────────────────
   memberships: [],
@@ -1555,6 +1556,37 @@ data._tradeItemFromRow = function (r) {
     notes: r.notes,
     createdAt: r.created_at ? +new Date(r.created_at) : Date.now(),
   };
+};
+
+// ─── App settings (admin-toggled feature flags) ───────────────────
+// Live in the app_settings table. Loaded once at boot; admin writes
+// patch the cache + DB. featureEnabled() defaults to true so a flag
+// that hasn't been seeded yet behaves as "on" — flip a row off to
+// gate a feature.
+data.loadAppSettings = async function () {
+  try {
+    const { data: rows, error } = await sb.from('app_settings').select('key, value');
+    if (error) throw error;
+    const next = {};
+    for (const r of rows || []) next[r.key] = r.value;
+    data.appSettings = next;
+  } catch (e) {
+    console.warn('app settings load failed', e);
+    data.appSettings = {};
+  }
+};
+
+data.featureEnabled = function (key, defaultValue = true) {
+  const v = data.appSettings[key];
+  if (v === undefined || v === null) return defaultValue;
+  return v !== false;
+};
+
+data.adminSetSetting = async function (key, value) {
+  const row = { key, value, updated_at: new Date().toISOString(), updated_by: window.currentUser?.id };
+  const { error } = await sb.from('app_settings').upsert(row);
+  if (error) throw error;
+  data.appSettings[key] = value;
 };
 
 // Ship-first rule: net score gap ≥ 3 AND lower side < 20 → lower ships first.
