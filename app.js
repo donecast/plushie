@@ -5660,9 +5660,17 @@ function rerenderSocialCurrent() {
   renderSocial();
 }
 
+// The auth gate calls boot() again on SIGNED_IN / TOKEN_REFRESHED, so
+// guard the one-time event wiring — re-attaching listeners would make
+// every form submit (post, trade, etc.) fire twice. Data reloads below
+// are safe to repeat.
+let eventsWired = false;
 async function boot() {
-  wireEvents();
-  wireSocialEvents();
+  if (!eventsWired) {
+    wireEvents();
+    wireSocialEvents();
+    eventsWired = true;
+  }
   loadFilters();                  // restore filter state + active tab from localStorage
   await data.loadActiveCollection();
   await handleJoinToken();        // ?join=<token> redeems and switches in
