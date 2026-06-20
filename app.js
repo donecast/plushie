@@ -426,7 +426,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=68', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=69', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
     const shopify = (json.products || []).filter(isPlushieCollectible);
@@ -495,6 +495,13 @@ function resolveCatalogItem(item) {
     description: item.description ?? parent.description ?? null,
     lore:        item.lore ?? parent.lore ?? null,
     symbolism:   item.symbolism ?? parent.symbolism ?? null,
+    // Inherit the HTML-rich symbolism block too — the detail modal
+    // prefers it over the plain-text version when present. Without
+    // this, a form variant of a Shopify-fed item would render the
+    // less-pretty text fallback even though the parent has the parsed
+    // images-and-paragraphs version ready.
+    symbolismHtml: item.symbolismHtml ?? parent.symbolismHtml ?? null,
+    bodyHtml:    item.bodyHtml ?? parent.bodyHtml ?? null,
     // Accessories inherit from the parent only when the variant
     // didn't declare its own list. This lets a form variant override
     // the Set Includes (e.g., the Original came without the tote
@@ -4546,7 +4553,14 @@ async function openCatalogDetailModal(cid) {
   // refresh on-demand the first time the user opens a detail — the
   // modal will paint with the empty-state copy and we'll re-render
   // when the refresh lands.
-  if (!raw.bodyHtml && !raw.isCustom && !state._catalogRefreshAttempted) {
+  // Form variants pull lore/symbolism/accessories from their parent.
+  // If the parent (a Shopify row) hasn't been refreshed live yet, none
+  // of those fields are populated — so the variant looks empty too. We
+  // trigger the same on-demand refresh in that case.
+  const parentEmpty = raw.isCustom && raw.parentHandle
+    && !state.catalog.some((c) => c.handle === raw.parentHandle && !c.isCustom && c.bodyHtml);
+  if (!state._catalogRefreshAttempted
+      && ((!raw.bodyHtml && !raw.isCustom) || parentEmpty)) {
     state._catalogRefreshAttempted = true;
     refreshCatalogLive().then(() => {
       // If the modal is still open, repaint with the now-populated row.

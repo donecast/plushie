@@ -1449,12 +1449,41 @@ data.adminUpdatePhotoPath = async function (kind, id, path) {
 };
 
 // Wipes a user account end-to-end (auth row + cascade through every
-// FK-bound table + storage photos for the user's collections). Backed
-// by the admin_purge_user RPC; the SECURITY DEFINER function rechecks
-// is_admin() on the server so the client-side guard isn't load-bearing.
+// FK-bound table + storage photos for the user's collections). The
+// SECURITY DEFINER RPC rechecks is_admin() on the server, deletes the
+// auth.users row (cascading the public schema), and returns the list
+// of collection_ids it owned. We then sweep photos through the
+// Storage / R2 APIs — direct DELETE FROM storage.objects from inside
+// a SECURITY DEFINER function is no longer allowed by Supabase, which
+// is why the RPC stopped at the cascade and handed us the cleanup.
 data.adminPurgeUser = async function (userId) {
-  const { error } = await sb.rpc('admin_purge_user', { target: userId });
+  const { data: collectionIds, error } = await sb.rpc('admin_purge_user', { target: userId });
   if (error) throw error;
+  const ids = Array.isArray(collectionIds) ? collectionIds : [];
+  if (ids.length === 0) return;
+  // Photos live at <collection_id>/<plushie_id>.<ext>. List then delete.
+  // We sweep both backends — once R2 cutover is complete we can drop
+  // the Supabase branch.
+  for (const cid of ids) {
+    try { await data._purgePhotoFolder(cid); }
+    catch (e) { console.warn('photo purge failed for collection', cid, e); }
+  }
+};
+
+data._purgePhotoFolder = async function (collectionId) {
+  // Supabase Storage path: list then remove.
+  try {
+    const { data: rows, error } = await sb.storage.from('photos').list(collectionId, { limit: 1000 });
+    if (!error && rows && rows.length) {
+      const paths = rows.map((r) => `${collectionId}/${r.name}`);
+      await sb.storage.from('photos').remove(paths);
+    }
+  } catch (e) { console.warn('supabase photo purge', e); }
+
+  // R2 (via the Worker) — only if cutover has happened. We don't
+  // have a list endpoint on the Worker yet, so this is a best-effort
+  // no-op for now. If R2_BASE isn't set, there's nothing in R2 to
+  // clean up anyway. Once a list endpoint is added we can iterate.
 };
 
 data.adminUpdateWishlist = async function (wishlistId, patch) {
