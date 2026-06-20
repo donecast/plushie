@@ -364,6 +364,14 @@ function catalogCategory(item) {
   if (t === 'accessory' || t === 'plush accessory' || t === 'hair clip'
       || t === 'keychain' || t === 'patch' || t === 'plush backpack'
       || t === 'charms' || t === 'grab bag') return 'accessory';
+  // Fallback: some real plushes ship with a blank/odd product_type (the
+  // "… - Plush Stuffed Animal" buns), which would otherwise drop into
+  // 'other' and lose their accessory checklist. Trust the name as a last
+  // resort — this only runs after every type + merch check above, so it
+  // can't pull merch (jewelry, bags, etc.) back into the plush bucket.
+  // NB: word-bounded "plush" — NOT "plushie", which is the brand name
+  // ("Plushie Dreadfuls") and would match every product.
+  if (/\bplush\b|\bstuffed (animal|toy)\b/i.test(item.name || '')) return 'plush';
   return 'other';
 }
 
