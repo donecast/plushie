@@ -418,7 +418,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=66', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=67', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
     const shopify = (json.products || []).filter(isPlushieCollectible);
@@ -457,6 +457,7 @@ async function mergeCustomCatalog(shopifyProducts) {
       lore: c.lore || null,
       symbolism: c.symbolism || null,
       accessories: Array.isArray(c.accessories) ? c.accessories : [],
+      releaseYear: c.release_year ?? null,
       isBundle: false,
     }));
     return [...shopifyProducts, ...normalised];
@@ -906,7 +907,11 @@ function sortCatalog(items, mode) {
 function renderCatalogMeta(item) {
   const parts = [];
   if (item.price != null) parts.push(`<span>$${Number(item.price).toFixed(2)}</span>`);
-  const year = item.createdAt ? new Date(item.createdAt).getFullYear() : null;
+  // Prefer an explicit release_year (admin-set on customs) over the
+  // createdAt fallback so retired/Patreon-era plushies show their
+  // actual release date, not when they were added to the catalog.
+  const year = item.releaseYear
+    || (item.createdAt ? new Date(item.createdAt).getFullYear() : null);
   if (year && !isNaN(year)) parts.push(`<span>${year}</span>`);
   return parts.length ? `<div class="card-meta">${parts.join('')}</div>` : '';
 }
@@ -966,9 +971,13 @@ function renderCatalogCard(rawItem, owned, wished) {
   const suggestBtn = (!thumb && canSuggestPhotos)
     ? `<button class="btn-suggest" data-action="cat-suggest-photo" data-cid="${item.id}" data-target-kind="${item.isCustom ? 'custom' : 'shopify'}">🤍 Suggest a photo</button>`
     : '';
+  // Admins can edit any custom catalog item (Shopify rows are upstream — out of scope).
+  const adminEditBtn = (window.currentUser?.isAdmin && item.isCustom)
+    ? `<button class="btn-icon" data-action="cat-admin-edit" data-cid="${item.id}" title="Edit catalog entry">✎</button>`
+    : '';
   const actions = isOwned
-    ? `<button data-action="cat-edit" data-cid="${item.id}">Edit</button> ${haveBtn} ${linkBtn}`
-    : `${haveBtn} ${wantBtn} ${linkBtn}`;
+    ? `<button data-action="cat-edit" data-cid="${item.id}">Edit</button> ${haveBtn} ${linkBtn} ${adminEditBtn}`
+    : `${haveBtn} ${wantBtn} ${linkBtn} ${adminEditBtn}`;
 
   return `
     <article class="card" data-cid="${item.id}" title="${escapeHtml(display)}">
@@ -1473,6 +1482,8 @@ async function onCardClickInner(btn) {
   } else if (action === 'cat-edit') {
     const owned = state.collection.find((x) => x.catalogId === cid);
     if (owned) openModal('collection', owned);
+  } else if (action === 'cat-admin-edit') {
+    if (window.currentUser?.isAdmin) openCatalogItemModal('edit', cid);
   } else if (action === 'offer-trade') {
     const item = state.collection.find((x) => x.id === id);
     if (item) await markForTrade(item, 'offering');
@@ -4059,36 +4070,68 @@ async function adminResolveDispute(tradeId, outcome) {
 
 // ─── Catalog item: admin create + queues + suggest-photo flow ────
 
-// Opens the catalog-item creation modal. Mode 'admin' shows the title
-// 'Create catalog item' (auto-approved on submit, includes the pick-
-// from-a-user's-collection photo source) and mode 'user' shows
-// 'Suggest a plushie' (status defaulted by trust check; only the
-// upload photo source).
-function openCatalogItemModal(mode = 'admin') {
+// Opens the catalog-item modal in one of three modes:
+//   'admin' — new item, auto-approved, admins get the 'pick from
+//             a user's collection' photo source tab.
+//   'user'  — new item, end-user submission, status decided by
+//             trust check, upload-only photo source.
+//   'edit'  — admin edits an existing custom catalog item. Pass the
+//             row id as the second arg. Photo upload is optional —
+//             leaving the file input blank keeps the current image.
+function openCatalogItemModal(mode = 'admin', editId = null) {
   if (mode === 'user' && !data.featureEnabled('feature.user_photo_uploads')) {
     toast('Plushie submissions are paused right now.');
     return;
   }
   state.catalogItemModalMode = mode;
+  state.catalogItemEditId = mode === 'edit' ? editId : null;
   document.getElementById('catalog-item-form').reset();
   document.getElementById('ci-photo-preview-wrap').innerHTML = '';
   document.getElementById('ci-error').classList.add('hidden');
   state.catalogItemPicked = null;
 
-  const isAdmin = mode === 'admin';
-  document.getElementById('ci-title').textContent = isAdmin ? 'Create catalog item' : 'Suggest a plushie';
-  document.getElementById('ci-subtitle').textContent = isAdmin
-    ? 'Approved immediately; appears in the Catalog tab right after save.'
-    : 'Goes to admin (Scott) for review. He may edit the entry before approving.';
-  document.getElementById('ci-submit').textContent = isAdmin ? 'Create' : 'Submit';
+  const isAdmin = mode === 'admin' || mode === 'edit';
+  const isEdit = mode === 'edit';
+  document.getElementById('ci-title').textContent = isEdit
+    ? 'Edit catalog item'
+    : (isAdmin ? 'Create catalog item' : 'Suggest a plushie');
+  document.getElementById('ci-subtitle').textContent = isEdit
+    ? 'Updates the public catalog row immediately.'
+    : (isAdmin
+      ? 'Approved immediately; appears in the Catalog tab right after save.'
+      : 'Goes to admin (Scott) for review. He may edit the entry before approving.');
+  document.getElementById('ci-submit').textContent = isEdit ? 'Save' : (isAdmin ? 'Create' : 'Submit');
 
   // Admins get the source-picker tabs (Upload / Pick from user). Users
-  // only see the Upload field.
+  // only see the Upload field. Edit mode keeps the picker too in case
+  // the admin wants to swap the photo for one from a user's collection.
   const tabs = document.getElementById('ci-photo-source-tabs');
   tabs.classList.toggle('hidden', !isAdmin);
   tabs.style.display = isAdmin ? 'flex' : 'none';
-  // Default back to upload tab when the modal re-opens.
   setSourceTab('upload');
+
+  if (isEdit) {
+    const row = state.catalog.find((c) => c.id === editId);
+    if (!row || !row.isCustom) {
+      toast('Catalog item not found.');
+      return;
+    }
+    document.getElementById('ci-name').value = row.name || '';
+    document.getElementById('ci-form-label').value = row.formLabel || '';
+    document.getElementById('ci-parent-handle').value = row.parentHandle || '';
+    document.getElementById('ci-type').value = row.type || 'plush';
+    document.getElementById('ci-handle').value = row.handle || '';
+    document.getElementById('ci-release-year').value = row.releaseYear ?? '';
+    document.getElementById('ci-tags').value = (row.tags || []).join(', ');
+    document.getElementById('ci-lore').value = row.lore || '';
+    document.getElementById('ci-accessories').value = (row.accessories || [])
+      .map((a) => a.name || a).join('\n');
+    document.getElementById('ci-notes').value = '';
+    if (row.image) {
+      document.getElementById('ci-photo-preview-wrap').innerHTML =
+        `<span class="dim">Current photo kept unless you upload a new one.</span>`;
+    }
+  }
 
   document.getElementById('catalog-item-modal').classList.remove('hidden');
   setTimeout(() => document.getElementById('ci-name').focus(), 50);
@@ -4179,6 +4222,13 @@ async function submitCatalogItemForm(e) {
   const parentHandle = document.getElementById('ci-parent-handle').value.trim() || null;
   const type = document.getElementById('ci-type').value;
   const handle = document.getElementById('ci-handle').value.trim() || slugify(name);
+  const releaseYearRaw = (document.getElementById('ci-release-year')?.value || '').trim();
+  const releaseYear = releaseYearRaw ? parseInt(releaseYearRaw, 10) : null;
+  if (releaseYear !== null && (Number.isNaN(releaseYear) || releaseYear < 1900 || releaseYear > 2100)) {
+    errEl.textContent = 'Release year must be between 1900 and 2100.';
+    errEl.classList.remove('hidden');
+    return;
+  }
   const tags = (document.getElementById('ci-tags').value || '')
     .split(',').map((t) => t.trim()).filter(Boolean);
   const lore = document.getElementById('ci-lore').value.trim() || null;
@@ -4195,7 +4245,8 @@ async function submitCatalogItemForm(e) {
     .map((name) => ({ name, key: name.toLowerCase() }));
   const photoFile = document.getElementById('ci-photo').files[0] || null;
   const mode = state.catalogItemModalMode || 'admin';
-  const isAdmin = mode === 'admin';
+  const isEdit = mode === 'edit';
+  const isAdmin = mode === 'admin' || isEdit;
 
   const submit = document.getElementById('ci-submit');
   submit.disabled = true;
@@ -4210,22 +4261,43 @@ async function submitCatalogItemForm(e) {
       const compressed = await compressImage(photoFile).catch(() => photoFile);
       imagePath = await data.uploadCatalogImage(compressed, handle);
     }
-    // Admin-created items go straight to 'approved'. User submissions
-    // let data.createCatalogItem resolve status via userIsTrustedSubmitter().
-    await data.createCatalogItem({
-      name,
-      handle,
-      type,
-      parent_handle: parentHandle,
-      form_label: formLabel,
-      image_path: imagePath,
-      lore,
-      tags,
-      accessories,
-      notes_to_admin: notes,
-      status: isAdmin ? 'approved' : undefined,
-    });
-    toast(isAdmin ? 'Catalog item created.' : 'Submitted to admin for review. Thanks!');
+
+    if (isEdit) {
+      const patch = {
+        name,
+        handle,
+        type,
+        parent_handle: parentHandle,
+        form_label: formLabel,
+        lore,
+        tags,
+        accessories,
+        release_year: releaseYear,
+      };
+      // Only overwrite image_path when the admin uploaded or picked
+      // a new photo — otherwise the existing one is preserved.
+      if (imagePath) patch.image_path = imagePath;
+      await data.adminUpdateCatalogItem(state.catalogItemEditId, patch);
+      toast('Catalog item updated.');
+    } else {
+      // Admin-created items go straight to 'approved'. User submissions
+      // let data.createCatalogItem resolve status via userIsTrustedSubmitter().
+      await data.createCatalogItem({
+        name,
+        handle,
+        type,
+        parent_handle: parentHandle,
+        form_label: formLabel,
+        image_path: imagePath,
+        lore,
+        tags,
+        accessories,
+        release_year: releaseYear,
+        notes_to_admin: notes,
+        status: isAdmin ? 'approved' : undefined,
+      });
+      toast(isAdmin ? 'Catalog item created.' : 'Submitted to admin for review. Thanks!');
+    }
     document.getElementById('catalog-item-modal').classList.add('hidden');
     await loadCatalog();
     if (state.tab === 'catalog') render();
@@ -4235,7 +4307,7 @@ async function submitCatalogItemForm(e) {
     errEl.classList.remove('hidden');
   } finally {
     submit.disabled = false;
-    submit.textContent = isAdmin ? 'Create' : 'Submit';
+    submit.textContent = isEdit ? 'Save' : (isAdmin ? 'Create' : 'Submit');
   }
 }
 
@@ -4482,7 +4554,7 @@ async function openCatalogDetailModal(cid) {
     <div class="cd-head">
       <div class="cd-photo">${thumb ? `<img src="${escapeHtml(thumb)}" alt="${escapeHtml(display)}" />` : `<span class="no-photo">🖤</span>`}</div>
       <div class="cd-head-text">
-        <div class="card-eyebrow">${escapeHtml(item.type || 'plush')}</div>
+        <div class="card-eyebrow">${escapeHtml(item.type || 'plush')}${item.releaseYear ? ` · ${item.releaseYear}` : ''}</div>
         <h2>${escapeHtml(display)}${formLabel ? ` <span class="card-form-label">${escapeHtml(formLabel)}</span>` : ''}</h2>
         ${item.price != null ? `<p class="cd-price">$${Number(item.price).toFixed(2)}</p>` : ''}
         <p class="dim">

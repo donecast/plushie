@@ -1136,6 +1136,7 @@ data.createCatalogItem = async function (record) {
     symbolism: record.symbolism || null,
     tags: record.tags || [],
     accessories: Array.isArray(record.accessories) ? record.accessories : [],
+    release_year: record.release_year ?? null,
     available: record.available !== false,
     retired: !!record.retired,
     status,
@@ -1149,6 +1150,20 @@ data.createCatalogItem = async function (record) {
   const { data: row, error } = await sb
     .from('catalog_items')
     .insert(insert)
+    .select()
+    .single();
+  if (error) throw error;
+  return row;
+};
+
+// Admin-only update of an existing catalog item. RLS enforces admin
+// in the database; we only call this from the admin edit modal. Patch
+// is partial — pass exactly the columns you want to change.
+data.adminUpdateCatalogItem = async function (id, patch) {
+  const { data: row, error } = await sb
+    .from('catalog_items')
+    .update(patch)
+    .eq('id', id)
     .select()
     .single();
   if (error) throw error;
