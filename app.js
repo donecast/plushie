@@ -1716,6 +1716,14 @@ function openModal(kind, item, { fresh = false } = {}) {
     wornSel.innerHTML = '';
   }
 
+  // Photo upload — only when the per-user uploads flag is on (admins
+  // always). Reset the picker each open so a prior selection doesn't
+  // leak across items.
+  const photoField = document.getElementById('field-photo');
+  document.getElementById('f-photo').value = '';
+  document.getElementById('f-photo-name').textContent = '';
+  photoField.classList.toggle('hidden', !data.featureEnabled('feature.user_photo_uploads'));
+
   document.getElementById('modal').dataset.kind = 'collection';
   document.getElementById('modal').classList.remove('hidden');
   // Focus the rename field on a fresh add (the discovery moment), else
@@ -1811,6 +1819,15 @@ async function submitForm(e) {
     updatedAt: Date.now(),
   };
   const kind = 'collection';
+
+  // New photo (only when the uploads flag is on). Compress, then hand the
+  // Blob to data.put with photoPath cleared so it re-uploads under this
+  // item's path instead of keeping the catalog-sourced photo.
+  const photoFile = document.getElementById('f-photo').files?.[0];
+  if (photoFile && data.featureEnabled('feature.user_photo_uploads')) {
+    record.photo = await compressImage(photoFile).catch(() => photoFile);
+    record.photoPath = null;
+  }
 
   await data.put(kind, record);
 
@@ -2497,6 +2514,12 @@ function wireEvents() {
 
   document.getElementById('plushie-form').addEventListener('submit', submitForm);
 
+  // Reflect the chosen photo filename next to the picker.
+  document.getElementById('f-photo').addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    document.getElementById('f-photo-name').textContent = file ? '✓ ' + file.name : '';
+  });
+
   document.getElementById('collection-grid').addEventListener('click', onCardClick);
   document.getElementById('unworn-clothing-grid').addEventListener('click', onCardClick);
   document.getElementById('wishlist-grid').addEventListener('click', onCardClick);
@@ -2864,12 +2887,22 @@ async function markForTrade(item, kind) {
       if (q === null) return;
       quantity = Math.max(1, Math.min(owned, parseInt(q, 10) || 1));
     }
+    // Copy the photo into the public 'social' bucket so other collectors
+    // can see it in Browse — the 'photos' bucket photoPath points at is
+    // collection-scoped and unreadable to them. Best-effort: a failed
+    // copy just means Browse falls back to the catalog image.
+    let photoSocialPath = null;
+    if (item.photoPath) {
+      try { photoSocialPath = await data._copyPhotoToSocial(item.photoPath); }
+      catch (err) { console.warn('copy trade photo to social', err); }
+    }
     await data.addTradeItem({
       kind,
       catalogId: item.catalogId,
       catalogHandle: item.catalogHandle ?? null,
       name: item.name,
       photoPath: item.photoPath ?? null,
+      photoSocialPath,
       quantity,
     });
     toast(kind === 'offering' ? `Offering ${quantity} for trade.` : 'Seeking listed.');
