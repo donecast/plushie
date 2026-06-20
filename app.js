@@ -5257,7 +5257,7 @@ function renderProfileInto(el, { profile, posts, top8, friendship, isMe, withBac
   let relBtns = '';
   if (isMe) {
     relBtns = `<button class="btn-ghost" data-soc-action="edit-profile">Edit profile</button>
-               <button class="btn-ghost" data-soc-action="edit-top8">Edit Top 8</button>`;
+               <button class="btn-ghost" data-soc-action="edit-top8">Edit Top Buns</button>`;
   } else {
     if (friendship === 'friends') relBtns = `<span class="soc-rel-tag">🦇 In your Coven</span>
                <button class="btn-ghost" data-soc-action="remove-friend" data-uid="${profile.id}">Unfriend</button>`;
@@ -5277,7 +5277,7 @@ function renderProfileInto(el, { profile, posts, top8, friendship, isMe, withBac
       </div>
     </header>
     <section class="soc-section">
-      <h2 class="soc-section-head">Top 8 Plushes ${isMe ? '' : ''}</h2>
+      <h2 class="soc-section-head">Top Buns 🐰</h2>
       ${top8Html}
     </section>
     <section class="soc-section">
@@ -5288,7 +5288,7 @@ function renderProfileInto(el, { profile, posts, top8, friendship, isMe, withBac
 
 function renderTop8(top8, isMe) {
   if (!top8 || !top8.length) {
-    return `<p class="empty-note soc-top8-empty">${isMe ? 'Pick your Top 8 plushes to show them off, MySpace-style.' : 'No Top 8 picked yet.'}</p>`;
+    return `<p class="empty-note soc-top8-empty">${isMe ? 'Pick your Top Buns to show them off, MySpace-style.' : 'No Top Buns picked yet.'}</p>`;
   }
   const slots = top8.map((t) => {
     const img = t.photoUrl || catalogImageFor(t.catalogId);
@@ -5431,12 +5431,12 @@ function openTop8Picker() {
   }).join('');
   openSocialModal(`
     <button class="modal-close" data-close-social aria-label="Close">×</button>
-    <h2>Pick your Top 8</h2>
+    <h2>Pick your Top Buns</h2>
     <p class="soc-help">Tap up to 8 plushes from your collection. Tap again to remove. Order = pick order.</p>
     <div class="soc-pick-grid">${items || '<p class="empty-note">Your collection is empty — add some plushes first.</p>'}</div>
     <div class="form-actions">
       <button type="button" class="btn-ghost" data-close-social>Cancel</button>
-      <button type="button" class="btn-primary" data-soc-action="save-top8">Save Top 8</button>
+      <button type="button" class="btn-primary" data-soc-action="save-top8">Save Top Buns</button>
     </div>`);
   refreshTop8Ranks();
 }
@@ -5457,10 +5457,10 @@ async function saveTop8() {
   try {
     await data.setTopPlushes(entries);
     closeSocialModal();
-    toast('Top 8 saved. 🖤');
+    toast('Top Buns saved. 🐰');
     await loadMyProfileCache();
     await openProfile(window.currentUser.id);
-  } catch (err) { console.error('saveTop8', err); toast('Could not save Top 8.'); }
+  } catch (err) { console.error('saveTop8', err); toast('Could not save Top Buns.'); }
 }
 
 // ─── Social event wiring ────────────────────────────────────────────

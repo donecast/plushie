@@ -236,3 +236,35 @@ create policy social_write on storage.objects for insert to authenticated
   with check (bucket_id = 'social' and (storage.foldername(name))[1] = auth.uid()::text);
 create policy social_delete on storage.objects for delete to authenticated
   using (bucket_id = 'social' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- ─── Mascot seed: every "Top Buns" starts with the Dreadful Bunny ──
+-- The house mascot (xXx_d3ad_cutie_xXx, "MYSPACE 4 EVA") rides shotgun
+-- at position 1 of everyone's Top Buns. photo_path is a same-origin
+-- asset (committed at /dreadful-bunny.jpg) so it resolves on any host
+-- without a storage upload; data.socialPhotoUrl passes '/'-paths
+-- through untouched. Users can re-pick their Top Buns to replace it.
+--
+-- NOTE: deploy the dreadful-bunny.jpg asset (merge the branch) for the
+-- image to load; until then the slot shows the 🖤 fallback + the name.
+
+-- Backfill existing collectors.
+insert into top_plushes (owner_id, position, plush_name, catalog_id, photo_path)
+select id, 1, 'Dreadful Bunny', null, '/dreadful-bunny.jpg'
+from profiles
+on conflict (owner_id, position) do nothing;
+
+-- Auto-seed new accounts. profiles already has on_profile_created
+-- (ensure_default_collection); this is a second, independent trigger.
+create or replace function seed_top_bun()
+returns trigger language plpgsql security definer as $$
+begin
+  insert into top_plushes (owner_id, position, plush_name, photo_path)
+  values (new.id, 1, 'Dreadful Bunny', '/dreadful-bunny.jpg')
+  on conflict (owner_id, position) do nothing;
+  return new;
+end $$;
+
+drop trigger if exists on_profile_created_seed_bun on profiles;
+create trigger on_profile_created_seed_bun
+  after insert on profiles
+  for each row execute function seed_top_bun();
