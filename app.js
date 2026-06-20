@@ -1,9 +1,9 @@
 // ─── State ────────────────────────────────────────────────────────────
 const state = {
   tab: 'social',              // landing tab — 'social' | 'catalog' | 'collection' | 'wishlist' | 'trade' | 'admin'
-  colSubTab: 'plushies',      // collection sub-tab: 'plushies' | 'pens' (Pens fold-in)
+  colSubTab: 'plushes',       // collection sub-tab: 'plushes' | 'minis' | 'accessories' | 'other' | 'pens'
   filter: 'all',              // collection: all | active | retired
-  colCategory: 'all',         // collection category chip
+  colCategory: 'all',         // legacy category chip (superseded by sub-tabs; kept inert)
   colDupes: false,            // collection: only quantity > 1
   colNoBag: false,            // collection: only missing bag
   colSort: 'acquired_desc',
@@ -114,10 +114,15 @@ function activePens() {
 // to every place a name is shown (catalog, collection, closet, attached
 // accessories, modals). Tidies up the spacing/dashes it leaves behind.
 function stripOutfitWord(name) {
-  let n = String(name || '').replace(/\bOutfits?\b/gi, ' ');
+  let n = String(name || '');
+  // Drop the "Mini Plush Outfit" / "Plush Outfit" product-line wording (often
+  // followed by a dash): "Mini Plush Outfit - Big Blue Bow" → "Big Blue Bow".
+  n = n.replace(/\b(mini\s+)?plush\s+outfit\b\s*[-–—:]?\s*/gi, ' ');
+  // Drop any remaining standalone "Outfit" / "Outfits".
+  n = n.replace(/\bOutfits?\b/gi, ' ');
   n = n.replace(/\s{2,}/g, ' ').trim();
   n = n.replace(/\s+([-–—])\s+/g, ' $1 ');     // normalise spacing around dashes
-  n = n.replace(/^[\s-–—]+|[\s-–—]+$/g, '').trim();   // drop dangling dashes
+  n = n.replace(/^[\s-–—:]+|[\s-–—:]+$/g, '').trim();   // drop dangling dashes
   return n || String(name || '').trim();
 }
 
@@ -1156,7 +1161,9 @@ function photoSrc(item) {
 // Outfit" / "Dreadful Disguises" lines (all catalog type 'accessory'),
 // plus anything with a clothing keyword on an accessory-typed item.
 const PLUSH_CLOTHING_LINES = /plush outfit|dreadful disguises/i;
-const CLOTHING_RE = /\b(outfit|hoodie|sweater|sweatshirt|cardigan|jacket|coat|dress|gown|skirt|overalls|romper|onesie|jumpsuit|jumper|pinafore|pajamas?|robe|vest|tunic|kimono|poncho|cape|capelet|cloak|costume|wings|tutu|scarf|shawl|beanie|bonnet)\b/i;
+// NB: "mask" is here on purpose — a plush gas mask / face mask is worn ON a
+// plush, so it's closet clothing, not a generic accessory.
+const CLOTHING_RE = /\b(outfit|hoodie|sweater|sweatshirt|cardigan|jacket|coat|dress|gown|skirt|overalls|romper|onesie|jumpsuit|jumper|pinafore|pajamas?|robe|vest|tunic|kimono|poncho|cape|capelet|cloak|costume|wings|tutu|scarf|shawl|beanie|bonnet|mask)\b/i;
 
 function catalogForItem(item) {
   return item.catalogId ? state.catalog.find((c) => c.id === item.catalogId) : null;
@@ -1172,6 +1179,29 @@ function isWearableItem(item) {
   // is often possessive ("Ni'ni's Purple Overalls").
   if (!cat && CLOTHING_RE.test((item.name || '').toLowerCase())) return true;
   return false;
+}
+
+// Mini clothing vs. full-size clothing. Plushie Dreadfuls names every
+// mini-scale garment "Mini Plush Outfit …", so the word "mini" on a
+// wearable is the tell. We check the *catalog* name (the user-facing name is
+// stripped of the "Mini Plush Outfit" wording) and fall back to the item's
+// own name for custom pieces.
+function clothingIsMini(item) {
+  const cat = catalogForItem(item);
+  const name = `${cat?.name || ''} ${item.name || ''}`.toLowerCase();
+  return /\bmini\b/.test(name);
+}
+
+// Which collection sub-tab an item belongs to: 'plushes' | 'minis' |
+// 'accessories' | 'other'. Clothing is special-cased — it lives in the
+// Plushes or Minis closet, by scale — so it never lands under Accessories.
+function collectionTabOf(item) {
+  if (isWearableItem(item)) return clothingIsMini(item) ? 'minis' : 'plushes';
+  const c = itemCategory(item);            // catalog category: plush|mini|accessory|bundle|other
+  if (c === 'mini') return 'minis';
+  if (c === 'accessory') return 'accessories';
+  if (c === 'plush' || c === 'bundle') return 'plushes';
+  return 'other';
 }
 
 // A collection entry = a plush card, plus any accessories attached to it
@@ -1351,7 +1381,7 @@ function render() {
     document.querySelectorAll('#collection-subtabs .subtab').forEach((s) =>
       s.classList.toggle('active', s.dataset.colSubtab === state.colSubTab)
     );
-    document.getElementById('collection-sub-plushies').classList.toggle('hidden', state.colSubTab !== 'plushies');
+    document.getElementById('collection-sub-items').classList.toggle('hidden', state.colSubTab === 'pens');
     document.getElementById('collection-sub-pens').classList.toggle('hidden', state.colSubTab !== 'pens');
   }
 
@@ -1373,7 +1403,6 @@ function render() {
   );
 
   if (tab === 'collection') {
-    // Plushies sub-tab — the original list view.
     syncCollectionChips();
     // Map every attached accessory to the plush wearing it (computed from
     // the whole collection so attachments survive search/filters), then
@@ -1385,31 +1414,46 @@ function render() {
       attByPlush.get(it.wornBy).push(it);
     }
     state._attByPlush = attByPlush;
+
+    // The active category sub-tab ('plushes' | 'minis' | 'accessories' |
+    // 'other'); Pens is handled separately below.
+    const sub = state.colSubTab === 'pens' ? 'plushes' : state.colSubTab;
     const shown = filteredCollection().filter((i) => !i.wornBy);
-    // Split: unworn clothing (wearables with no wearer) gets its own
-    // section; everything else (plushes + non-clothing accessories) stays
-    // in the main grid, plushes carrying their attached clothing.
-    const mainItems = shown.filter((i) => !isWearableItem(i));
-    const unworn = shown.filter((i) => isWearableItem(i));
+    // Items that live in this sub-tab's main grid: matching category, minus
+    // clothing (clothing lives in the closet, by scale).
+    const mainItems = shown.filter((i) => !isWearableItem(i) && collectionTabOf(i) === sub);
+    // Only Plushes and Minis have a closet. Plushes → full-size clothing,
+    // Minis → mini-scale clothing.
+    const closetItems = (sub === 'plushes' || sub === 'minis')
+      ? shown.filter((i) => isWearableItem(i) && collectionTabOf(i) === sub)
+      : [];
+
     document.getElementById('collection-grid').innerHTML = mainItems.map((i) => renderCollectionEntry(i)).join('');
     const unwornSection = document.getElementById('unworn-clothing-section');
     if (unwornSection) {
-      document.getElementById('unworn-clothing-grid').innerHTML = unworn.map((i) => renderCard(i, 'collection')).join('');
-      unwornSection.classList.toggle('hidden', unworn.length === 0);
+      document.getElementById('unworn-clothing-grid').innerHTML = closetItems.map((i) => renderCard(i, 'collection')).join('');
+      unwornSection.classList.toggle('hidden', closetItems.length === 0);
       const cnt = document.getElementById('unworn-clothing-count');
-      if (cnt) cnt.textContent = unworn.length ? `· ${unworn.length}` : '';
+      if (cnt) cnt.textContent = closetItems.length ? `· ${closetItems.length}` : '';
     }
-    document.getElementById('collection-empty').classList.toggle('hidden', shown.length > 0);
+    const tabTotal = mainItems.length + closetItems.length;
+    document.getElementById('collection-empty').classList.toggle('hidden', tabTotal > 0);
     document.getElementById('count-label').textContent =
-      `${shown.length} of ${state.collection.length} item${state.collection.length === 1 ? '' : 's'}`;
-    // Pens sub-tab — always re-render so the counts stay current even
-    // when the user is on Plushies (the sub-tab badge totals show
-    // through). renderPens() updates #pens-progress + #pens-list.
+      `${tabTotal} of ${state.collection.length} item${state.collection.length === 1 ? '' : 's'}`;
+
+    // Per-tab badge counts, computed over the whole collection (unfiltered)
+    // so the tab chips show stable totals regardless of search/filters.
+    const tabCounts = { plushes: 0, minis: 0, accessories: 0, other: 0 };
+    for (const it of state.collection) tabCounts[collectionTabOf(it)]++;
+    for (const k of Object.keys(tabCounts)) {
+      const el = document.getElementById(`col-subtab-count-${k}`);
+      if (el) el.textContent = `· ${tabCounts[k]}`;
+    }
+
+    // Pens sub-tab — always re-render so the counts stay current even when
+    // another sub-tab is showing. renderPens() updates #pens-progress + #pens-list.
     renderPens();
-    const unique = state.pensOwned.size;
-    const total = [...state.pensOwned.values()].reduce((a, b) => a + b, 0);
-    const pensBadge = `${unique}/${activePens().length}`;
-    document.getElementById('col-subtab-count-plushies').textContent = `· ${state.collection.length}`;
+    const pensBadge = `${state.pensOwned.size}/${activePens().length}`;
     document.getElementById('col-subtab-count-pens').textContent = `· ${pensBadge}`;
     // When Pens sub-tab is showing, the count-label is hidden (handled
     // above via the onPens flag); no need to set it here.
@@ -2239,6 +2283,13 @@ function loadFilters() {
     // it saved should land on Collection → Pens sub-tab instead so they
     // don't see an empty / non-existent tab.
     if (state.tab === 'pens') { state.tab = 'collection'; state.colSubTab = 'pens'; }
+    // The collection sub-tabs were split from 'plushies'/'pens' into
+    // plushes/minis/accessories/other/pens. Map the old plushies value and
+    // guard against any unknown stored value.
+    if (state.colSubTab === 'plushies') state.colSubTab = 'plushes';
+    if (!['plushes', 'minis', 'accessories', 'other', 'pens'].includes(state.colSubTab)) {
+      state.colSubTab = 'plushes';
+    }
     // Sync the search input value so the visible UI matches the restored state.
     const searchEl = document.getElementById('search');
     if (searchEl && state.query) searchEl.value = state.query;
@@ -2295,7 +2346,6 @@ function wireEvents() {
     if (el) el.addEventListener('change', () => { state[target] = el.value; render(); });
   };
   wireSelect('col-state', 'filter');
-  wireSelect('col-cat', 'colCategory');
   wireSelect('col-sort', 'colSort');
   document.querySelectorAll('#col-extras input[data-col-toggle]').forEach((cb) => {
     cb.addEventListener('change', () => {

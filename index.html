@@ -91,13 +91,6 @@
           <option value="active">Active only</option>
           <option value="retired">Retired only</option>
         </select>
-        <select id="col-cat" class="filter-select" aria-label="Category">
-          <option value="all">All categories</option>
-          <option value="plush">Plushies</option>
-          <option value="mini">Minis</option>
-          <option value="accessory">Accessories</option>
-          <option value="other">Other</option>
-        </select>
         <details class="filter-multi" id="col-extras">
           <summary><span class="filter-label">Extras</span><span class="filter-summary" data-empty="None">None</span></summary>
           <div class="filter-options">
@@ -221,18 +214,29 @@
     <div id="active-filters" class="active-filters"></div>
 
     <section id="collection-view" class="view">
-      <!-- Sub-tabs: Plushies (the existing list) + Pens (folded in from
-           the old top-level tab). State key is colSubTab. -->
+      <!-- Sub-tabs: collection items split by category — Plushes, Minis,
+           Accessories, Other — plus Pens (folded in from the old top-level
+           tab). Clothing lives in the Plushes/Minis closet, by scale.
+           State key is colSubTab. -->
       <nav id="collection-subtabs" class="subtabs subtabs-collection">
-        <button class="subtab active" data-col-subtab="plushies">
-          Plushies <span class="dim" id="col-subtab-count-plushies"></span>
+        <button class="subtab active" data-col-subtab="plushes">
+          Plushes <span class="dim" id="col-subtab-count-plushes"></span>
+        </button>
+        <button class="subtab" data-col-subtab="minis">
+          Minis <span class="dim" id="col-subtab-count-minis"></span>
+        </button>
+        <button class="subtab" data-col-subtab="accessories">
+          Accessories <span class="dim" id="col-subtab-count-accessories"></span>
+        </button>
+        <button class="subtab" data-col-subtab="other">
+          Other <span class="dim" id="col-subtab-count-other"></span>
         </button>
         <button class="subtab" data-col-subtab="pens">
           Pens <span class="dim" id="col-subtab-count-pens"></span>
         </button>
       </nav>
 
-      <div id="collection-sub-plushies" class="subview">
+      <div id="collection-sub-items" class="subview">
         <div id="collection-grid" class="grid grid-list"></div>
         <div id="collection-empty" class="empty hidden">
           <div class="ghost">🖤</div>
