@@ -1349,7 +1349,10 @@ main {
   object-fit: cover;
   flex: 0 0 38px;
   background: var(--surface-2);
+  cursor: zoom-in;
+  transition: transform 0.12s ease;
 }
+.pen-thumb:hover { transform: scale(1.05); }
 .pen-thumb-placeholder {
   width: 38px;
   height: 38px;
@@ -1980,6 +1983,58 @@ main {
   flex: 0 0 auto;
   padding: 8px 14px;
   font-size: 0.85rem;
+}
+
+/* ─── Image lightbox (generic full-size viewer) ─────── */
+.lightbox-card {
+  position: relative;
+  max-width: 92vw;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  z-index: 1;
+}
+#lightbox-img {
+  max-width: 92vw;
+  max-height: 80vh;
+  width: auto;
+  height: auto;
+  display: block;
+  border-radius: 14px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+  cursor: default;
+}
+.lightbox-caption {
+  color: #fff;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.1rem;
+  margin: 0;
+  text-align: center;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+#lightbox-modal .modal-close {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  color: #fff;
+  font-size: 2.2rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 999px;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+#lightbox-modal .modal-backdrop {
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 /* ─── Catalog detail modal ─────────────────────── */

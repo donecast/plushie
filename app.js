@@ -418,7 +418,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=62b', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=63', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
     const shopify = (json.products || []).filter(isPlushieCollectible);
@@ -2119,8 +2119,26 @@ function wireEvents() {
     const suggest = e.target.closest('[data-action="pen-suggest-photo"]');
     if (suggest) {
       openSuggestPhotoModal(suggest.dataset.penId, 'pen', suggest.dataset.penName);
+      return;
+    }
+    // Click the pen thumbnail to open it full-size.
+    const thumb = e.target.closest('img.pen-thumb');
+    if (thumb) {
+      const row = thumb.closest('.pen-row');
+      const name = row?.querySelector('.pen-name')?.textContent || '';
+      openLightbox(thumb.src, name);
     }
   });
+
+  // Lightbox close — backdrop, card, and × button all carry the
+  // data-close-lightbox attribute.
+  document.querySelectorAll('[data-close-lightbox]').forEach((el) =>
+    el.addEventListener('click', (e) => {
+      // Don't close when the user clicks the image itself.
+      if (e.target.id === 'lightbox-img') return;
+      document.getElementById('lightbox-modal').classList.add('hidden');
+    })
+  );
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !document.getElementById('modal').classList.contains('hidden')) {
@@ -4452,6 +4470,18 @@ function sanitizeBodyHtml(html) {
     }
     return root.innerHTML;
   } catch { return ''; }
+}
+
+// Generic full-size image viewer. Set the src + optional caption, show
+// the modal. Backdrop / close-× / .lightbox-card all dismiss; the img
+// itself doesn't, so the user can drag-select / right-click-save.
+function openLightbox(src, caption) {
+  if (!src) return;
+  const img = document.getElementById('lightbox-img');
+  img.src = src;
+  img.alt = caption || '';
+  document.getElementById('lightbox-caption').textContent = caption || '';
+  document.getElementById('lightbox-modal').classList.remove('hidden');
 }
 
 function openSuggestPhotoModal(targetId, targetKind, targetName) {

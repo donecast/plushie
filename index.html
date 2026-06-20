@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=62b" />
+  <link rel="stylesheet" href="./styles.css?v=63" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -598,6 +598,18 @@
         </div>
         <p id="bp-error" class="auth-error hidden"></p>
       </form>
+    </div>
+  </div>
+
+  <!-- Image lightbox — generic full-size viewer. Used for pen
+       thumbnails and (later) catalog detail photos. Click anywhere
+       on the backdrop to close. -->
+  <div id="lightbox-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-lightbox></div>
+    <div class="lightbox-card" data-close-lightbox>
+      <button class="modal-close" data-close-lightbox aria-label="Close">×</button>
+      <img id="lightbox-img" alt="" />
+      <p id="lightbox-caption" class="lightbox-caption"></p>
     </div>
   </div>
 
