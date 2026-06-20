@@ -369,7 +369,21 @@ function isMiniPlushie(item) {
   return false;
 }
 
+// Manual category overrides. Plushie Dreadfuls regularly mislabels products
+// in Shopify (wrong product_type), so a handful need pinning by hand. Checked
+// before any type/tag heuristic so the override always wins.
+const CATEGORY_OVERRIDES = [
+  // "Tooth Scary" is labeled a Keychain but it's a full-size plush.
+  { test: (it) => /\btooth scary\b/i.test(it.name || ''), category: 'plush' },
+];
+function categoryOverride(item) {
+  for (const o of CATEGORY_OVERRIDES) if (o.test(item)) return o.category;
+  return null;
+}
+
 function catalogCategory(item) {
+  const ov = categoryOverride(item);
+  if (ov) return ov;
   const t = (item.type || '').toLowerCase();
   if (NON_PLUSHIE_NAME.test(item.name || '')) return 'other';     // standees, etc. tagged as 'plush'
   if (OTHER_CATEGORY_TYPES.has(t)) return 'other';                // store merch
@@ -378,6 +392,10 @@ function catalogCategory(item) {
   // the component picker rather than dropping a 'bundle' row in
   // the user's collection.
   if (item.isBundle) return 'bundle';
+  // Clothing is its own category — worn garments are pulled out of the
+  // generic 'accessory' bucket so a Clothing filter can show them and an
+  // Accessories filter can exclude them.
+  if (catalogIsClothing(item)) return 'clothing';
   if (isMiniPlushie(item)) return 'mini';
   if (t === 'plush' || t === 'toy' || t === 'stuffed toy') return 'plush';
   if (t === 'accessory' || t === 'plush accessory' || t === 'hair clip'
@@ -915,19 +933,59 @@ function formatDate(iso) {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+// Parse a search string into positive / negative terms. Supports:
+//   foo bar      → must contain "foo" AND "bar"
+//   "foo bar"    → must contain the exact phrase "foo bar"
+//   -foo         → must NOT contain "foo"
+//   -"foo bar"   → must NOT contain the phrase "foo bar"
+// Expects a lowercased query (callers already lowercase). Cached per string
+// since the same query is parsed once per item across a render pass.
+let _queryCache = { src: null, terms: [] };
+function parseQuery(q) {
+  if (_queryCache.src === q) return _queryCache.terms;
+  const terms = [];
+  const re = /(-)?"([^"]*)"|(\S+)/g;
+  let m;
+  while ((m = re.exec(q)) !== null) {
+    if (m[2] !== undefined) {                 // quoted phrase
+      const text = m[2].trim();
+      if (text) terms.push({ neg: m[1] === '-', text });
+    } else {                                   // bare token
+      let tok = m[3];
+      let neg = false;
+      if (tok.startsWith('-') && tok.length > 1) { neg = true; tok = tok.slice(1); }
+      if (tok && tok !== '-') terms.push({ neg, text: tok });
+    }
+  }
+  _queryCache = { src: q, terms };
+  return terms;
+}
+
+// Test a haystack string against a parsed query. Every positive term must be
+// present and no negative term may be.
+function queryMatches(hay, q) {
+  if (!q) return true;
+  const h = hay.toLowerCase();
+  for (const t of parseQuery(q)) {
+    const present = h.includes(t.text);
+    if (t.neg ? present : !present) return false;
+  }
+  return true;
+}
+
 function matchesQuery(item, q) {
   if (!q) return true;
   const hay = [item.name, item.nickname, item.meaning, item.acquiredHow]
-    .filter(Boolean).join(' ').toLowerCase();
-  return hay.includes(q);
+    .filter(Boolean).join(' ');
+  return queryMatches(hay, q);
 }
 
 // Look up a collection/wishlist item's category by joining to the catalog
 // on catalog_id. Items without a catalog_id fall through to 'other'.
 function itemCategory(item) {
-  if (!item.catalogId) return 'other';
+  if (!item.catalogId) return isWearableItem(item) ? 'clothing' : 'other';
   const cat = state.catalog.find((c) => c.id === item.catalogId);
-  return cat ? catalogCategory(cat) : 'other';
+  return cat ? catalogCategory(cat) : (isWearableItem(item) ? 'clothing' : 'other');
 }
 
 function filteredCollection() {
@@ -1000,7 +1058,7 @@ function catalogIdMap() {
   return { owned, wished };
 }
 
-const CATALOG_CATEGORIES = new Set(['all', 'plush', 'mini', 'accessory', 'bundle', 'other']);
+const CATALOG_CATEGORIES = new Set(['all', 'plush', 'mini', 'clothing', 'accessory', 'bundle', 'other']);
 
 function filteredCatalog() {
   const q = state.query.trim().toLowerCase();
@@ -1032,10 +1090,10 @@ function filteredCatalog() {
       if (!tags.some((t) => t.includes(state.catalogColor))) return false;
     }
     if (!q) return true;
-    return (
-      it.name.toLowerCase().includes(q) ||
-      (it.tags || []).some((t) => t.toLowerCase().includes(q))
-    );
+    // Name + tags form one haystack so a term can match either, while
+    // negative/phrase operators (-foo, "foo bar") still apply across both.
+    const hay = `${it.name} ${(it.tags || []).join(' ')}`;
+    return queryMatches(hay, q);
   });
   return sortCatalog(items, state.catalogSort);
 }
@@ -1169,16 +1227,23 @@ function catalogForItem(item) {
   return item.catalogId ? state.catalog.find((c) => c.id === item.catalogId) : null;
 }
 
+// Does a catalog entry describe wearable plush clothing? Either it's on one
+// of the named clothing lines, or it's an accessory-typed product whose name
+// carries a clothing keyword.
+function catalogIsClothing(cat) {
+  const name = (cat?.name || '').toLowerCase();
+  const type = (cat?.type || '').toLowerCase();
+  if (PLUSH_CLOTHING_LINES.test(name)) return true;
+  if (type === 'accessory' && CLOTHING_RE.test(name)) return true;
+  return false;
+}
+
 function isWearableItem(item) {
   const cat = catalogForItem(item);
-  const catName = (cat?.name || '').toLowerCase();
-  const type = (cat?.type || '').toLowerCase();
-  if (PLUSH_CLOTHING_LINES.test(catName)) return true;
-  if (type === 'accessory' && CLOTHING_RE.test(catName)) return true;
+  if (cat) return catalogIsClothing(cat);
   // Pre-catalog / custom items: fall back to the user's own name, which
   // is often possessive ("Ni'ni's Purple Overalls").
-  if (!cat && CLOTHING_RE.test((item.name || '').toLowerCase())) return true;
-  return false;
+  return CLOTHING_RE.test((item.name || '').toLowerCase());
 }
 
 // Mini clothing vs. full-size clothing. Plushie Dreadfuls names every
