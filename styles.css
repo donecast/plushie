@@ -3469,3 +3469,11 @@ body.locked { overflow: hidden; }
   .attached-wrap { flex-wrap: wrap; }
   .attached-acc { width: 120px; }
 }
+
+/* Attached accessory: photo + name open the edit modal (rename/reassign) */
+.attached-acc-photo[data-action], .attached-acc-name[data-action] { cursor: pointer; }
+.attached-acc-name[data-action]:hover { text-decoration: underline; }
+
+/* Top 8 Buns: keep/excommunicate Tom toggle */
+.soc-keep-tom { display: flex; align-items: center; gap: 8px; margin: 4px 0 12px; font-size: 0.9rem; }
+.soc-keep-tom-note { color: var(--ink-mute); font-size: 0.8rem; }

@@ -2035,15 +2035,30 @@ data.getTopPlushes = async function (userId) {
 // item's ORIGINAL 'photos'-bucket path; we copy it into 'social' so
 // viewers can see it. Items with a catalogId skip the copy (the client
 // renders the catalog image as a reliable fallback).
-data.setTopPlushes = async function (entries) {
+// Tom — the hidden catalog mascot — always rides along in Top 8 Buns
+// until the user fills all 8 of their own. His image is the same-origin
+// /tom.jpg asset (no social-bucket copy needed).
+data.TOM_TOP = { plushName: 'Tom', catalogId: 'd3adc0de-0000-4000-8000-000000000001', photoPath: '/tom.jpg' };
+
+data.setTopPlushes = async function (entries, { keepTom = true } = {}) {
   const uid = window.currentUser.id;
-  const clean = (entries || []).slice(0, 8);
+  let clean = (entries || []).slice(0, 8);
+  // Keep Tom present whenever there's a free slot — the picker only knows
+  // the user's collection (Tom isn't in it), so without this a save would
+  // wipe him out. Unless the user has excommunicated him (keepTom=false).
+  const hasTom = clean.some((e) =>
+    e.catalogId === data.TOM_TOP.catalogId || (e.plushName || '').trim().toLowerCase() === 'tom');
+  if (keepTom && !hasTom && clean.length < 8) clean = [...clean, data.TOM_TOP];
+
   const rows = [];
   for (let i = 0; i < clean.length; i++) {
     const e = clean[i];
-    let socialPath = null;
-    if (!e.catalogId && e.photoPath) {
-      try { socialPath = await data._copyPhotoToSocial(e.photoPath); }
+    let photoPath = null;
+    if (e.photoPath && (e.photoPath.startsWith('/') || e.photoPath.startsWith('http'))) {
+      // Same-origin asset (Tom) or an already-external URL — store as-is.
+      photoPath = e.photoPath;
+    } else if (!e.catalogId && e.photoPath) {
+      try { photoPath = await data._copyPhotoToSocial(e.photoPath); }
       catch (err) { console.warn('top8 photo copy failed', err); }
     }
     rows.push({
@@ -2051,7 +2066,7 @@ data.setTopPlushes = async function (entries) {
       position: i + 1,
       plush_name: e.plushName,
       catalog_id: e.catalogId || null,
-      photo_path: socialPath,
+      photo_path: photoPath,
     });
   }
   // Replace-all: clear then insert the new ordering.
