@@ -418,7 +418,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=65', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=66', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
     const shopify = (json.products || []).filter(isPlushieCollectible);
@@ -1052,6 +1052,9 @@ function renderCard(item, kind) {
       <button class="qty-btn" data-action="col-inc" data-id="${item.id}" aria-label="One more">+</button>
     </div>` : '';
 
+  const isSeeking = kind === 'wishlist' && item.catalogId
+    && state.myTradeItems.some((t) => t.kind === 'seeking' && t.catalogId === item.catalogId);
+
   const actions = kind === 'collection'
     ? `
       ${qtyControl}
@@ -1062,7 +1065,9 @@ function renderCard(item, kind) {
       <button class="btn-got" data-action="got" data-id="${item.id}">✓ Got it! — move to collection</button>
       <div class="card-actions-secondary">
         ${item.url && !item.outOfStock ? `<a class="btn-buy" href="${escapeHtml(item.url)}" target="_blank" rel="noopener" title="Buy on plushiedreadfuls.com">Buy ↗</a>` : ''}
-        <button class="btn-icon btn-icon-seek btn-icon-labeled" data-action="seek-trade" data-id="${item.id}" aria-label="Seek in trade" title="Tell other collectors you'd accept this in a trade">↺ Seek in trade</button>
+        ${isSeeking
+          ? `<button class="btn-icon btn-icon-labeled" data-action="seek-trade" data-id="${item.id}" aria-label="Stop seeking" title="Stop telling other collectors you'd accept this in a trade">✕ Stop seeking</button>`
+          : `<button class="btn-icon btn-icon-seek btn-icon-labeled" data-action="seek-trade" data-id="${item.id}" aria-label="Seek in trade" title="Tell other collectors you'd accept this in a trade">↺ Seek in trade</button>`}
         <button class="btn-icon btn-icon-danger" data-action="delete" data-id="${item.id}" aria-label="Remove from wish list" title="Remove">🗑</button>
       </div>
     `;
