@@ -1681,8 +1681,8 @@ data.uploadSocialPhoto = async function (blob) {
 data.socialPhotoUrl = async function (path) {
   if (!path) return null;
   // Absolute URLs and same-origin asset paths (e.g. the seeded
-  // '/dreadful-bunny.jpg' mascot) are served as-is; everything else is
-  // a 'social' bucket object key that needs a signed/R2 URL.
+  // '/tom.jpg' mascot) are served as-is; everything else is a 'social'
+  // bucket object key that needs a signed/R2 URL.
   if (path.startsWith('http') || path.startsWith('/')) return path;
   return await data._urlFor('social', path);
 };

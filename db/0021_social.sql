@@ -237,29 +237,46 @@ create policy social_write on storage.objects for insert to authenticated
 create policy social_delete on storage.objects for delete to authenticated
   using (bucket_id = 'social' and (storage.foldername(name))[1] = auth.uid()::text);
 
--- ─── Mascot seed: every "Top Buns" starts with the Dreadful Bunny ──
--- The house mascot (xXx_d3ad_cutie_xXx, "MYSPACE 4 EVA") rides shotgun
--- at position 1 of everyone's Top Buns. photo_path is a same-origin
--- asset (committed at /dreadful-bunny.jpg) so it resolves on any host
--- without a storage upload; data.socialPhotoUrl passes '/'-paths
--- through untouched. Users can re-pick their Top Buns to replace it.
+-- ─── Mascot: Tom — every "Top 8 Buns" starts with him ──────────────
+-- Tom is the house mascot (xXx_d3ad_cutie_xXx, "MYSPACE 4 EVA"), the
+-- nod to MySpace Tom: everyone's automatic first friend. He rides at
+-- position 1 of every collector's Top 8 Buns.
 --
--- NOTE: deploy the dreadful-bunny.jpg asset (merge the branch) for the
--- image to load; until then the slot shows the 🖤 fallback + the name.
+-- Tom lives in the catalog as a HIDDEN item: he's a real catalog_items
+-- row, but the client filters catalog_items.hidden = true out of
+-- state.catalog, so he never appears in the Catalog grid / search /
+-- Own-Want flow. His image is a same-origin asset at /tom.jpg
+-- (data.socialPhotoUrl passes '/'-paths through untouched), so no
+-- storage upload is needed. Deploy the asset (merge the branch) for the
+-- image to load; until then the slot shows the 🖤 fallback + his name.
+alter table catalog_items add column if not exists hidden boolean not null default false;
 
--- Backfill existing collectors.
+insert into catalog_items (id, name, handle, type, available, retired, status, hidden, approved_at)
+values ('d3adc0de-0000-4000-8000-000000000001', 'Tom', 'tom-mascot', 'plush', false, false, 'approved', true, now())
+on conflict (handle) do nothing;
+
+-- Seed position 1 for every collector (fresh installs).
 insert into top_plushes (owner_id, position, plush_name, catalog_id, photo_path)
-select id, 1, 'Dreadful Bunny', null, '/dreadful-bunny.jpg'
+select id, 1, 'Tom', 'd3adc0de-0000-4000-8000-000000000001', '/tom.jpg'
 from profiles
 on conflict (owner_id, position) do nothing;
+
+-- Upgrade anyone seeded by an earlier draft (the "Dreadful Bunny")
+-- to Tom in place. Safe: the feature is new, nobody has hand-picked yet.
+update top_plushes
+   set plush_name = 'Tom',
+       catalog_id = 'd3adc0de-0000-4000-8000-000000000001',
+       photo_path = '/tom.jpg'
+ where position = 1
+   and (plush_name = 'Dreadful Bunny' or photo_path = '/dreadful-bunny.jpg');
 
 -- Auto-seed new accounts. profiles already has on_profile_created
 -- (ensure_default_collection); this is a second, independent trigger.
 create or replace function seed_top_bun()
 returns trigger language plpgsql security definer as $$
 begin
-  insert into top_plushes (owner_id, position, plush_name, photo_path)
-  values (new.id, 1, 'Dreadful Bunny', '/dreadful-bunny.jpg')
+  insert into top_plushes (owner_id, position, plush_name, catalog_id, photo_path)
+  values (new.id, 1, 'Tom', 'd3adc0de-0000-4000-8000-000000000001', '/tom.jpg')
   on conflict (owner_id, position) do nothing;
   return new;
 end $$;
