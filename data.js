@@ -194,40 +194,98 @@ const data = {
     }
   },
 
-  // ─── Photos (Supabase Storage) ────────────────────────────────────
+  // ─── Photos (R2 via Worker, with Supabase Storage fallback) ──────
+  // Routing is controlled by window.R2_BASE in config.js:
+  //   * empty / unset → legacy Supabase Storage 'photos' bucket
+  //   * set to Worker URL → all uploads PUT to R2, reads return the
+  //     Worker URL directly.
+  // Same path schema (<collection_id>/<id>.<ext>) on both sides so the
+  // photo_path column in the DB is unchanged across the migration.
   async uploadPhoto(blob, id) {
     const ext = (blob.type && blob.type.split('/')[1]) || 'jpg';
     const path = `${data.collectionId}/${id}.${ext === 'jpeg' ? 'jpg' : ext}`;
-    const { error } = await sb.storage
-      .from('photos')
-      .upload(path, blob, { upsert: true, contentType: blob.type || 'image/jpeg' });
-    if (error) throw error;
-    return path;
+    return await data._uploadToStorage('photos', path, blob);
   },
 
-  // Upload to a specific user's collection bucket folder. Used by the
-  // admin backfill tool which iterates other people's plushies +
-  // wishlist rows. Storage RLS allows admin write via 0005's policy.
+  // Used by the admin backfill tool which iterates other people's
+  // plushies + wishlist rows.
   async adminUploadPhoto(blob, collectionId, id) {
     const ext = (blob.type && blob.type.split('/')[1]) || 'jpg';
     const path = `${collectionId}/${id}.${ext === 'jpeg' ? 'jpg' : ext}`;
-    const { error } = await sb.storage
-      .from('photos')
-      .upload(path, blob, { upsert: true, contentType: blob.type || 'image/jpeg' });
-    if (error) throw error;
-    return path;
+    return await data._uploadToStorage('photos', path, blob);
   },
 
   async photoUrl(path) {
     if (!path) return null;
     if (path.startsWith('http')) return path;
-    if (data._photoUrlCache.has(path)) return data._photoUrlCache.get(path);
-    const { data: signed, error } = await sb
-      .storage.from('photos')
-      .createSignedUrl(path, 3600);
-    if (error) { console.warn('signed url failed', path, error); return null; }
-    data._photoUrlCache.set(path, signed.signedUrl);
-    return signed.signedUrl;
+    return await data._urlFor('photos', path);
+  },
+
+  // ─── Routing helpers ─────────────────────────────────────────────
+  async _uploadToStorage(bucket, path, blob) {
+    if (window.R2_BASE) {
+      return await data._r2Put(bucket, path, blob);
+    }
+    const { error } = await sb.storage
+      .from(bucket)
+      .upload(path, blob, { upsert: true, contentType: blob.type || 'image/jpeg' });
+    if (error) throw error;
+    return path;
+  },
+
+  async _r2Put(bucket, path, blob) {
+    const base = (window.R2_BASE || '').replace(/\/$/, '');
+    if (!base) throw new Error('R2 not configured');
+    const { data: session } = await sb.auth.getSession();
+    const jwt = session?.session?.access_token;
+    if (!jwt) throw new Error('no session');
+    const url = `${base}/${bucket}/${path}`;
+    const resp = await fetch(url, {
+      method: 'PUT',
+      body: blob,
+      headers: {
+        'content-type': blob.type || 'image/jpeg',
+        'authorization': `Bearer ${jwt}`,
+      },
+    });
+    if (!resp.ok) {
+      const detail = await resp.text().catch(() => '');
+      throw new Error(`R2 upload ${resp.status}: ${detail.slice(0, 120)}`);
+    }
+    return path;
+  },
+
+  async _r2Delete(bucket, path) {
+    const base = (window.R2_BASE || '').replace(/\/$/, '');
+    if (!base || !path) return;
+    const { data: session } = await sb.auth.getSession();
+    const jwt = session?.session?.access_token;
+    if (!jwt) return;
+    await fetch(`${base}/${bucket}/${path}`, {
+      method: 'DELETE',
+      headers: { 'authorization': `Bearer ${jwt}` },
+    }).catch(() => {});
+  },
+
+  async _urlFor(bucket, path) {
+    if (!path) return null;
+    // Same cache for both code paths — short-circuits a re-fetch on
+    // every render. R2 URLs are stable; Supabase signed URLs valid
+    // for an hour. Cache both for the session.
+    if (data._photoUrlCache.has(`${bucket}:${path}`)) return data._photoUrlCache.get(`${bucket}:${path}`);
+    let url = null;
+    if (window.R2_BASE) {
+      const base = window.R2_BASE.replace(/\/$/, '');
+      url = `${base}/${bucket}/${path}`;
+    } else {
+      const { data: signed, error } = await sb
+        .storage.from(bucket)
+        .createSignedUrl(path, 3600);
+      if (error) { console.warn('signed url failed', path, error); return null; }
+      url = signed.signedUrl;
+    }
+    data._photoUrlCache.set(`${bucket}:${path}`, url);
+    return url;
   },
 
   async deletePhoto(path) {
@@ -998,11 +1056,7 @@ data.adminUserSnapshot = async function (userId) {
 
 data.catalogImageUrl = async function (path) {
   if (!path) return null;
-  const { data: signed, error } = await sb
-    .storage.from('catalog')
-    .createSignedUrl(path, 3600);
-  if (error) { console.warn('catalog image url failed', path, error); return null; }
-  return signed.signedUrl;
+  return await data._urlFor('catalog', path);
 };
 
 // Approved items only — fed into state.catalog merge.
@@ -1042,11 +1096,7 @@ data.uploadCatalogImage = async function (blob, slug) {
   const safeSlug = (slug || 'item').replace(/[^a-z0-9-]/gi, '-').slice(0, 60);
   const rand = Math.random().toString(36).slice(2, 8);
   const path = `items/${safeSlug}-${rand}.${ext === 'jpeg' ? 'jpg' : ext}`;
-  const { error } = await sb.storage
-    .from('catalog')
-    .upload(path, blob, { upsert: false, contentType: blob.type || 'image/jpeg' });
-  if (error) throw error;
-  return path;
+  return await data._uploadToStorage('catalog', path, blob);
 };
 
 // Upload to suggestions/ prefix instead. Anyone authenticated can do
@@ -1057,11 +1107,7 @@ data.uploadCatalogSuggestionImage = async function (blob, slug) {
   const safeSlug = (slug || 'item').replace(/[^a-z0-9-]/gi, '-').slice(0, 60);
   const rand = Math.random().toString(36).slice(2, 10);
   const path = `suggestions/${safeSlug}-${rand}.${ext === 'jpeg' ? 'jpg' : ext}`;
-  const { error } = await sb.storage
-    .from('catalog')
-    .upload(path, blob, { upsert: false, contentType: blob.type || 'image/jpeg' });
-  if (error) throw error;
-  return path;
+  return await data._uploadToStorage('catalog', path, blob);
 };
 
 // Create a catalog_items row. Three paths:

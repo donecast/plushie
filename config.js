@@ -16,3 +16,11 @@ window.TERMS_VERSION = '2026-06-10';
 // hostname if you've bound one (e.g. https://img.plushcrypt.com).
 window.IMG_PROXY_BASE = 'https://plush-crypt-img-proxy.scott-e08.workers.dev/';
 
+// Cloudflare Worker that proxies the R2 photo + catalog buckets. See
+// worker/r2-storage.js for deploy instructions. Empty string keeps
+// the legacy Supabase Storage path active. When set, uploads route
+// to R2 via this Worker and reads use the same base URL. No trailing
+// slash. e.g. 'https://plush-crypt-r2.scott-e08.workers.dev'.
+window.R2_BASE = '';
+
+
