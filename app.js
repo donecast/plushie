@@ -50,6 +50,27 @@ const state = {
   catalogItemModalMode: 'admin', // 'admin' | 'user' — drives the Add Catalog Item modal copy + UI
   catalogItemPicked: null,    // { photoPath } when admin picked an image from a user's collection
   catalogMerge: null,         // { duplicateId, winnerId } for the admin merge tool
+
+  // ─── Social state ─────────────────────────────────────────────────
+  socSubTab: 'feed',          // 'feed' | 'friends' | 'me'
+  socFeed: [],                // hydrated post view-objects
+  socFriends: [],             // accepted friends [{userId, username, avatarUrl, isInner}]
+  socRequests: [],            // incoming pending friend requests
+  socSearch: [],              // user search results
+  socSearchQuery: '',
+  socProfile: null,           // { profile, posts, top8, friendship } when viewing someone
+  socExpandedComments: new Set(), // postIds whose comment box/list is expanded
+  socComposeVis: 'friends',   // visibility selected in the composer
+  socComposePhoto: null,      // pending compressed Blob for a new post
+  socPendingCount: 0,         // incoming friend requests — drives the tab badge
+};
+
+// Themed visibility tiers. The DB enum is public|friends|inner; these
+// are the gothic-cute labels the UI shows. Rename here to re-theme.
+const VIS_META = {
+  public:  { label: 'Public',       glyph: '🌍', hint: 'Anyone with an account' },
+  friends: { label: 'Coven',        glyph: '🦇', hint: 'Your accepted friends' },
+  inner:   { label: 'Inner Coffin', glyph: '🖤', hint: 'Friends you placed in your inner circle' },
 };
 
 const PRODUCT_URL_BASE = 'https://plushiedreadfuls.com/products/';
@@ -1159,6 +1180,7 @@ function render() {
   document.getElementById('wishlist-view').classList.toggle('hidden', tab !== 'wishlist');
   document.getElementById('catalog-view').classList.toggle('hidden', tab !== 'catalog');
   document.getElementById('trade-view').classList.toggle('hidden', tab !== 'trade');
+  document.getElementById('social-view').classList.toggle('hidden', tab !== 'social');
   document.getElementById('admin-view').classList.toggle('hidden', tab !== 'admin');
   // Admin tab visibility is gated by the current user being is_admin.
   document.getElementById('admin-tab').classList.toggle('hidden', !window.currentUser?.isAdmin);
@@ -1178,12 +1200,12 @@ function render() {
   document.getElementById('wishlist-actions').classList.toggle('hidden', tab !== 'wishlist');
   document.getElementById('catalog-filters').classList.toggle('hidden', tab !== 'catalog');
 
-  // Search bar makes sense on item lists, not on the checklist/trade tabs.
-  document.getElementById('search').classList.toggle('hidden', onPens || tab === 'trade' || tab === 'admin');
+  // Search bar makes sense on item lists, not on the checklist/trade/social tabs.
+  document.getElementById('search').classList.toggle('hidden', onPens || tab === 'trade' || tab === 'admin' || tab === 'social');
   // Active-filters bar belongs to the catalog.
   document.getElementById('active-filters').classList.toggle('hidden', tab !== 'catalog');
   // The plain count-label now only shows for non-catalog tabs (catalog has its own bar).
-  document.getElementById('count-label').classList.toggle('hidden', tab === 'catalog' || onPens);
+  document.getElementById('count-label').classList.toggle('hidden', tab === 'catalog' || onPens || tab === 'social');
 
   document.querySelectorAll('.tab').forEach((t) =>
     t.classList.toggle('active', t.dataset.tab === tab)
@@ -1232,8 +1254,11 @@ function render() {
     document.getElementById('count-label').textContent = state.adminUserView
       ? `Inspecting @${state.adminUserView.user.username}`
       : `${state.adminUsers.length} user${state.adminUsers.length === 1 ? '' : 's'}`;
+  } else if (tab === 'social') {
+    renderSocial();
   }
   updateTradeBadge();
+  updateSocialBadge();
   saveFilters();    // persist filter state every render — cheap, captures all mutations
 }
 
@@ -1890,6 +1915,10 @@ function wireEvents() {
       tabScroll.set(state.tab, window.scrollY);
       state.tab = t.dataset.tab;
       if (state.tab === 'trade') await loadTradeData();  // refresh from server on enter
+      if (state.tab === 'social') {
+        state.socProfile = null;       // always land on the feed, not a stale profile
+        await loadSocialData();
+      }
       if (state.tab === 'admin') {
         state.adminUserView = null;
         await loadAdminUsers();
@@ -4986,8 +5015,651 @@ function registerSW() {
 }
 
 // ─── Boot ────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════
+// Social tab — friends (Coven), Inner Coffin, posts, likes, comments,
+// Top 8, profiles. Early-Facebook-meets-MySpace, account required.
+// ════════════════════════════════════════════════════════════════════
+
+async function loadSocialData() {
+  try {
+    const [feed, friends, requests] = await Promise.all([
+      data.listFeed(),
+      data.listFriends(),
+      data.listIncomingRequests(),
+    ]);
+    state.socFeed = feed;
+    state.socFriends = friends;
+    state.socRequests = requests;
+    state.socPendingCount = requests.length;
+  } catch (e) {
+    console.error('loadSocialData', e);
+    toast('Could not load the crypt social feed.');
+  }
+}
+
+// Lightweight badge refresh (no feed fetch) — used at boot so the red
+// pip shows pending friend requests even before the user opens Social.
+async function refreshSocialBadge() {
+  try {
+    state.socPendingCount = await data.countPendingFriendRequests();
+    updateSocialBadge();
+  } catch (e) { console.warn('social badge', e); }
+}
+
+function updateSocialBadge() {
+  const n = state.socPendingCount || 0;
+  for (const id of ['social-badge', 'soc-friends-badge']) {
+    const b = document.getElementById(id);
+    if (!b) continue;
+    b.textContent = n;
+    b.classList.toggle('hidden', n === 0);
+  }
+}
+
+function setSocSubTab(name) {
+  state.socSubTab = name;
+  renderSocial();
+}
+
+// ─── Small presentational helpers ───────────────────────────────────
+function socTimeAgo(ts) {
+  const d = typeof ts === 'number' ? ts : +new Date(ts);
+  const s = Math.floor((Date.now() - d) / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
+  const day = Math.floor(h / 24); if (day < 7) return `${day}d ago`;
+  return new Date(d).toLocaleDateString();
+}
+
+function socAvatar(url, name, cls = '') {
+  const initial = escapeHtml((name || '?').slice(0, 1).toUpperCase());
+  if (url) return `<span class="soc-avatar ${cls}"><img src="${escapeHtml(url)}" loading="lazy" alt="" /></span>`;
+  return `<span class="soc-avatar soc-avatar-fallback ${cls}">${initial}</span>`;
+}
+
+function visBadge(vis) {
+  const m = VIS_META[vis] || VIS_META.friends;
+  return `<span class="soc-vis-badge" title="${escapeHtml(m.hint)}">${m.glyph} ${escapeHtml(m.label)}</span>`;
+}
+
+// ─── Top-level social render dispatch ───────────────────────────────
+// A profile overlay (state.socProfile) takes over the feed subview; the
+// sub-tabs otherwise map 1:1 to the three subviews. All visibility is
+// decided here so callers just set state and re-render.
+function renderSocial() {
+  const onProfile = !!state.socProfile;
+  const showFeed = onProfile || state.socSubTab === 'feed';
+  document.getElementById('soc-feed').classList.toggle('hidden', !showFeed);
+  document.getElementById('soc-friends').classList.toggle('hidden', onProfile || state.socSubTab !== 'friends');
+  document.getElementById('soc-me').classList.toggle('hidden', onProfile || state.socSubTab !== 'me');
+  document.querySelectorAll('#social-view .subtab').forEach((s) =>
+    s.classList.toggle('active', !onProfile && s.dataset.socSubtab === state.socSubTab));
+
+  if (onProfile) {
+    renderProfileInto(document.getElementById('soc-feed'), { ...state.socProfile, withBack: true });
+    return;
+  }
+  if (state.socSubTab === 'feed') renderFeed();
+  else if (state.socSubTab === 'friends') renderFriends();
+  else if (state.socSubTab === 'me') renderMyProfileTab();
+}
+
+// ─── Feed ───────────────────────────────────────────────────────────
+function renderFeed() {
+  const el = document.getElementById('soc-feed');
+  const composer = `
+    <div class="soc-composer">
+      <div class="soc-composer-row">
+        ${socAvatar(null, window.currentUser.username)}
+        <button class="soc-composer-open" data-soc-action="open-compose">
+          Share a story about your plushes…
+        </button>
+      </div>
+    </div>`;
+
+  const posts = state.socFeed.length
+    ? state.socFeed.map(renderPostCard).join('')
+    : `<p class="empty-note">The crypt is quiet. Make the first post, or
+        <button class="linklike" data-soc-action="go-friends">find some friends</button> to follow.</p>`;
+
+  el.innerHTML = composer + `<div class="soc-feed-list">${posts}</div>`;
+}
+
+function renderPostCard(p) {
+  const img = p.photoUrl || catalogImageFor(p.catalogId);
+  const expanded = state.socExpandedComments.has(p.id);
+  const shownComments = expanded ? p.comments : p.comments.slice(-2);
+  const moreCount = p.comments.length - shownComments.length;
+
+  return `
+  <article class="soc-post" data-post-id="${p.id}">
+    <header class="soc-post-head">
+      <button class="soc-userlink" data-soc-action="view-profile" data-uid="${p.authorId}">
+        ${socAvatar(p.authorAvatar, p.authorName)}
+        <span class="soc-post-author">@${escapeHtml(p.authorName)}</span>
+      </button>
+      <span class="soc-post-meta">${visBadge(p.visibility)} · ${escapeHtml(socTimeAgo(p.createdAt))}</span>
+      ${p.mine ? `<button class="soc-post-del" data-soc-action="delete-post" data-post-id="${p.id}" title="Delete">🗑</button>` : ''}
+    </header>
+    ${p.plushName ? `<p class="soc-post-plush">🧸 ${escapeHtml(p.plushName)}</p>` : ''}
+    ${p.body ? `<p class="soc-post-body">${escapeHtml(p.body)}</p>` : ''}
+    ${img ? `<div class="soc-post-photo"><img src="${escapeHtml(img)}" loading="lazy" alt="" /></div>` : ''}
+    <div class="soc-post-actions">
+      <button class="soc-like ${p.likedByMe ? 'liked' : ''}" data-soc-action="toggle-like" data-post-id="${p.id}">
+        ${p.likedByMe ? '🖤' : '🤍'} <span>${p.likeCount || ''}</span>
+      </button>
+      <button class="soc-comment-btn" data-soc-action="toggle-comments" data-post-id="${p.id}">
+        💬 <span>${p.comments.length || ''}</span>
+      </button>
+    </div>
+    <div class="soc-comments">
+      ${moreCount > 0 ? `<button class="linklike soc-more-comments" data-soc-action="toggle-comments" data-post-id="${p.id}">View ${moreCount} more comment${moreCount === 1 ? '' : 's'}</button>` : ''}
+      ${shownComments.map((c) => `
+        <div class="soc-comment">
+          <button class="soc-userlink" data-soc-action="view-profile" data-uid="${c.authorId}"><b>@${escapeHtml(c.authorName)}</b></button>
+          <span>${escapeHtml(c.body)}</span>
+          ${c.canDelete ? `<button class="soc-comment-del" data-soc-action="delete-comment" data-comment-id="${c.id}" title="Delete">×</button>` : ''}
+        </div>`).join('')}
+      ${expanded ? `
+        <form class="soc-comment-form" data-soc-action="submit-comment" data-post-id="${p.id}">
+          <input type="text" class="soc-comment-input" maxlength="500" placeholder="Add a comment…" />
+          <button class="btn-primary" type="submit">Post</button>
+        </form>` : ''}
+    </div>
+  </article>`;
+}
+
+// ─── Friends ────────────────────────────────────────────────────────
+function renderFriends() {
+  const el = document.getElementById('soc-friends');
+  const requests = state.socRequests.length ? `
+    <section class="soc-section">
+      <h2 class="soc-section-head">Friend requests</h2>
+      ${state.socRequests.map((r) => `
+        <div class="soc-friend-row">
+          <button class="soc-userlink" data-soc-action="view-profile" data-uid="${r.userId}">
+            ${socAvatar(r.avatarUrl, r.username)} <span>@${escapeHtml(r.username)}</span>
+          </button>
+          <span class="soc-friend-actions">
+            <button class="btn-primary" data-soc-action="accept-friend" data-uid="${r.userId}">Accept</button>
+            <button class="btn-ghost" data-soc-action="decline-friend" data-uid="${r.userId}">Decline</button>
+          </span>
+        </div>`).join('')}
+    </section>` : '';
+
+  const results = state.socSearch.length ? `
+    <div class="soc-search-results">
+      ${state.socSearch.map((u) => `
+        <div class="soc-friend-row">
+          <button class="soc-userlink" data-soc-action="view-profile" data-uid="${u.userId}">
+            ${socAvatar(u.avatarUrl, u.username)} <span>@${escapeHtml(u.username)}</span>
+          </button>
+          <button class="btn-primary" data-soc-action="add-friend" data-uid="${u.userId}">Add friend</button>
+        </div>`).join('')}
+    </div>` : (state.socSearchQuery ? `<p class="empty-note">No collectors match "@${escapeHtml(state.socSearchQuery)}".</p>` : '');
+
+  const friends = state.socFriends.length ? `
+    <section class="soc-section">
+      <h2 class="soc-section-head">Your Coven · ${state.socFriends.length}</h2>
+      ${state.socFriends.map((f) => `
+        <div class="soc-friend-row">
+          <button class="soc-userlink" data-soc-action="view-profile" data-uid="${f.userId}">
+            ${socAvatar(f.avatarUrl, f.username)}
+            <span>@${escapeHtml(f.username)} ${f.isInner ? '<span class="soc-inner-tag">🖤 Inner Coffin</span>' : ''}</span>
+          </button>
+          <span class="soc-friend-actions">
+            <button class="btn-ghost" data-soc-action="toggle-inner" data-uid="${f.userId}" data-on="${f.isInner ? '0' : '1'}">
+              ${f.isInner ? 'Remove from Inner Coffin' : 'Add to Inner Coffin'}
+            </button>
+            <button class="btn-ghost" data-soc-action="remove-friend" data-uid="${f.userId}">Unfriend</button>
+          </span>
+        </div>`).join('')}
+    </section>` : `<p class="empty-note">No friends in your Coven yet — search for a collector above.</p>`;
+
+  el.innerHTML = `
+    <div class="soc-search">
+      <input type="search" id="soc-search-input" placeholder="Find collectors by @username…" value="${escapeHtml(state.socSearchQuery)}" />
+    </div>
+    ${results}
+    ${requests}
+    ${friends}`;
+}
+
+// ─── My profile tab ─────────────────────────────────────────────────
+function renderMyProfileTab() {
+  // Reuse the profile renderer pointed at myself, but with edit affordances.
+  renderProfileInto(document.getElementById('soc-me'), {
+    profile: { id: window.currentUser.id, username: window.currentUser.username, bio: state._myBio, avatarUrl: state._myAvatarUrl },
+    posts: state._myPosts || [],
+    top8: state._myTop8 || [],
+    isMe: true,
+  });
+}
+
+// ─── Viewing someone's profile (overlay) ────────────────────────────
+async function openProfile(userId) {
+  try {
+    const [profile, posts, top8, friendship] = await Promise.all([
+      data.getSocialProfile(userId),
+      data.listUserPosts(userId),
+      data.getTopPlushes(userId),
+      data.friendshipWith(userId),
+    ]);
+    if (!profile) { toast('Profile not found.'); return; }
+    state.socProfile = { profile, posts, top8, friendship, isMe: userId === window.currentUser.id };
+    renderSocial();
+  } catch (e) { console.error('openProfile', e); toast('Could not open profile.'); }
+}
+
+function renderProfileInto(el, { profile, posts, top8, friendship, isMe, withBack }) {
+  const top8Html = renderTop8(top8, isMe);
+  let relBtns = '';
+  if (isMe) {
+    relBtns = `<button class="btn-ghost" data-soc-action="edit-profile">Edit profile</button>
+               <button class="btn-ghost" data-soc-action="edit-top8">Edit Top 8</button>`;
+  } else {
+    if (friendship === 'friends') relBtns = `<span class="soc-rel-tag">🦇 In your Coven</span>
+               <button class="btn-ghost" data-soc-action="remove-friend" data-uid="${profile.id}">Unfriend</button>`;
+    else if (friendship === 'outgoing') relBtns = `<button class="btn-ghost" data-soc-action="remove-friend" data-uid="${profile.id}">Cancel request</button>`;
+    else if (friendship === 'incoming') relBtns = `<button class="btn-primary" data-soc-action="accept-friend" data-uid="${profile.id}">Accept request</button>`;
+    else relBtns = `<button class="btn-primary" data-soc-action="add-friend" data-uid="${profile.id}">Add friend</button>`;
+  }
+
+  el.innerHTML = `
+    ${withBack ? `<button class="linklike soc-back" data-soc-action="close-profile">← Back to feed</button>` : ''}
+    <header class="soc-profile-head">
+      ${socAvatar(profile.avatarUrl, profile.username, 'soc-avatar-lg')}
+      <div class="soc-profile-id">
+        <h2>@${escapeHtml(profile.username)}</h2>
+        ${profile.bio ? `<p class="soc-bio">${escapeHtml(profile.bio)}</p>` : (isMe ? `<p class="soc-bio soc-bio-empty">Add a bio to tell the crypt about yourself…</p>` : '')}
+        <div class="soc-profile-actions">${relBtns}</div>
+      </div>
+    </header>
+    <section class="soc-section">
+      <h2 class="soc-section-head">Top 8 Plushes ${isMe ? '' : ''}</h2>
+      ${top8Html}
+    </section>
+    <section class="soc-section">
+      <h2 class="soc-section-head">${isMe ? 'Your posts' : 'Posts'}</h2>
+      ${posts.length ? posts.map(renderPostCard).join('') : `<p class="empty-note">No posts yet.</p>`}
+    </section>`;
+}
+
+function renderTop8(top8, isMe) {
+  if (!top8 || !top8.length) {
+    return `<p class="empty-note soc-top8-empty">${isMe ? 'Pick your Top 8 plushes to show them off, MySpace-style.' : 'No Top 8 picked yet.'}</p>`;
+  }
+  const slots = top8.map((t) => {
+    const img = t.photoUrl || catalogImageFor(t.catalogId);
+    return `
+      <div class="soc-top8-slot">
+        <span class="soc-top8-rank">${t.position}</span>
+        <div class="soc-top8-photo">${img ? `<img src="${escapeHtml(img)}" loading="lazy" alt="" />` : '<span class="no-photo">🖤</span>'}</div>
+        <span class="soc-top8-name">${escapeHtml(t.plushName)}</span>
+      </div>`;
+  }).join('');
+  return `<div class="soc-top8-grid">${slots}</div>`;
+}
+
+// ─── Social modal (compose / edit profile / Top 8 picker) ───────────
+function openSocialModal(html) {
+  document.getElementById('social-modal-card').innerHTML = html;
+  document.getElementById('social-modal').classList.remove('hidden');
+}
+function closeSocialModal() {
+  document.getElementById('social-modal').classList.add('hidden');
+  document.getElementById('social-modal-card').innerHTML = '';
+  state.socComposePhoto = null;
+}
+
+function openComposer() {
+  state.socComposeVis = state.socComposeVis || 'friends';
+  state.socComposePhoto = null;
+  const visOptions = Object.entries(VIS_META).map(([k, m]) =>
+    `<option value="${k}" ${state.socComposeVis === k ? 'selected' : ''}>${m.glyph} ${m.label} — ${m.hint}</option>`).join('');
+  // Optional: tag one of my own plushes (sets a catalog image + name).
+  const plushOptions = ['<option value="">Tag a plush (optional)…</option>']
+    .concat(state.collection.map((p) => `<option value="${escapeHtml(p.catalogId || '')}|${escapeHtml(p.nickname || p.name)}">${escapeHtml(p.nickname || p.name)}</option>`))
+    .join('');
+  openSocialModal(`
+    <button class="modal-close" data-close-social aria-label="Close">×</button>
+    <h2>New post</h2>
+    <form id="soc-compose-form">
+      <label class="field">
+        <span>Your story</span>
+        <textarea id="soc-compose-body" rows="4" maxlength="1000" placeholder="Tell the crypt about your plush…"></textarea>
+      </label>
+      <label class="field">
+        <span>Tag a plush</span>
+        <select id="soc-compose-plush">${plushOptions}</select>
+      </label>
+      <label class="field">
+        <span>Photo (optional)</span>
+        <input type="file" id="soc-compose-photo" accept="image/*" />
+        <span id="soc-compose-photo-name" class="soc-file-name"></span>
+      </label>
+      <label class="field">
+        <span>Who can see this</span>
+        <select id="soc-compose-vis">${visOptions}</select>
+      </label>
+      <div class="form-actions">
+        <button type="button" class="btn-ghost" data-close-social>Cancel</button>
+        <button type="submit" class="btn-primary">Post</button>
+      </div>
+    </form>`);
+}
+
+async function submitComposer(e) {
+  e.preventDefault();
+  const body = document.getElementById('soc-compose-body').value.trim();
+  const vis = document.getElementById('soc-compose-vis').value;
+  const plushVal = document.getElementById('soc-compose-plush').value;
+  let catalogId = null, plushName = null;
+  if (plushVal) {
+    const [cid, name] = plushVal.split('|');
+    catalogId = cid || null;
+    plushName = name || null;
+  }
+  if (!body && !state.socComposePhoto && !plushName) {
+    toast('Add a story, a photo, or tag a plush.');
+    return;
+  }
+  try {
+    await data.createPost({ body, visibility: vis, photoBlob: state.socComposePhoto, catalogId, plushName });
+    state.socComposeVis = vis;
+    closeSocialModal();
+    toast('Posted to the crypt. 🦇');
+    await loadSocialData();
+    state.socProfile = null;
+    setSocSubTab('feed');
+  } catch (err) { console.error('createPost', err); toast('Could not post.'); }
+}
+
+function openEditProfile() {
+  const p = state.socProfile?.profile || { bio: state._myBio };
+  openSocialModal(`
+    <button class="modal-close" data-close-social aria-label="Close">×</button>
+    <h2>Edit profile</h2>
+    <form id="soc-profile-form">
+      <label class="field">
+        <span>Bio</span>
+        <textarea id="soc-bio" rows="3" maxlength="280" placeholder="A line or two about you and your crypt…">${escapeHtml(p.bio || '')}</textarea>
+      </label>
+      <label class="field">
+        <span>Avatar (optional)</span>
+        <input type="file" id="soc-avatar" accept="image/*" />
+        <span id="soc-avatar-name" class="soc-file-name"></span>
+      </label>
+      <div class="form-actions">
+        <button type="button" class="btn-ghost" data-close-social>Cancel</button>
+        <button type="submit" class="btn-primary">Save</button>
+      </div>
+    </form>`);
+}
+
+async function submitEditProfile(e) {
+  e.preventDefault();
+  const bio = document.getElementById('soc-bio').value.trim();
+  try {
+    await data.updateMyProfile({ bio, avatarBlob: state.socComposePhoto });
+    closeSocialModal();
+    toast('Profile updated.');
+    // Refresh both the My Crypt cache and the open overlay view.
+    await loadMyProfileCache();
+    await openProfile(window.currentUser.id);
+  } catch (err) { console.error('updateProfile', err); toast('Could not save profile.'); }
+}
+
+// Top 8 picker — drag-free, click to add/remove from an ordered list.
+function openTop8Picker() {
+  const current = ((state.socProfile?.top8 || state._myTop8 || [])).map((t) => t.plushName);
+  // Build from the user's collection; preselect anything already chosen.
+  const items = state.collection.map((p) => {
+    const name = p.nickname || p.name;
+    const picked = current.includes(name);
+    const img = p.photo || catalogImageFor(p.catalogId);
+    return `
+      <button type="button" class="soc-pick ${picked ? 'picked' : ''}"
+        data-soc-pick data-name="${escapeHtml(name)}"
+        data-catalog="${escapeHtml(p.catalogId || '')}"
+        data-photo="${escapeHtml(p.photoPath || '')}">
+        <div class="soc-pick-photo">${img ? `<img src="${escapeHtml(img)}" loading="lazy" alt="" />` : '<span class="no-photo">🖤</span>'}</div>
+        <span class="soc-pick-name">${escapeHtml(name)}</span>
+        <span class="soc-pick-rank"></span>
+      </button>`;
+  }).join('');
+  openSocialModal(`
+    <button class="modal-close" data-close-social aria-label="Close">×</button>
+    <h2>Pick your Top 8</h2>
+    <p class="soc-help">Tap up to 8 plushes from your collection. Tap again to remove. Order = pick order.</p>
+    <div class="soc-pick-grid">${items || '<p class="empty-note">Your collection is empty — add some plushes first.</p>'}</div>
+    <div class="form-actions">
+      <button type="button" class="btn-ghost" data-close-social>Cancel</button>
+      <button type="button" class="btn-primary" data-soc-action="save-top8">Save Top 8</button>
+    </div>`);
+  refreshTop8Ranks();
+}
+
+function refreshTop8Ranks() {
+  const picked = [...document.querySelectorAll('.soc-pick.picked')];
+  picked.forEach((b, i) => { b.querySelector('.soc-pick-rank').textContent = `#${i + 1}`; });
+}
+
+async function saveTop8() {
+  const picked = [...document.querySelectorAll('.soc-pick.picked')];
+  if (picked.length > 8) { toast('Pick at most 8.'); return; }
+  const entries = picked.map((b) => ({
+    plushName: b.dataset.name,
+    catalogId: b.dataset.catalog || null,
+    photoPath: b.dataset.photo || null,
+  }));
+  try {
+    await data.setTopPlushes(entries);
+    closeSocialModal();
+    toast('Top 8 saved. 🖤');
+    await loadMyProfileCache();
+    await openProfile(window.currentUser.id);
+  } catch (err) { console.error('saveTop8', err); toast('Could not save Top 8.'); }
+}
+
+// ─── Social event wiring ────────────────────────────────────────────
+function wireSocialEvents() {
+  // Sub-tabs.
+  document.querySelectorAll('#social-view .subtab').forEach((s) => {
+    s.addEventListener('click', async () => {
+      state.socProfile = null;
+      if (s.dataset.socSubtab === 'me') {
+        // Lazy-load my own profile data into the cache the tab reads.
+        await loadMyProfileCache();
+      }
+      setSocSubTab(s.dataset.socSubtab);
+    });
+  });
+
+  // Delegated clicks across the whole social view + modal.
+  document.getElementById('social-view').addEventListener('click', onSocialClick);
+  document.getElementById('social-modal').addEventListener('click', onSocialModalClick);
+
+  // Search (debounced) on the friends sub-tab.
+  document.getElementById('social-view').addEventListener('input', async (e) => {
+    if (e.target.id !== 'soc-search-input') return;
+    state.socSearchQuery = e.target.value.trim();
+    clearTimeout(wireSocialEvents._t);
+    wireSocialEvents._t = setTimeout(async () => {
+      state.socSearch = state.socSearchQuery ? await data.searchUsers(state.socSearchQuery).catch(() => []) : [];
+      if (state.socSubTab === 'friends' && !state.socProfile) renderFriends();
+    }, 250);
+  });
+
+  // Comment submit + compose/profile/top8 forms (submit events).
+  document.getElementById('social-view').addEventListener('submit', (e) => {
+    const f = e.target.closest('[data-soc-action="submit-comment"]');
+    if (f) { e.preventDefault(); submitCommentForm(f); }
+  });
+  document.getElementById('social-modal').addEventListener('submit', (e) => {
+    if (e.target.id === 'soc-compose-form') submitComposer(e);
+    else if (e.target.id === 'soc-profile-form') submitEditProfile(e);
+  });
+
+  // File pickers inside the modal — compress + stash the blob.
+  document.getElementById('social-modal').addEventListener('change', async (e) => {
+    if (e.target.id === 'soc-compose-photo' || e.target.id === 'soc-avatar') {
+      const file = e.target.files?.[0];
+      if (!file) { state.socComposePhoto = null; return; }
+      try {
+        state.socComposePhoto = await compressImage(file);
+        const label = document.getElementById(e.target.id === 'soc-avatar' ? 'soc-avatar-name' : 'soc-compose-photo-name');
+        if (label) label.textContent = '✓ ' + file.name;
+      } catch (err) { console.warn('compress', err); toast('Could not read that image.'); }
+    }
+  });
+}
+
+async function loadMyProfileCache() {
+  try {
+    const [profile, posts, top8] = await Promise.all([
+      data.getSocialProfile(window.currentUser.id),
+      data.listUserPosts(window.currentUser.id),
+      data.getTopPlushes(window.currentUser.id),
+    ]);
+    state._myBio = profile?.bio || '';
+    state._myAvatarUrl = profile?.avatarUrl || null;
+    state._myPosts = posts;
+    state._myTop8 = top8;
+  } catch (e) { console.warn('loadMyProfileCache', e); }
+}
+
+function onSocialModalClick(e) {
+  if (e.target.closest('[data-close-social]')) { closeSocialModal(); return; }
+  const pick = e.target.closest('[data-soc-pick]');
+  if (pick) {
+    const isPicked = pick.classList.contains('picked');
+    if (!isPicked && document.querySelectorAll('.soc-pick.picked').length >= 8) {
+      toast('That\'s 8 — remove one first.');
+      return;
+    }
+    pick.classList.toggle('picked');
+    refreshTop8Ranks();
+    return;
+  }
+  const action = e.target.closest('[data-soc-action]')?.dataset.socAction;
+  if (action === 'save-top8') saveTop8();
+}
+
+async function onSocialClick(e) {
+  const target = e.target.closest('[data-soc-action]');
+  if (!target) return;
+  const a = target.dataset.socAction;
+  const uid = target.dataset.uid;
+  const postId = target.dataset.postId;
+
+  switch (a) {
+    case 'open-compose': openComposer(); break;
+    case 'go-friends': setSocSubTab('friends'); break;
+    case 'view-profile': await openProfile(uid); break;
+    case 'close-profile': state.socProfile = null; renderSocial(); break;
+    case 'edit-profile': openEditProfile(); break;
+    case 'edit-top8': openTop8Picker(); break;
+
+    case 'toggle-like': await onToggleLike(postId, target); break;
+    case 'toggle-comments': onToggleComments(postId); break;
+    case 'delete-post': await onDeletePost(postId); break;
+    case 'delete-comment': await onDeleteComment(target.dataset.commentId); break;
+
+    case 'add-friend':    await socFriendAction(() => data.sendFriendRequest(uid), 'Friend request sent.'); break;
+    case 'accept-friend': await socFriendAction(() => data.acceptFriendRequest(uid), 'Friend added. 🦇'); break;
+    case 'decline-friend':await socFriendAction(() => data.removeFriend(uid), 'Request declined.'); break;
+    case 'remove-friend': await socFriendAction(() => data.removeFriend(uid), 'Removed.'); break;
+    case 'toggle-inner':  await socFriendAction(() => data.setInner(uid, target.dataset.on === '1'), 'Inner Coffin updated. 🖤'); break;
+  }
+}
+
+// Run a friend-graph mutation, then refresh the relevant views + badge.
+async function socFriendAction(fn, okMsg) {
+  try {
+    await fn();
+    toast(okMsg);
+    await loadSocialData();
+    if (state.socProfile) {
+      await openProfile(state.socProfile.profile.id);   // refresh the open profile
+    } else {
+      renderSocial();
+    }
+    updateSocialBadge();
+  } catch (e) {
+    console.error('friend action', e);
+    toast(e.message === 'duplicate key value violates unique constraint "friendships_pkey"'
+      ? 'Already requested.' : 'Could not complete that.');
+  }
+}
+
+async function onToggleLike(postId, btn) {
+  const post = findFeedPost(postId);
+  if (!post) return;
+  const newState = !post.likedByMe;
+  // Optimistic update.
+  post.likedByMe = newState;
+  post.likeCount += newState ? 1 : -1;
+  rerenderSocialCurrent();
+  try { await data.toggleLike(postId, newState); }
+  catch (e) { console.error('like', e); toast('Could not update like.'); await loadSocialData(); rerenderSocialCurrent(); }
+}
+
+function onToggleComments(postId) {
+  if (state.socExpandedComments.has(postId)) state.socExpandedComments.delete(postId);
+  else state.socExpandedComments.add(postId);
+  rerenderSocialCurrent();
+}
+
+async function submitCommentForm(form) {
+  const input = form.querySelector('.soc-comment-input');
+  const body = input.value.trim();
+  if (!body) return;
+  const postId = form.dataset.postId;
+  input.value = '';
+  try {
+    await data.addComment(postId, body);
+    await loadSocialData();
+    if (state.socProfile) await openProfile(state.socProfile.profile.id);
+    else rerenderSocialCurrent();
+  } catch (e) { console.error('comment', e); toast('Could not comment.'); }
+}
+
+async function onDeletePost(postId) {
+  if (!confirm('Delete this post?')) return;
+  try {
+    await data.deletePost(postId);
+    toast('Post deleted.');
+    await loadSocialData();
+    if (state.socProfile) await openProfile(state.socProfile.profile.id);
+    else rerenderSocialCurrent();
+  } catch (e) { console.error('delete post', e); toast('Could not delete.'); }
+}
+
+async function onDeleteComment(commentId) {
+  try {
+    await data.deleteComment(commentId);
+    await loadSocialData();
+    if (state.socProfile) await openProfile(state.socProfile.profile.id);
+    else rerenderSocialCurrent();
+  } catch (e) { console.error('delete comment', e); toast('Could not delete comment.'); }
+}
+
+// Find a post in whichever list is currently displayed (feed or an open
+// profile) so optimistic updates can mutate it in place.
+function findFeedPost(postId) {
+  if (state.socProfile) return state.socProfile.posts.find((p) => p.id === postId);
+  return state.socFeed.find((p) => p.id === postId);
+}
+
+function rerenderSocialCurrent() {
+  renderSocial();
+}
+
 async function boot() {
   wireEvents();
+  wireSocialEvents();
   loadFilters();                  // restore filter state + active tab from localStorage
   await data.loadActiveCollection();
   await handleJoinToken();        // ?join=<token> redeems and switches in
@@ -4999,6 +5671,7 @@ async function boot() {
   try { state.pensMeta = await data.listPenMeta(); } catch (e) { console.warn('pens meta load skipped', e); }
   await loadTradeData();
   render();
+  refreshSocialBadge();   // show pending friend-request pip even before opening Social
   updateNotifyButton();
   registerSW();
   if (await idb.getMeta('notify_enabled')) scheduleReminderCheck();
