@@ -1627,7 +1627,8 @@ data.featureEnabled = function (key, defaultValue = true) {
   // on the per-user admin page.
   if (key === 'feature.user_photo_uploads') {
     if (window.currentUser?.isAdmin) return true;
-    return window.currentUser?.photoUploadsEnabled !== false;
+    // Off by default — only an explicit clearance enables uploads.
+    return window.currentUser?.photoUploadsEnabled === true;
   }
   const v = data.appSettings[key];
   if (v === undefined || v === null) return defaultValue;

@@ -3843,8 +3843,8 @@ function renderAdminUserView() {
           <p class="dim">Lets this user contribute photos: 🤍 suggest-a-photo on catalog cards + pens, and the "Suggest a plushie" form. Admins are always allowed regardless of this setting.</p>
         </div>
         <label class="checkbox" style="white-space:nowrap;">
-          <input type="checkbox" data-admin-toggle="photo-uploads" data-user-id="${user.id}" ${user.photo_uploads_enabled !== false ? 'checked' : ''} ${user.is_admin ? 'disabled title="Admins always allowed"' : ''} />
-          <span>${user.is_admin ? 'Always on (admin)' : (user.photo_uploads_enabled !== false ? 'Enabled' : 'Disabled')}</span>
+          <input type="checkbox" data-admin-toggle="photo-uploads" data-user-id="${user.id}" ${user.photo_uploads_enabled === true ? 'checked' : ''} ${user.is_admin ? 'disabled title="Admins always allowed"' : ''} />
+          <span>${user.is_admin ? 'Always on (admin)' : (user.photo_uploads_enabled === true ? 'Enabled' : 'Disabled')}</span>
         </label>
       </div>
     </section>
@@ -5338,11 +5338,13 @@ function openComposer() {
         <span>Tag a plush</span>
         <select id="soc-compose-plush">${plushOptions}</select>
       </label>
+      ${data.featureEnabled('feature.user_photo_uploads') ? `
       <label class="field">
         <span>Photo (optional)</span>
         <input type="file" id="soc-compose-photo" accept="image/*" />
         <span id="soc-compose-photo-name" class="soc-file-name"></span>
-      </label>
+      </label>` : `
+      <p class="soc-help soc-stock-note">📷 Photo uploads are off for now — tag a plush above to share its picture.</p>`}
       <label class="field">
         <span>Who can see this</span>
         <select id="soc-compose-vis">${visOptions}</select>
@@ -5420,11 +5422,12 @@ function openPostEditor(postId) {
         <img src="${escapeHtml(p.photoUrl)}" alt="" class="soc-edit-thumb" />
         <label class="checkbox"><input type="checkbox" id="soc-edit-remove-photo" /> Remove photo</label>
       </div>` : ''}
+      ${data.featureEnabled('feature.user_photo_uploads') ? `
       <label class="field">
         <span>${hasPhoto ? 'Replace photo' : 'Photo'} (optional)</span>
         <input type="file" id="soc-edit-photo" accept="image/*" />
         <span id="soc-edit-photo-name" class="soc-file-name"></span>
-      </label>
+      </label>` : ''}
       <label class="field">
         <span>Who can see this</span>
         <select id="soc-edit-vis">${visOptions}</select>
@@ -5447,10 +5450,11 @@ async function submitPostEdit(e) {
   let catalogId = null, plushName = null;
   if (plushVal) { const [cid, name] = plushVal.split('|'); catalogId = cid || null; plushName = name || null; }
 
-  // The DB requires body OR a photo. Work out whether one survives.
+  // The DB requires body OR a photo OR a tagged plush. Work out whether
+  // any survives this edit.
   const photoAfter = !!state.socComposePhoto || (!!post?.photoUrl && !removePhoto);
-  if (!body && !photoAfter) {
-    toast('A post needs a story or a photo.');
+  if (!body && !photoAfter && !plushName) {
+    toast('A post needs a story, a photo, or a tagged plush.');
     return;
   }
   try {

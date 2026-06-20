@@ -157,10 +157,10 @@ async function runAuthGate(onReady) {
         email: session.user.email,
         username: profile.username,
         isAdmin: !!profile.is_admin,
-        // Default true: when the column hasn't been migrated yet, or
-        // for users older than 0019. Admin override happens at the
-        // featureEnabled() call site.
-        photoUploadsEnabled: profile.photo_uploads_enabled !== false,
+        // Pictures off by default: a user is "cleared for images" only
+        // when photo_uploads_enabled is explicitly true. Admins get
+        // access via the override in data.featureEnabled().
+        photoUploadsEnabled: profile.photo_uploads_enabled === true,
       };
       updateUserBadge();
       hide();
