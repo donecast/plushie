@@ -1919,6 +1919,42 @@ async function maybeFireTradeNotifications() {
   }
 }
 
+async function fireLocalNotification(title, body, tag) {
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      const reg = await navigator.serviceWorker.ready;
+      reg.showNotification(title, { body, icon: 'icon-192.png', badge: 'icon-192.png', tag });
+    } else {
+      new Notification(title, { body, icon: 'icon-192.png' });
+    }
+  } catch (e) {
+    console.warn('notification failed', e);
+  }
+}
+
+// Local notification when a new incoming friend request appears. Same
+// model as trades/reminders: fires while the app is open or loading (no
+// backend push). Tracks the set of request user-ids we've already
+// notified for in IDB; the first run after enabling seeds silently so a
+// backlog of pending requests doesn't dump all at once.
+async function maybeFireFriendNotifications() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  if (!(await idb.getMeta('notify_enabled'))) return;
+
+  const reqs = state.socRequests || [];
+  const prev = await idb.getMeta('notified_friend_reqs');   // null on first run
+  const seen = new Set(prev || []);
+  await idb.setMeta('notified_friend_reqs', reqs.map((r) => r.userId));
+  if (prev === null) return;                                 // seed silently
+
+  const fresh = reqs.filter((r) => !seen.has(r.userId));
+  if (fresh.length === 0) return;
+  const body = fresh.length === 1
+    ? `@${fresh[0].username} sent you a friend request 🦇`
+    : `${fresh.length} new friend requests in the crypt`;
+  await fireLocalNotification('🦇 The Plush Crypt', body, 'friend-request');
+}
+
 async function maybeFireReminder() {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (!(await idb.getMeta('notify_enabled'))) return;
@@ -5168,6 +5204,7 @@ async function loadSocialData() {
     state.socFriends = friends;
     state.socRequests = requests;
     state.socPendingCount = requests.length;
+    maybeFireFriendNotifications().catch((e) => console.warn(e));
   } catch (e) {
     console.error('loadSocialData', e);
     toast('Could not load the crypt social feed.');
@@ -5178,9 +5215,21 @@ async function loadSocialData() {
 // pip shows pending friend requests even before the user opens Social.
 async function refreshSocialBadge() {
   try {
-    state.socPendingCount = await data.countPendingFriendRequests();
+    // Load the full request list (not just a count) so the badge stays
+    // fresh AND the notifier has usernames to announce.
+    const requests = await data.listIncomingRequests();
+    state.socRequests = requests;
+    state.socPendingCount = requests.length;
     updateSocialBadge();
+    maybeFireFriendNotifications().catch((e) => console.warn(e));
   } catch (e) { console.warn('social badge', e); }
+}
+
+// Poll for new friend requests every few minutes while the app is open
+// so the badge + notification land without needing to open the tab.
+function scheduleSocialCheck() {
+  if (window._socialTimer) clearInterval(window._socialTimer);
+  window._socialTimer = setInterval(() => { refreshSocialBadge(); }, 5 * 60 * 1000);
 }
 
 function updateSocialBadge() {
@@ -5925,6 +5974,7 @@ async function boot() {
   await loadTradeData();
   render();
   refreshSocialBadge();   // show pending friend-request pip even before opening Social
+  scheduleSocialCheck();  // keep polling for new requests while the app is open
   updateNotifyButton();
   registerSW();
   if (await idb.getMeta('notify_enabled')) scheduleReminderCheck();
