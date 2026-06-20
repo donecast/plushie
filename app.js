@@ -840,7 +840,9 @@ function normalizeAccessories(list) {
 // minis, standees, etc. don't get a checklist at all.
 function categoryHasAccessories(item) {
   const cat = catalogCategory(item);
-  return cat === 'plush' || cat === 'bundle';
+  // Minis/keychain plushes get accessories too — they ship with (and have
+  // clothing/outfits available for) them, same as full-size plushes.
+  return cat === 'plush' || cat === 'bundle' || cat === 'mini';
 }
 
 function textOf(node) {
