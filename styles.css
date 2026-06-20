@@ -3486,3 +3486,14 @@ body.locked { overflow: hidden; }
   padding-bottom: 6px; border-bottom: 1px solid var(--hairline);
 }
 .collection-section-head .dim { font-family: var(--sans); font-size: 0.85rem; }
+
+/* The Closet: clothing cards don't need the full list width, so pack them
+   two (or more) across. auto-fill collapses to a single column on narrow
+   screens. Fonts step down a notch to fit the slimmer cards. */
+.grid-list.closet-grid {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+.closet-grid .card-name { font-size: 1rem; letter-spacing: 0.02em; }
+.closet-grid .card-name.nickname { font-size: 1rem; }
+.closet-grid .card-product { font-size: 0.75rem; }
+.closet-grid .card-meta { font-size: 0.75rem; }

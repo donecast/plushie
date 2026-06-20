@@ -108,6 +108,19 @@ function activePens() {
   return (state.pensMeta && state.pensMeta.length) ? state.pensMeta : PENS;
 }
 
+// Drop the redundant standalone word "Outfit" from a display name. Many
+// Plushie Dreadfuls clothing items are named "… Cloak Outfit" / "Plush
+// Outfit - Pink Kimono"; the word adds nothing in the UI. Applied site-wide
+// to every place a name is shown (catalog, collection, closet, attached
+// accessories, modals). Tidies up the spacing/dashes it leaves behind.
+function stripOutfitWord(name) {
+  let n = String(name || '').replace(/\bOutfits?\b/gi, ' ');
+  n = n.replace(/\s{2,}/g, ' ').trim();
+  n = n.replace(/\s+([-–—])\s+/g, ' $1 ');     // normalise spacing around dashes
+  n = n.replace(/^[\s-–—]+|[\s-–—]+$/g, '').trim();   // drop dangling dashes
+  return n || String(name || '').trim();
+}
+
 function cleanCatalogName(name) {
   const afterPrefix = name.replace(/^Plushie Dreadfuls\s*-?\s*/i, '').trim() || name;
   let n = afterPrefix;
@@ -117,7 +130,8 @@ function cleanCatalogName(name) {
   n = n.replace(/\s*-?\s*Plush\s+Cryptid\s+Stuffed\s+Animals?$/i, '').trim();
   n = n.replace(/\s*-?\s*(Mini\s+)?Plush\s+Keychain(\s+Accessor(?:y|ies))?$/i, '').trim();
   n = n.replace(/\s*-\s*$/, '').trim();
-  return n.length >= 3 ? n : afterPrefix;
+  n = n.length >= 3 ? n : afterPrefix;
+  return stripOutfitWord(n);
 }
 
 function shopifyImageVariant(url, size) {
@@ -764,7 +778,7 @@ function extractSetIncludes(blocks, startIdx, endIdx) {
 }
 
 function canonicalizeAccessoryName(raw) {
-  return (raw || '')
+  const out = (raw || '')
     // Drop the 'Nx ' or 'N× ' quantity prefix.
     .replace(/^\d+\s*[x×]\s+/i, '')
     // Drop anything in trailing parentheses (usually 'measures NNcm…').
@@ -772,6 +786,7 @@ function canonicalizeAccessoryName(raw) {
     // Drop a trailing em-dash sub-clause ('— measures 38cm x 33cm').
     .replace(/\s*[—–-]\s*measures?.*$/i, '')
     .trim();
+  return stripOutfitWord(out);
 }
 
 // ─── Accessory list hygiene ──────────────────────────────────────────
@@ -1178,7 +1193,7 @@ function renderAttachedAccessory(a) {
     <div class="attached-acc" data-acc-id="${a.id}">
       <div class="attached-acc-photo" data-action="open-detail" data-id="${a.id}" role="button" title="Edit / rename / reassign">${photo}</div>
       <div class="attached-acc-info">
-        <span class="attached-acc-name" data-action="open-detail" data-id="${a.id}" role="button">${escapeHtml(a.nickname || a.name)}</span>
+        <span class="attached-acc-name" data-action="open-detail" data-id="${a.id}" role="button">${escapeHtml(a.nickname || stripOutfitWord(a.name))}</span>
         <button class="attached-detach" data-action="detach-acc" data-id="${a.id}" title="Detach from this plush">✕ Detach</button>
       </div>
     </div>`;
@@ -1276,12 +1291,12 @@ function renderCard(item, kind) {
   const collectionBody = `
     ${item.nickname
       ? `<h3 class="card-name nickname">${escapeHtml(item.nickname)}</h3>
-         <p class="card-product">${escapeHtml(item.name)}</p>`
-      : `<h3 class="card-name">${escapeHtml(item.name)}</h3>`}
+         <p class="card-product">${escapeHtml(stripOutfitWord(item.name))}</p>`
+      : `<h3 class="card-name">${escapeHtml(stripOutfitWord(item.name))}</h3>`}
     ${meta.length ? `<div class="card-meta">${meta.join('')}</div>` : ''}
   `;
   const otherBody = `
-    <h3 class="card-name">${escapeHtml(item.name)}</h3>
+    <h3 class="card-name">${escapeHtml(stripOutfitWord(item.name))}</h3>
     ${item.meaning ? `<p class="card-meaning">${escapeHtml(item.meaning)}</p>` : ''}
     ${meta.length ? `<div class="card-meta">${meta.join('')}</div>` : ''}
   `;
@@ -1516,7 +1531,7 @@ function openModal(kind, item, { fresh = false } = {}) {
   document.getElementById('modal-title').textContent = fresh
     ? (wearable ? 'Added! Who’s wearing it?' : 'Added! Make it yours')
     : 'Edit Plushie';
-  document.getElementById('modal-name').textContent = item.name || '';
+  document.getElementById('modal-name').textContent = stripOutfitWord(item.name || '');
 
   document.getElementById('f-nickname').value = item.nickname ?? '';
   document.getElementById('f-meaning').value = item.meaning ?? '';
@@ -1641,7 +1656,7 @@ function openWearerPicker(accId) {
       </button>`;
   }).join('');
 
-  const accName = escapeHtml(acc.nickname || acc.name);
+  const accName = escapeHtml(acc.nickname || stripOutfitWord(acc.name));
   document.getElementById('wearer-modal-card').innerHTML = `
     <button class="modal-close" data-close-wearer aria-label="Close">×</button>
     <h2>Who's wearing this?</h2>
@@ -2865,7 +2880,7 @@ function renderOfferingCard(it) {
     <article class="card card-small">
       <div class="card-photo">${photo}</div>
       <div class="card-body">
-        <h3 class="card-name">${escapeHtml(it.name)}</h3>
+        <h3 class="card-name">${escapeHtml(stripOutfitWord(it.name))}</h3>
         <div class="card-meta"><span>Available: ${it.available}</span></div>
         ${it.notes ? `<p class="card-meaning">${escapeHtml(it.notes)}</p>` : ''}
       </div>
@@ -2891,7 +2906,7 @@ function renderMyTradeItems() {
             <article class="card card-small">
               <div class="card-photo">${photo}</div>
               <div class="card-body">
-                <h3 class="card-name">${escapeHtml(it.name)}</h3>
+                <h3 class="card-name">${escapeHtml(stripOutfitWord(it.name))}</h3>
                 <div class="card-meta">
                   ${kind === 'offering' ? `<span>${it.available} available · ${it.reserved} reserved</span>` : ''}
                 </div>
@@ -4128,8 +4143,8 @@ function renderAdminUserView() {
       <article class="card">
         <div class="card-photo">${photo}</div>
         <div class="card-body">
-          <h3 class="card-name">${escapeHtml(it.nickname || it.name)}</h3>
-          ${it.nickname ? `<p class="card-product">${escapeHtml(it.name)}</p>` : ''}
+          <h3 class="card-name">${escapeHtml(it.nickname || stripOutfitWord(it.name))}</h3>
+          ${it.nickname ? `<p class="card-product">${escapeHtml(stripOutfitWord(it.name))}</p>` : ''}
           ${it.meaning ? `<p class="card-meaning">${escapeHtml(it.meaning)}</p>` : ''}
           <div class="card-meta">
             ${kind === 'collection' && it.dateCollected ? `<span>${formatDate(it.dateCollected)}</span>` : ''}
