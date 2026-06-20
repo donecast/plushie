@@ -3398,3 +3398,14 @@ body.locked { overflow: hidden; }
   .soc-pick-grid { grid-template-columns: repeat(3, 1fr); }
   .soc-profile-head { gap: 12px; }
 }
+
+/* Post edit affordances */
+.soc-post-edit {
+  background: none; border: none; cursor: pointer; color: var(--ink-mute);
+  font-size: 0.85rem; padding: 2px 4px; border-radius: 6px;
+}
+.soc-post-edit:hover { color: var(--ink); background: var(--surface-2); }
+.soc-edit-photo-current { display: flex; flex-direction: column; gap: 6px; }
+.soc-edit-thumb {
+  max-width: 140px; border-radius: 10px; border: 1px solid var(--border-rose-mild);
+}

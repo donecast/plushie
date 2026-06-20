@@ -1879,6 +1879,21 @@ data.deletePost = async function (postId) {
   if (error) throw error;
 };
 
+// Edit an existing post. Partial patch: only the passed keys change.
+// `photoBlob` replaces the photo; `removePhoto` clears it. The DB's
+// body_or_photo check is also guarded in the UI before this is called.
+data.updatePost = async function (postId, { body, visibility, photoBlob, removePhoto, catalogId, plushName }) {
+  const patch = { updated_at: new Date().toISOString() };
+  if (body !== undefined)       patch.body = body || null;
+  if (visibility !== undefined) patch.visibility = visibility;
+  if (catalogId !== undefined)  patch.catalog_id = catalogId || null;
+  if (plushName !== undefined)  patch.plush_name = plushName || null;
+  if (photoBlob instanceof Blob) patch.photo_path = await data.uploadSocialPhoto(photoBlob);
+  else if (removePhoto)          patch.photo_path = null;
+  const { error } = await sb.from('posts').update(patch).eq('id', postId);
+  if (error) throw error;
+};
+
 // Shared post → view-object hydration (profiles, likes, comments, photo
 // URLs). Used by both the feed and a single profile's post list.
 data._hydratePosts = async function (rows) {
@@ -1919,6 +1934,9 @@ data._hydratePosts = async function (rows) {
     plushName: r.plush_name,
     visibility: r.visibility,
     createdAt: r.created_at,
+    // "edited" when updated_at drifts more than a few seconds past
+    // created_at (the insert sets them ~equal).
+    edited: r.updated_at ? (+new Date(r.updated_at) - +new Date(r.created_at) > 5000) : false,
     mine: r.author_id === uid,
     likeCount: likeCount.get(r.id) || 0,
     likedByMe: likedByMe.has(r.id),

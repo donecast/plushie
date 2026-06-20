@@ -5142,8 +5142,9 @@ function renderPostCard(p) {
         ${socAvatar(p.authorAvatar, p.authorName)}
         <span class="soc-post-author">@${escapeHtml(p.authorName)}</span>
       </button>
-      <span class="soc-post-meta">${visBadge(p.visibility)} · ${escapeHtml(socTimeAgo(p.createdAt))}</span>
-      ${p.mine ? `<button class="soc-post-del" data-soc-action="delete-post" data-post-id="${p.id}" title="Delete">🗑</button>` : ''}
+      <span class="soc-post-meta">${visBadge(p.visibility)} · ${escapeHtml(socTimeAgo(p.createdAt))}${p.edited ? ' · edited' : ''}</span>
+      ${p.mine ? `<button class="soc-post-edit" data-soc-action="edit-post" data-post-id="${p.id}" title="Edit">✏️</button>
+                  <button class="soc-post-del" data-soc-action="delete-post" data-post-id="${p.id}" title="Delete">🗑</button>` : ''}
     </header>
     ${p.plushName ? `<p class="soc-post-plush">🧸 ${escapeHtml(p.plushName)}</p>` : ''}
     ${p.body ? `<p class="soc-post-body">${escapeHtml(p.body)}</p>` : ''}
@@ -5379,6 +5380,93 @@ async function submitComposer(e) {
   } catch (err) { console.error('createPost', err); toast('Could not post.'); }
 }
 
+// ─── Edit an existing post ──────────────────────────────────────────
+function openPostEditor(postId) {
+  const p = findFeedPost(postId);
+  if (!p) { toast('Post not found.'); return; }
+  state.socComposePhoto = null;
+  const visOptions = Object.entries(VIS_META).map(([k, m]) =>
+    `<option value="${k}" ${p.visibility === k ? 'selected' : ''}>${m.glyph} ${m.label} — ${m.hint}</option>`).join('');
+
+  // Plush tag select, preselecting the post's current tag. If the tagged
+  // plush is no longer in the collection, keep it as a current option.
+  const currentTag = p.plushName ? `${p.catalogId || ''}|${p.plushName}` : '';
+  const collOpts = state.collection.map((c) => `${c.catalogId || ''}|${c.nickname || c.name}`);
+  let plushOptions = `<option value="" ${currentTag ? '' : 'selected'}>No plush tagged</option>`;
+  if (currentTag && !collOpts.includes(currentTag)) {
+    plushOptions += `<option value="${escapeHtml(currentTag)}" selected>${escapeHtml(p.plushName)} (current)</option>`;
+  }
+  plushOptions += state.collection.map((c) => {
+    const val = `${c.catalogId || ''}|${c.nickname || c.name}`;
+    return `<option value="${escapeHtml(val)}" ${val === currentTag ? 'selected' : ''}>${escapeHtml(c.nickname || c.name)}</option>`;
+  }).join('');
+
+  const hasPhoto = !!p.photoUrl;
+  openSocialModal(`
+    <button class="modal-close" data-close-social aria-label="Close">×</button>
+    <h2>Edit post</h2>
+    <form id="soc-edit-form" data-post-id="${p.id}">
+      <label class="field">
+        <span>Your story</span>
+        <textarea id="soc-edit-body" rows="4" maxlength="1000" placeholder="Tell the crypt about your plush…">${escapeHtml(p.body || '')}</textarea>
+      </label>
+      <label class="field">
+        <span>Tag a plush</span>
+        <select id="soc-edit-plush">${plushOptions}</select>
+      </label>
+      ${hasPhoto ? `
+      <div class="field soc-edit-photo-current">
+        <span>Current photo</span>
+        <img src="${escapeHtml(p.photoUrl)}" alt="" class="soc-edit-thumb" />
+        <label class="checkbox"><input type="checkbox" id="soc-edit-remove-photo" /> Remove photo</label>
+      </div>` : ''}
+      <label class="field">
+        <span>${hasPhoto ? 'Replace photo' : 'Photo'} (optional)</span>
+        <input type="file" id="soc-edit-photo" accept="image/*" />
+        <span id="soc-edit-photo-name" class="soc-file-name"></span>
+      </label>
+      <label class="field">
+        <span>Who can see this</span>
+        <select id="soc-edit-vis">${visOptions}</select>
+      </label>
+      <div class="form-actions">
+        <button type="button" class="btn-ghost" data-close-social>Cancel</button>
+        <button type="submit" class="btn-primary">Save changes</button>
+      </div>
+    </form>`);
+}
+
+async function submitPostEdit(e) {
+  e.preventDefault();
+  const postId = e.target.dataset.postId;
+  const post = findFeedPost(postId);
+  const body = document.getElementById('soc-edit-body').value.trim();
+  const vis = document.getElementById('soc-edit-vis').value;
+  const plushVal = document.getElementById('soc-edit-plush').value;
+  const removePhoto = !!document.getElementById('soc-edit-remove-photo')?.checked;
+  let catalogId = null, plushName = null;
+  if (plushVal) { const [cid, name] = plushVal.split('|'); catalogId = cid || null; plushName = name || null; }
+
+  // The DB requires body OR a photo. Work out whether one survives.
+  const photoAfter = !!state.socComposePhoto || (!!post?.photoUrl && !removePhoto);
+  if (!body && !photoAfter) {
+    toast('A post needs a story or a photo.');
+    return;
+  }
+  try {
+    await data.updatePost(postId, {
+      body, visibility: vis, catalogId, plushName,
+      photoBlob: state.socComposePhoto,
+      removePhoto: removePhoto && !state.socComposePhoto,
+    });
+    closeSocialModal();
+    toast('Post updated.');
+    await loadSocialData();
+    if (state.socProfile) await openProfile(state.socProfile.profile.id);
+    else rerenderSocialCurrent();
+  } catch (err) { console.error('updatePost', err); toast('Could not update post.'); }
+}
+
 function openEditProfile() {
   const p = state.socProfile?.profile || { bio: state._myBio };
   openSocialModal(`
@@ -5515,17 +5603,19 @@ function wireSocialEvents() {
   }, true);
   document.getElementById('social-modal').addEventListener('submit', (e) => {
     if (e.target.id === 'soc-compose-form') submitComposer(e);
+    else if (e.target.id === 'soc-edit-form') submitPostEdit(e);
     else if (e.target.id === 'soc-profile-form') submitEditProfile(e);
   });
 
-  // File pickers inside the modal — compress + stash the blob.
+  // File pickers inside the modal — compress + stash the blob. Each photo
+  // input has a matching `<id>-name` span for the chosen-file label.
   document.getElementById('social-modal').addEventListener('change', async (e) => {
-    if (e.target.id === 'soc-compose-photo' || e.target.id === 'soc-avatar') {
+    if (['soc-compose-photo', 'soc-avatar', 'soc-edit-photo'].includes(e.target.id)) {
       const file = e.target.files?.[0];
       if (!file) { state.socComposePhoto = null; return; }
       try {
         state.socComposePhoto = await compressImage(file);
-        const label = document.getElementById(e.target.id === 'soc-avatar' ? 'soc-avatar-name' : 'soc-compose-photo-name');
+        const label = document.getElementById(e.target.id + '-name');
         if (label) label.textContent = '✓ ' + file.name;
       } catch (err) { console.warn('compress', err); toast('Could not read that image.'); }
     }
@@ -5580,6 +5670,7 @@ async function onSocialClick(e) {
 
     case 'toggle-like': await onToggleLike(postId, target); break;
     case 'toggle-comments': onToggleComments(postId); break;
+    case 'edit-post': openPostEditor(postId); break;
     case 'delete-post': await onDeletePost(postId); break;
     case 'delete-comment': await onDeleteComment(target.dataset.commentId); break;
 
