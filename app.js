@@ -5755,7 +5755,13 @@ async function submitEditProfile(e) {
 
 // Top 8 picker — drag-free, click to add/remove from an ordered list.
 function openTop8Picker() {
-  const current = ((state.socProfile?.top8 || state._myTop8 || [])).map((t) => t.plushName);
+  const existing = state.socProfile?.top8 || state._myTop8 || [];
+  const current = existing.map((t) => t.plushName);
+  // Default the "keep Tom" toggle to whether he's currently in the list,
+  // so once excommunicated he stays gone across re-opens (no migration —
+  // his presence in top_plushes IS the stored preference).
+  const tomPresent = existing.some((t) =>
+    t.catalogId === data.TOM_TOP.catalogId || (t.plushName || '').trim().toLowerCase() === 'tom');
   // Build from the user's collection; preselect anything already chosen.
   const items = state.collection.map((p) => {
     const name = p.nickname || p.name;
@@ -5776,6 +5782,10 @@ function openTop8Picker() {
     <h2>Pick your Top 8 Buns</h2>
     <p class="soc-help">Tap up to 8 plushes from your collection. Tap again to remove. Order = pick order. Tom tags along until you've picked a full 8. 🐰</p>
     <div class="soc-pick-grid">${items || '<p class="empty-note">Your collection is empty — add some plushes first.</p>'}</div>
+    <label class="checkbox soc-keep-tom">
+      <input type="checkbox" id="soc-keep-tom" ${tomPresent ? 'checked' : ''} />
+      <span>Keep Tom in my Top 8 Buns 🐰 <span class="soc-keep-tom-note">(uncheck to excommunicate him)</span></span>
+    </label>
     <div class="form-actions">
       <button type="button" class="btn-ghost" data-close-social>Cancel</button>
       <button type="button" class="btn-primary" data-soc-action="save-top8">Save Top 8 Buns</button>
@@ -5796,8 +5806,9 @@ async function saveTop8() {
     catalogId: b.dataset.catalog || null,
     photoPath: b.dataset.photo || null,
   }));
+  const keepTom = document.getElementById('soc-keep-tom')?.checked ?? true;
   try {
-    await data.setTopPlushes(entries);
+    await data.setTopPlushes(entries, { keepTom });
     closeSocialModal();
     toast('Top 8 Buns saved. 🐰');
     await loadMyProfileCache();

@@ -2040,15 +2040,15 @@ data.getTopPlushes = async function (userId) {
 // /tom.jpg asset (no social-bucket copy needed).
 data.TOM_TOP = { plushName: 'Tom', catalogId: 'd3adc0de-0000-4000-8000-000000000001', photoPath: '/tom.jpg' };
 
-data.setTopPlushes = async function (entries) {
+data.setTopPlushes = async function (entries, { keepTom = true } = {}) {
   const uid = window.currentUser.id;
   let clean = (entries || []).slice(0, 8);
-  // Keep Tom present whenever there's a free slot. The picker only knows
+  // Keep Tom present whenever there's a free slot — the picker only knows
   // the user's collection (Tom isn't in it), so without this a save would
-  // wipe him out.
+  // wipe him out. Unless the user has excommunicated him (keepTom=false).
   const hasTom = clean.some((e) =>
     e.catalogId === data.TOM_TOP.catalogId || (e.plushName || '').trim().toLowerCase() === 'tom');
-  if (!hasTom && clean.length < 8) clean = [...clean, data.TOM_TOP];
+  if (keepTom && !hasTom && clean.length < 8) clean = [...clean, data.TOM_TOP];
 
   const rows = [];
   for (let i = 0; i < clean.length; i++) {
