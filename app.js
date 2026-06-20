@@ -5774,7 +5774,7 @@ function openTop8Picker() {
   openSocialModal(`
     <button class="modal-close" data-close-social aria-label="Close">×</button>
     <h2>Pick your Top 8 Buns</h2>
-    <p class="soc-help">Tap up to 8 plushes from your collection. Tap again to remove. Order = pick order.</p>
+    <p class="soc-help">Tap up to 8 plushes from your collection. Tap again to remove. Order = pick order. Tom tags along until you've picked a full 8. 🐰</p>
     <div class="soc-pick-grid">${items || '<p class="empty-note">Your collection is empty — add some plushes first.</p>'}</div>
     <div class="form-actions">
       <button type="button" class="btn-ghost" data-close-social>Cancel</button>
