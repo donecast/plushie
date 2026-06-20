@@ -5500,6 +5500,19 @@ function wireSocialEvents() {
     const f = e.target.closest('[data-soc-action="submit-comment"]');
     if (f) { e.preventDefault(); submitCommentForm(f); }
   });
+
+  // Graceful image fallback. `error` doesn't bubble, so listen in the
+  // capture phase. A broken Top 8 image collapses to the 🖤 placeholder;
+  // a broken post photo drops its block — no broken-image icons.
+  document.getElementById('social-view').addEventListener('error', (e) => {
+    const img = e.target;
+    if (img.tagName !== 'IMG' || img.dataset.fellBack) return;
+    img.dataset.fellBack = '1';
+    const slot = img.closest('.soc-top8-photo');
+    if (slot) { slot.innerHTML = '<span class="no-photo">🖤</span>'; return; }
+    const photo = img.closest('.soc-post-photo');
+    if (photo) { photo.remove(); }
+  }, true);
   document.getElementById('social-modal').addEventListener('submit', (e) => {
     if (e.target.id === 'soc-compose-form') submitComposer(e);
     else if (e.target.id === 'soc-profile-form') submitEditProfile(e);
