@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=64" />
+  <link rel="stylesheet" href="./styles.css?v=69" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -160,6 +160,7 @@
           <summary><span class="filter-label">Extras</span><span class="filter-summary" data-empty="None">None</span></summary>
           <div class="filter-options">
             <label><input type="checkbox" data-cat-toggle="unowned" /> Unowned</label>
+            <label><input type="checkbox" data-cat-toggle="original" /> Original forms</label>
           </div>
         </details>
         <select id="cat-theme" class="filter-select" aria-label="Filter by theme">
@@ -445,7 +446,7 @@
     <div class="modal-card modal-card-wide">
       <button class="modal-close" data-close-catalog-item aria-label="Close">×</button>
       <h2 id="ci-title">Suggest a plushie</h2>
-      <p class="modal-name" id="ci-subtitle">Goes to admin (Scott) for review. He may edit the entry before approving.</p>
+      <p class="modal-name" id="ci-subtitle">Goes to the catalog team for review — they may edit the entry before approving.</p>
       <form id="catalog-item-form">
         <label class="field">
           <span>Name</span>
@@ -456,7 +457,7 @@
           <input type="text" id="ci-form-label" maxlength="40" placeholder="(Original)" />
         </label>
         <label class="field">
-          <span>Parent handle <em class="dim">— optional, the Shopify product this is a variant of</em></span>
+          <span>Parent handle <em class="dim">— optional, the catalog product this is a variant of</em></span>
           <input type="text" id="ci-parent-handle" maxlength="120" placeholder="overthinking-bunny" autocapitalize="none" spellcheck="false" />
         </label>
         <label class="field">
@@ -499,6 +500,10 @@
             <input type="text" id="ci-handle" maxlength="120" autocapitalize="none" spellcheck="false" />
           </label>
           <label class="field">
+            <span>Release year <em class="dim">— optional, useful for Patreon-era / retired plushies</em></span>
+            <input type="number" id="ci-release-year" min="1900" max="2100" step="1" inputmode="numeric" placeholder="2024" />
+          </label>
+          <label class="field">
             <span>Tags <em class="dim">— comma-separated</em></span>
             <input type="text" id="ci-tags" placeholder="emotion, anxiety, plushie dreadfuls" />
           </label>
@@ -507,12 +512,12 @@
             <textarea id="ci-lore" rows="4" maxlength="2000"></textarea>
           </label>
           <label class="field">
-            <span>Accessories <em class="dim">— one per line, what's in the box. Skip for variants of Shopify items — they inherit from the parent.</em></span>
+            <span>Accessories <em class="dim">— one per line, what's in the box. Skip for form variants — they inherit from the parent.</em></span>
             <textarea id="ci-accessories" rows="3" maxlength="1000" placeholder="Tote bag&#10;Sticker pack&#10;Mini bunny"></textarea>
           </label>
           <label class="field" id="ci-notes-field">
             <span>Notes to admin <em class="dim">— optional</em></span>
-            <textarea id="ci-notes" rows="2" maxlength="500" placeholder="Anything Scott should know."></textarea>
+            <textarea id="ci-notes" rows="2" maxlength="500" placeholder="Anything the catalog team should know."></textarea>
           </label>
         </details>
         <div class="form-actions">
@@ -635,7 +640,7 @@
       <p class="modal-name" id="ds-sub"></p>
       <p class="dim" style="line-height:1.5;">
         Write down what happened from your perspective.
-        This is sent to admin (Scott) along with the other party's statement.
+        This is sent to the trade-disputes team along with the other party's statement.
         Be as factual as you can — dates, shipping details, anything in your
         messages with them.
       </p>

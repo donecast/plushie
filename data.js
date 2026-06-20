@@ -15,6 +15,7 @@
 const data = {
   collectionId: null,
   _photoUrlCache: new Map(),    // path → signed URL
+  appSettings: {},              // key → parsed jsonb value, loaded at boot
 
   // ─── Bootstrap ────────────────────────────────────────────────────
   memberships: [],
@@ -983,7 +984,7 @@ data.updateEmail = async function (email) {
 data.adminListUsers = async function () {
   const { data: rows, error } = await sb
     .from('profiles')
-    .select('id, username, is_admin, created_at')
+    .select('id, username, is_admin, created_at, photo_uploads_enabled')
     .order('created_at', { ascending: false });
   if (error) throw error;
   // Enrich with feedback summary
@@ -1135,6 +1136,7 @@ data.createCatalogItem = async function (record) {
     symbolism: record.symbolism || null,
     tags: record.tags || [],
     accessories: Array.isArray(record.accessories) ? record.accessories : [],
+    release_year: record.release_year ?? null,
     available: record.available !== false,
     retired: !!record.retired,
     status,
@@ -1148,6 +1150,20 @@ data.createCatalogItem = async function (record) {
   const { data: row, error } = await sb
     .from('catalog_items')
     .insert(insert)
+    .select()
+    .single();
+  if (error) throw error;
+  return row;
+};
+
+// Admin-only update of an existing catalog item. RLS enforces admin
+// in the database; we only call this from the admin edit modal. Patch
+// is partial — pass exactly the columns you want to change.
+data.adminUpdateCatalogItem = async function (id, patch) {
+  const { data: row, error } = await sb
+    .from('catalog_items')
+    .update(patch)
+    .eq('id', id)
     .select()
     .single();
   if (error) throw error;
@@ -1433,12 +1449,41 @@ data.adminUpdatePhotoPath = async function (kind, id, path) {
 };
 
 // Wipes a user account end-to-end (auth row + cascade through every
-// FK-bound table + storage photos for the user's collections). Backed
-// by the admin_purge_user RPC; the SECURITY DEFINER function rechecks
-// is_admin() on the server so the client-side guard isn't load-bearing.
+// FK-bound table + storage photos for the user's collections). The
+// SECURITY DEFINER RPC rechecks is_admin() on the server, deletes the
+// auth.users row (cascading the public schema), and returns the list
+// of collection_ids it owned. We then sweep photos through the
+// Storage / R2 APIs — direct DELETE FROM storage.objects from inside
+// a SECURITY DEFINER function is no longer allowed by Supabase, which
+// is why the RPC stopped at the cascade and handed us the cleanup.
 data.adminPurgeUser = async function (userId) {
-  const { error } = await sb.rpc('admin_purge_user', { target: userId });
+  const { data: collectionIds, error } = await sb.rpc('admin_purge_user', { target: userId });
   if (error) throw error;
+  const ids = Array.isArray(collectionIds) ? collectionIds : [];
+  if (ids.length === 0) return;
+  // Photos live at <collection_id>/<plushie_id>.<ext>. List then delete.
+  // We sweep both backends — once R2 cutover is complete we can drop
+  // the Supabase branch.
+  for (const cid of ids) {
+    try { await data._purgePhotoFolder(cid); }
+    catch (e) { console.warn('photo purge failed for collection', cid, e); }
+  }
+};
+
+data._purgePhotoFolder = async function (collectionId) {
+  // Supabase Storage path: list then remove.
+  try {
+    const { data: rows, error } = await sb.storage.from('photos').list(collectionId, { limit: 1000 });
+    if (!error && rows && rows.length) {
+      const paths = rows.map((r) => `${collectionId}/${r.name}`);
+      await sb.storage.from('photos').remove(paths);
+    }
+  } catch (e) { console.warn('supabase photo purge', e); }
+
+  // R2 (via the Worker) — only if cutover has happened. We don't
+  // have a list endpoint on the Worker yet, so this is a best-effort
+  // no-op for now. If R2_BASE isn't set, there's nothing in R2 to
+  // clean up anyway. Once a list endpoint is added we can iterate.
 };
 
 data.adminUpdateWishlist = async function (wishlistId, patch) {
@@ -1555,6 +1600,56 @@ data._tradeItemFromRow = function (r) {
     notes: r.notes,
     createdAt: r.created_at ? +new Date(r.created_at) : Date.now(),
   };
+};
+
+// ─── App settings (admin-toggled feature flags) ───────────────────
+// Live in the app_settings table. Loaded once at boot; admin writes
+// patch the cache + DB. featureEnabled() defaults to true so a flag
+// that hasn't been seeded yet behaves as "on" — flip a row off to
+// gate a feature.
+data.loadAppSettings = async function () {
+  try {
+    const { data: rows, error } = await sb.from('app_settings').select('key, value');
+    if (error) throw error;
+    const next = {};
+    for (const r of rows || []) next[r.key] = r.value;
+    data.appSettings = next;
+  } catch (e) {
+    console.warn('app settings load failed', e);
+    data.appSettings = {};
+  }
+};
+
+data.featureEnabled = function (key, defaultValue = true) {
+  // Per-user photo uploads: profiles.photo_uploads_enabled, with an
+  // unconditional admin override. The global app_settings row from
+  // 0017 is no longer consulted for this key — toggling now happens
+  // on the per-user admin page.
+  if (key === 'feature.user_photo_uploads') {
+    if (window.currentUser?.isAdmin) return true;
+    return window.currentUser?.photoUploadsEnabled !== false;
+  }
+  const v = data.appSettings[key];
+  if (v === undefined || v === null) return defaultValue;
+  return v !== false;
+};
+
+// Admin toggles another user's photo-upload permission. RLS lets
+// admins update any profile row (covered by the existing admin
+// policy on profiles); regular users can only update their own.
+data.adminSetPhotoUploads = async function (userId, enabled) {
+  const { error } = await sb
+    .from('profiles')
+    .update({ photo_uploads_enabled: !!enabled })
+    .eq('id', userId);
+  if (error) throw error;
+};
+
+data.adminSetSetting = async function (key, value) {
+  const row = { key, value, updated_at: new Date().toISOString(), updated_by: window.currentUser?.id };
+  const { error } = await sb.from('app_settings').upsert(row);
+  if (error) throw error;
+  data.appSettings[key] = value;
 };
 
 // Ship-first rule: net score gap ≥ 3 AND lower side < 20 → lower ships first.
