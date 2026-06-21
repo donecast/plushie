@@ -602,7 +602,7 @@ function normalizeShopifyProduct(p) {
   const available = variants.some((v) => v.available);
   const priceNums = variants.map((v) => parseFloat(v.price)).filter((n) => !isNaN(n));
   const tags = p.tags || [];
-  const parsed = parseBodyHtml(p.body_html);
+  const parsed = parseBodyHtml(p.body_html, p.title);
   const item = {
     id: String(p.id),
     name: p.title,
@@ -642,7 +642,7 @@ function normalizeShopifyProduct(p) {
 //                   single primary plush (which is implied)
 // Returns nulls / empty arrays for sections that don't exist on a given
 // product, which is fine — the UI hides empty sections.
-function parseBodyHtml(html) {
+function parseBodyHtml(html, title = '') {
   const empty = { lore: null, symbolism: null, symbolismHtml: null, accessories: [], isBundle: false };
   if (!html || typeof html !== 'string') return empty;
   let doc;
@@ -663,29 +663,43 @@ function parseBodyHtml(html) {
   // otherwise a wrapper's combined textContent overruns the heading
   // length guards below and 'Set Includes' is never detected.
   const blocks = flattenBlocks(root);
+  // Find section headings by text. The brand's section ORDER is
+  // inconsistent — some products put 'Symbolism' before 'Set Includes',
+  // some after — so we record both indices and bound each section by the
+  // *next* heading rather than assuming a fixed order. (Previously the
+  // symbolism index was passed as the Set-Includes end boundary, so a
+  // Symbolism heading sitting before Set Includes collapsed the window to
+  // nothing — e.g. Chronic Pain.) The heading may also be the first line
+  // of a multi-line block, so we scan lines, not just block text.
   let setIncludesIdx = -1;
   let symbolismIdx = -1;
   for (let i = 0; i < blocks.length; i++) {
-    const t = (blocks[i].textContent || '').trim();
-    if (setIncludesIdx === -1 && /set\s+includes/i.test(t) && t.length < 80) setIncludesIdx = i;
-    if (symbolismIdx === -1 && /^symbolism\s*:?\s*$/i.test(t)) symbolismIdx = i;
+    const lines = blockLines(blocks[i]);
+    if (setIncludesIdx === -1 &&
+        lines.some((l) => l.length < 80 && /set\s+includes/i.test(l))) setIncludesIdx = i;
+    if (symbolismIdx === -1 && lines.some((l) => /^symbol(ism|ogy)\s*:?\s*$/i.test(l))) symbolismIdx = i;
   }
+  const headingIdxs = [setIncludesIdx, symbolismIdx].filter((i) => i >= 0).sort((a, b) => a - b);
+  const firstHeading = headingIdxs.length ? headingIdxs[0] : blocks.length;
+  // End of a section = the next heading after it, else end of document.
+  const sectionEnd = (idx) => {
+    for (const hi of headingIdxs) if (hi > idx) return hi;
+    return blocks.length;
+  };
 
-  // Lore = blocks[0 .. setIncludesIdx) as plain text, joined.
-  const loreEnd = setIncludesIdx === -1 ? blocks.length : setIncludesIdx;
+  // Lore = everything before the first section heading.
   const loreParas = [];
-  for (let i = 0; i < loreEnd; i++) {
-    if (symbolismIdx !== -1 && i >= symbolismIdx) break;
+  for (let i = 0; i < firstHeading; i++) {
     const txt = textOf(blocks[i]);
     if (txt) loreParas.push(txt);
   }
   const lore = loreParas.length ? loreParas.join('\n\n') : null;
 
-  // Symbolism = blocks[symbolismIdx+1 .. next-divider-or-end).
+  // Symbolism = blocks[symbolismIdx+1 .. its section end).
   let symbolism = null;
   let symbolismHtml = null;
   if (symbolismIdx !== -1) {
-    const symEnd = blocks.length;
+    const symEnd = sectionEnd(symbolismIdx);
     const symBlocks = [];
     const seenImgSrcs = new Set();
     for (let i = symbolismIdx + 1; i < symEnd; i++) {
@@ -714,17 +728,25 @@ function parseBodyHtml(html) {
     }
   }
 
-  // Accessories = bullet list items under 'Set Includes', minus
-  // anything that looks like the primary plush ('1x …Rabbit', '1x …Puppet')
-  // and minus the tote/draw-string bag (which goes in its own field
-  // when we add accessories Phase C).
-  // The Symbolism heading is only a valid end boundary for the Set Includes
-  // list when it comes *after* it. Some products list Symbolism first, which
-  // would otherwise hand extractSetIncludes an inverted range (capturing
-  // nothing). Fall back to scanning to the end — extractSetIncludes has its
-  // own forward stop conditions for the next section heading.
-  const accEnd = symbolismIdx > setIncludesIdx ? symbolismIdx : blocks.length;
-  const accessories = setIncludesIdx === -1 ? [] : extractSetIncludes(blocks, setIncludesIdx, accEnd);
+  // Accessories = items under 'Set Includes' (bounded by its own section
+  // end), minus the primary plush. When there's NO heading at all, fall
+  // back to a run of bare 'Nx …' lines (≥2) — several products list their
+  // contents as plain '1x …' lines with no heading (Dreadful Dinosaur, the
+  // Victorian McGee sets).
+  let accessories = [];
+  if (setIncludesIdx !== -1) {
+    accessories = extractSetIncludes(blocks, setIncludesIdx, sectionEnd(setIncludesIdx), title);
+  } else {
+    let firstQty = -1, qtyLines = 0;
+    for (let i = 0; i < blocks.length; i++) {
+      if (symbolismIdx !== -1 && i >= symbolismIdx && i < sectionEnd(symbolismIdx)) continue;
+      const hits = blockLines(blocks[i]).filter((l) => /^\d+\s*[x×]\s+/i.test(l)).length;
+      if (hits) { if (firstQty === -1) firstQty = i; qtyLines += hits; }
+    }
+    if (qtyLines >= 2 && firstQty !== -1) {
+      accessories = extractSetIncludes(blocks, firstQty - 1, blocks.length, title);
+    }
+  }
   // Bundle detection is tag-only now. The earlier heuristic of '2+ plush
   // items in the Set Includes' false-flagged single products like the
   // Gemini Rabbit, which legitimately ships with multiple plushie pieces.
@@ -823,41 +845,113 @@ function blockLines(el) {
     .filter(Boolean);
 }
 
-function extractSetIncludes(blocks, startIdx, endIdx) {
+// Length of the leading bullet glyph(s) on a line — list markers (•·▪),
+// dingbats, arrows, and emoji (incl. surrogate-pair emoji like 💖 and the
+// ❤️/⚓️ the brand favours), plus the variation-selector / ZWJ / whitespace
+// that travels with them. Returns 0 when the line starts with real text.
+function leadingBulletLen(s) {
+  let i = 0, sawGlyph = false;
+  while (i < s.length) {
+    const c = s.codePointAt(i);
+    const ws = c === 0x20 || c === 0x09;
+    const glyph =
+      c === 0x2022 || c === 0x00B7 || c === 0x2023 || c === 0x2043 || c === 0x2219 ||
+      c === 0x25AA || c === 0x25CF || c === 0x25E6 || c === 0x2043 ||
+      (c >= 0x2190 && c <= 0x21FF) ||   // arrows
+      (c >= 0x2600 && c <= 0x27BF) ||   // misc symbols + dingbats
+      (c >= 0x2B00 && c <= 0x2BFF) ||   // stars/arrows (⭐)
+      c === 0x2693 || c === 0x2764 ||   // ⚓ ❤
+      c === 0xFE0F || c === 0x200D || c === 0x20E3 ||  // VS16 / ZWJ / keycap
+      (c >= 0x1F000 && c <= 0x1FAFF);   // emoji blocks
+    if (ws) { i += 1; continue; }
+    if (glyph) { sawGlyph = true; i += c > 0xFFFF ? 2 : 1; continue; }
+    break;
+  }
+  return sawGlyph ? i : 0;
+}
+
+// Lines inside a 'Set Includes' block that are notes/footnotes, not items.
+const NOISE_LINE_RE = /^(please note\b|note:|n\.?b\.?\b|fits most|mask only|regular siz|full siz|big chesh|other plushies|materials for|pictures? are|design featur)|not included\b|sold separately|shown for scale/i;
+
+// Pull one item name from a Set-Includes line, or null. Accepts a quantity
+// prefix ('1x …') or a leading bullet glyph (❤️/⚓️/•/⭐). Plain prose lines
+// (no marker) are rejected so lore sentences don't leak in.
+function setIncludesLineItem(line) {
+  let s = (line || '').trim();
+  if (!s) return null;
+  let ok = false;
+  if (/^\d+\s*[x×]\s+/i.test(s)) {
+    ok = true;
+  } else {
+    const n = leadingBulletLen(s);
+    if (n > 0) { s = s.slice(n).trim(); ok = true; }
+  }
+  if (!ok || !s || NOISE_LINE_RE.test(s)) return null;
+  // A question is brand patter, not an item ("Can (maybe) be convinced to
+  // guard the gates to your home? Try carrots?").
+  if (/\?/.test(s)) return null;
+  return s;
+}
+
+// Significant tokens of a name, minus brand/format filler — used to spot
+// the line that restates the primary plush (named after the product).
+function primaryTokens(str) {
+  return new Set(String(str || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !/^(the|and|plush|plushie|dreadful|dreadfuls|stuffed|animal|toy|mini|super|soft|edition|limited|victorian|mcgees|mcgee|set|includes|with|cryptid)$/.test(w)));
+}
+
+function extractSetIncludes(blocks, startIdx, endIdx, title = '') {
   const items = [];
-  const stop = endIdx === -1 ? blocks.length : endIdx;
-  for (let i = startIdx + 1; i < stop; i++) {
+  // Stop is a soft cap: the next-section heading may share a block with the
+  // last item line (e.g. '1x Tote Bag<br>Symbolism:'), so we iterate up to
+  // and *including* the boundary block and stop at the heading LINE — not
+  // the block — or we'd drop that trailing item.
+  const isHeadingLine = (s) => /^(symbol(ism|ogy)|important note|fun fact)/i
+    .test((s || '').replace(/^[^\p{L}\p{N}]+/u, ''));
+  const cap = endIdx === -1 ? blocks.length - 1 : Math.min(endIdx, blocks.length - 1);
+  outer:
+  for (let i = startIdx + 1; i <= cap; i++) {
     const b = blocks[i];
     if (!b) break;
-    // Stop at the next obvious section heading.
-    const t = (b.textContent || '').trim();
-    if (/^(symbolism|important note|fun fact)/i.test(t)) break;
-    // Pick up <li> elements OR paragraphs whose text starts with NNx /
-    // 1× / 1x / "Includes".
     const lis = b.querySelectorAll('li');
     if (lis.length) {
       for (const li of lis) {
         const name = (li.textContent || '').trim().replace(/^[•·]\s*/, '');
-        if (name) items.push({ name });
+        if (isHeadingLine(name)) break outer;
+        if (name && !NOISE_LINE_RE.test(name) && !/\?/.test(name)) items.push({ name });
       }
     } else {
-      // A single paragraph may hold several "1x …" entries separated by
-      // <br>; split on the breaks and keep each line that reads as a
-      // quantity-prefixed item.
       for (const line of blockLines(b)) {
-        if (/^\d+\s*[x×]\s+/i.test(line)) items.push({ name: line });
+        if (isHeadingLine(line)) break outer;
+        const name = setIncludesLineItem(line);
+        if (name) items.push({ name });
       }
     }
   }
-  // Strip the primary plush (first 'NNx …Rabbit/Bunny/Puppet/Plush') so
-  // accessories are *just* the extras. Same logic the Phase C accessory
-  // checkbox system will use.
+  // Strip the primary plush so accessories are *just* the extras. The
+  // primary is either the first line that reads as a plush ('Super Soft
+  // Rabbit', 'Plush Alice Bunny') OR the first line that restates the
+  // product title ('Putti Cherub Bun', 'Pourfect Bunny Teapot') — the
+  // latter catches animals the plush-word list misses (bun/hare/cat/owl).
+  // Either way only the FIRST qualifying line is dropped, and never an
+  // obvious accessory (bag/sticker/patch), so companion minis survive.
+  const titleTok = primaryTokens(title);
   let primaryDropped = false;
   const filtered = items.filter((it) => {
-    if (!primaryDropped && /\b(rabbit|bunny|puppet|plush|dinosaur)\b/i.test(it.name) && !/bag|tote|backpack|patch|sticker|standee/i.test(it.name)) {
-      primaryDropped = true;
-      return false;
+    if (primaryDropped) return true;
+    if (/\b(bag|tote|backpack|patch|sticker|standee|purse|pin|card)\b/i.test(it.name)) return true;
+    const byWord = /\b(rabbit|bunny|puppet|plush|dinosaur)\b/i.test(it.name);
+    let byTitle = false;
+    if (!byWord && titleTok.size) {
+      const itTok = primaryTokens(it.name);
+      let shared = 0;
+      for (const w of itTok) if (titleTok.has(w)) shared++;
+      byTitle = shared >= 2 || (itTok.size > 0 && shared === itTok.size);
     }
+    if (byWord || byTitle) { primaryDropped = true; return false; }
     return true;
   });
   // Canonicalize: each accessory carries both a display name (clean,
@@ -875,10 +969,19 @@ function canonicalizeAccessoryName(raw) {
   const out = (raw || '')
     // Drop the 'Nx ' or 'N× ' quantity prefix.
     .replace(/^\d+\s*[x×]\s+/i, '')
-    // Drop anything in trailing parentheses (usually 'measures NNcm…').
-    .replace(/\s*\([^)]*\)\s*$/g, '')
-    // Drop a trailing em-dash sub-clause ('— measures 38cm x 33cm').
-    .replace(/\s*[—–-]\s*measures?.*$/i, '')
+    // Cut trailing size/measurement clauses. The brand appends these
+    // inconsistently ('- measures 38cm', 'that measures 11x13 inches',
+    // 'measuring 24cm', a bare '38x34cms' or '25cm diameter'). Left in,
+    // they clutter the name and — worse — trip NON_ACCESSORY_RE's \d+cm
+    // rule, which would drop the whole item (the lost tote bags / bracelets
+    // in the capture audit).
+    .replace(/\s*[-–—(]?\s*(that\s+|which\s+)?measur(es|ing)\b.*$/i, '')  // '… measures …'
+    .replace(/\s*\(\s*\d.*$/, '')                            // '(33x40cm / 13"x16")' size paren
+    .replace(/\s*[-–—]\s*\d.*$/, '')                         // '- 3cm wide', '- 38x34cms'
+    .replace(/\s+\d+(\.\d+)?\s*[x×]\s*\d.*$/i, '')           // '11x13 inches', '38x34cms'
+    .replace(/\s+\d+(\.\d+)?\s*(cm|mm|inch(es)?|in|")\b.*$/i, '')  // bare '25cmx', '9.4 inch tall'
+    // Drop anything left in trailing parentheses.
+    .replace(/\s*\([^)]*\)\s*[.,;]*\s*$/g, '')
     .trim();
   return stripOutfitWord(out);
 }
@@ -893,12 +996,13 @@ function canonicalizeAccessoryName(raw) {
 
 // A line matching this reads as a feature/spec, not a physical accessory.
 const NON_ACCESSORY_RE = new RegExp([
-  'pose', 'poseable', 'articulat', 'magnetic', 'connects? to',
+  'pose', 'poseable', 'articulat', 'magnetic hands?', 'connects? to',
   'attach(es|ed)? to (the )?(face|body|head)', 'embroider', 'printed',
   'stitched (on|in)', 'pouch body', 'zipper(ed)? body', 'hidden zip',
   'measures?', '\\d+\\s*cm', '\\d+\\s*(inch|in\\b|")', 'tall',
   'ears? to toes?', 'head to toe', 'machine wash', 'spot clean',
   'surface wash', 'washable', 'polyester', 'stuffing',
+  'softest', 'luxurious', 'most luxurious',
 ].join('|'), 'i');
 
 // Identity key for de-duping: drop counts, size/material adjectives, and
