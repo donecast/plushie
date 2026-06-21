@@ -656,8 +656,13 @@ function parseBodyHtml(html) {
   // Walk nodes once, marking the offsets of section boundaries. We
   // recognize headings by text content rather than by tag — these
   // products use bold paragraphs ('<p><b>Set Includes</b></p>') just
-  // as often as <h2>/<h3>.
-  const blocks = [...root.children];
+  // as often as <h2>/<h3>. flattenBlocks unwraps structural wrapper
+  // <div>s (some products nest the whole description inside a single
+  // '<div class="text_exposed_show">') so headings/lists/paragraphs
+  // become first-class blocks rather than being hidden one level down —
+  // otherwise a wrapper's combined textContent overruns the heading
+  // length guards below and 'Set Includes' is never detected.
+  const blocks = flattenBlocks(root);
   let setIncludesIdx = -1;
   let symbolismIdx = -1;
   for (let i = 0; i < blocks.length; i++) {
@@ -717,6 +722,16 @@ function parseBodyHtml(html) {
   return { lore, symbolism, symbolismHtml, accessories, isBundle: false };
 }
 
+// True when an element wraps block-level children (so it's a structural
+// container, not a leaf paragraph). Text-content boilerplate matches must
+// skip these — otherwise a wrapper <div> that merely *contains* the
+// copyright trailer (e.g. '<div class="text_exposed_show">…Set Includes…
+// copyright…</div>') would be removed whole, taking the real content with
+// it. The offending inner leaf paragraph still matches on its own pass.
+function containsBlockElements(el) {
+  return [...(el.children || [])].some((c) => /^(p|ul|ol|div|h[1-6])$/i.test(c.tagName || ''));
+}
+
 function stripBoilerplate(root) {
   // Drop YouTube embeds (iframes + anchor wrappers).
   for (const el of [...root.querySelectorAll('iframe, lite-youtube, [data-youtube]')]) el.remove();
@@ -730,11 +745,13 @@ function stripBoilerplate(root) {
   // and any paragraph whose text starts with it. This is the same
   // boilerplate template across every mental-health rabbit product.
   for (const el of [...root.querySelectorAll('p, div')]) {
+    if (containsBlockElements(el)) continue;
     const t = (el.textContent || '').trim();
     if (/^important\s+note\b.*regarding the design/i.test(t)) el.remove();
   }
   // Drop the copyright/trademark trailer and 'Beware of imitations'.
   for (const el of [...root.querySelectorAll('p, div')]) {
+    if (containsBlockElements(el)) continue;
     const t = (el.textContent || '').trim();
     if (/is copyright of mysterious llc/i.test(t)) el.remove();
     else if (/^beware of imitations/i.test(t)) el.remove();
@@ -761,6 +778,41 @@ function stripBoilerplate(root) {
   }
 }
 
+// Linearise the description into a flat sequence of content blocks.
+// Most products are already flat (top-level <p>/<ul>/heading paragraphs),
+// but some wrap everything in a structural <div> (e.g. Facebook's old
+// '<div class="text_exposed_show">'), which buries the 'Set Includes'
+// heading and its list a level down. We unwrap any <div> that contains
+// block-level children so those inner blocks surface; a <div> with no
+// block children is itself a paragraph-like block and is kept as-is.
+function flattenBlocks(root) {
+  const out = [];
+  const visit = (el) => {
+    const tag = (el.tagName || '').toLowerCase();
+    if (tag === 'div' && containsBlockElements(el)) {
+      for (const c of el.children) visit(c); return;
+    }
+    out.push(el);
+  };
+  for (const child of root.children) visit(child);
+  return out;
+}
+
+// Split a block into visual lines, treating <br> as a line break. Some
+// products pack several "1x …" entries into ONE paragraph separated by
+// <br> (e.g. "1x Super Soft Puppet<br><br>1x Totebag"); raw textContent
+// would run them together ("1x Super Soft Puppet1x Totebag") into a
+// single garbled accessory, so we split on the breaks first.
+function blockLines(el) {
+  if (!el || !el.cloneNode) return [(el && el.textContent || '').trim()].filter(Boolean);
+  const clone = el.cloneNode(true);
+  for (const br of [...clone.querySelectorAll('br')]) br.replaceWith('\n');
+  return (clone.textContent || '')
+    .split('\n')
+    .map((s) => s.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
+
 function extractSetIncludes(blocks, startIdx, endIdx) {
   const items = [];
   const stop = endIdx === -1 ? blocks.length : endIdx;
@@ -778,8 +830,13 @@ function extractSetIncludes(blocks, startIdx, endIdx) {
         const name = (li.textContent || '').trim().replace(/^[•·]\s*/, '');
         if (name) items.push({ name });
       }
-    } else if (/^\d+\s*[x×]\s+/i.test(t)) {
-      items.push({ name: t });
+    } else {
+      // A single paragraph may hold several "1x …" entries separated by
+      // <br>; split on the breaks and keep each line that reads as a
+      // quantity-prefixed item.
+      for (const line of blockLines(b)) {
+        if (/^\d+\s*[x×]\s+/i.test(line)) items.push({ name: line });
+      }
     }
   }
   // Strip the primary plush (first 'NNx …Rabbit/Bunny/Puppet/Plush') so
