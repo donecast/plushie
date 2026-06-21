@@ -890,6 +890,26 @@
       </section>
 
       <section class="account-section">
+        <h3>Profile</h3>
+        <p class="account-hint">Your bio and avatar show on your public crypt profile.</p>
+        <div class="account-row">
+          <span class="soc-avatar soc-avatar-lg" id="acct-avatar-preview"></span>
+          <label class="field">
+            <span>Avatar</span>
+            <input type="file" id="acct-avatar" accept="image/*" />
+            <span id="acct-avatar-name" class="soc-file-name"></span>
+          </label>
+        </div>
+        <label class="field">
+          <span>Bio</span>
+          <textarea id="acct-bio" rows="3" maxlength="280" placeholder="A line or two about you and your crypt…"></textarea>
+        </label>
+        <div class="account-row right">
+          <button class="btn-ghost" id="acct-save-profile">Save profile</button>
+        </div>
+      </section>
+
+      <section class="account-section">
         <h3>Default shipping address</h3>
         <p class="account-hint">Pre-fills your address on every trade so you don't have to type it each time. The other side only sees it once they've also entered theirs.</p>
         <label class="field">

@@ -2780,6 +2780,16 @@ function wireEvents() {
   document.getElementById('acct-save-username').addEventListener('click', saveUsername);
   document.getElementById('acct-save-email').addEventListener('click', saveEmail);
   document.getElementById('acct-save-address').addEventListener('click', saveDefaultAddress);
+  document.getElementById('acct-save-profile').addEventListener('click', saveAccountProfile);
+  document.getElementById('acct-avatar').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) { state._acctAvatarBlob = null; syncAcctAvatarPreview(); return; }
+    try {
+      state._acctAvatarBlob = await compressImage(file);
+      document.getElementById('acct-avatar-name').textContent = '✓ ' + file.name;
+      syncAcctAvatarPreview();
+    } catch (err) { console.warn('compress', err); toast('Could not read that image.'); }
+  });
 
   document.getElementById('acct-theme').addEventListener('change', (e) => setTheme(e.target.value));
   document.getElementById('theme-btn').addEventListener('click', () => {
@@ -4147,6 +4157,15 @@ async function openAccountModal() {
   document.getElementById('acct-username').value = window.currentUser?.username ?? '';
   document.getElementById('acct-email').value    = window.currentUser?.email ?? '';
   document.getElementById('acct-address').value  = await data.getMyAddress();
+
+  // Profile (bio + avatar) lives here now (item 9) so it's not buried in the
+  // social tab. Populate from the My Crypt cache and reset the pending picker.
+  if (state._myBio === undefined) { try { await loadMyProfileCache(); } catch { /* non-fatal */ } }
+  state._acctAvatarBlob = null;
+  document.getElementById('acct-bio').value = state._myBio || '';
+  document.getElementById('acct-avatar').value = '';
+  document.getElementById('acct-avatar-name').textContent = '';
+  syncAcctAvatarPreview();
   const themeSel = document.getElementById('acct-theme');
   if (themeSel) themeSel.value = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
   // Admin tag in the modal header so it's obvious who you're signed in as.
@@ -4232,6 +4251,38 @@ async function saveDefaultAddress() {
   } catch (err) {
     console.error(err);
     toast('Could not save address.');
+  }
+}
+
+// Refresh the little avatar preview in the account modal from whatever's
+// current — the just-picked blob if any, else the cached avatar URL.
+function syncAcctAvatarPreview() {
+  const el = document.getElementById('acct-avatar-preview');
+  if (!el) return;
+  const blobUrl = state._acctAvatarBlob ? URL.createObjectURL(state._acctAvatarBlob) : null;
+  const url = blobUrl || state._myAvatarUrl;
+  if (url) {
+    el.innerHTML = `<img src="${escapeHtml(url)}" alt="" />`;
+    el.classList.remove('soc-avatar-fallback');
+  } else {
+    el.textContent = (window.currentUser?.username || '?').slice(0, 1).toUpperCase();
+    el.classList.add('soc-avatar-fallback');
+  }
+}
+
+async function saveAccountProfile() {
+  const bio = document.getElementById('acct-bio').value.trim();
+  try {
+    await data.updateMyProfile({ bio, avatarBlob: state._acctAvatarBlob });
+    state._acctAvatarBlob = null;
+    document.getElementById('acct-avatar').value = '';
+    document.getElementById('acct-avatar-name').textContent = '';
+    await loadMyProfileCache();
+    syncAcctAvatarPreview();
+    toast('Profile updated.');
+  } catch (err) {
+    console.error('saveAccountProfile', err);
+    toast('Could not save profile.');
   }
 }
 
@@ -6369,7 +6420,7 @@ async function onSocialClick(e) {
     case 'go-friends': setSocSubTab('friends'); break;
     case 'view-profile': await openProfile(uid); break;
     case 'close-profile': state.socProfile = null; renderSocial(); break;
-    case 'edit-profile': openEditProfile(); break;
+    case 'edit-profile': closeSocialModal(); openAccountModal(); break;
     case 'edit-top8': openTop8Picker(); break;
 
     case 'toggle-like': await onToggleLike(postId, target); break;
