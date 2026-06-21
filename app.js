@@ -375,6 +375,10 @@ function isMiniPlushie(item) {
 const CATEGORY_OVERRIDES = [
   // "Tooth Scary" is labeled a Keychain but it's a full-size plush.
   { test: (it) => /\btooth scary\b/i.test(it.name || ''), category: 'plush' },
+  // The Lucky Poop is typed 'Plush Accessory' but it's a standalone bun:
+  // the regular size is charm-sized (a mini), the XL is full-size (a plush).
+  { test: (it) => String(it.id) === '8991250350312', category: 'mini' },
+  { test: (it) => String(it.id) === '9031367786728', category: 'plush' },
 ];
 function categoryOverride(item) {
   for (const o of CATEGORY_OVERRIDES) if (o.test(item)) return o.category;
@@ -5994,7 +5998,12 @@ function openTop8Picker() {
   const tomPresent = existing.some((t) =>
     t.catalogId === data.TOM_TOP.catalogId || (t.plushName || '').trim().toLowerCase() === 'tom');
   // Build from the user's collection; preselect anything already chosen.
-  const items = state.collection.map((p) => {
+  // Top 8 Buns are plushes + minis only — accessories, outfits, charms and
+  // other merch live in the collection but don't belong in the Buns lineup.
+  const items = state.collection.filter((p) => {
+    const cat = itemCategory(p);
+    return cat === 'plush' || cat === 'mini';
+  }).map((p) => {
     const name = p.nickname || p.name;
     const picked = current.includes(name);
     const img = p.photo || catalogImageFor(p.catalogId);
