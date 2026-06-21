@@ -651,6 +651,30 @@ main {
   color: var(--rose-1);
   background: var(--blush);
 }
+/* Arrange (drag-to-reorder) toggle — sits with the filter controls so the
+   way into manual sort is obvious (item 20). Lights up gold when active. */
+.filter-arrange {
+  background: var(--surface);
+  border: 1px solid var(--hairline-2);
+  color: var(--muted-1);
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 0.82rem;
+  padding: 11px 15px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-style: normal;
+}
+.filter-arrange:hover {
+  border-color: var(--rose-1);
+  color: var(--rose-1);
+  background: var(--blush);
+}
+.filter-arrange.active {
+  background: var(--gold);
+  border-color: var(--gold-border, var(--gold));
+  color: var(--text-on-gold);
+}
 .filter-action {
   color: var(--gold-1);
   border-color: var(--gold-edge);
@@ -801,6 +825,7 @@ main {
   border-top: 0;
   gap: 4px;
   flex-wrap: nowrap;
+  align-items: center;   /* vertically centre the row of buttons (item 30) */
 }
 .grid-compact .card-actions button {
   font-size: 0.72rem;
@@ -824,7 +849,7 @@ main {
 }
 .grid-list .attached-acc,
 .grid-compact .attached-acc {
-  flex: 0 0 auto; width: auto; max-width: 200px;
+  flex: 0 0 auto; width: 190px;   /* uniform width so every worn-piece card lines up (item 27) */
   flex-direction: row; align-items: center; gap: 8px;
   padding: 4px 8px 4px 4px; border-radius: 10px;
 }
@@ -3476,6 +3501,13 @@ body.locked { overflow: hidden; }
   font-size: 0.95rem; padding: 2px 4px; border-radius: 6px;
 }
 .soc-post-del:hover, .soc-comment-del:hover { color: var(--danger); background: var(--danger-bg); }
+.soc-comment-edit {
+  background: none; border: none; cursor: pointer; color: var(--ink-mute);
+  font-size: 0.85rem; padding: 2px 4px; border-radius: 6px; margin-left: auto;
+}
+.soc-comment-edit:hover { color: var(--rose-1); background: var(--blush); }
+/* When editing, the inline form takes the comment's full width. */
+.soc-comment-edit-form { flex: 1 1 100%; margin-top: 4px; }
 .soc-post-plush { margin: 8px 0 2px; font-weight: 700; color: var(--gold); }
 .soc-post-body { margin: 8px 0; white-space: pre-wrap; line-height: 1.5; }
 .soc-post-photo { margin: 10px -14px -4px; }
@@ -3523,9 +3555,10 @@ body.locked { overflow: hidden; }
 .soc-reply-form { margin-top: 4px; }
 .soc-mention {
   border: none; background: none; padding: 0; cursor: pointer;
-  color: var(--rose-1); font-weight: 700; font: inherit;
+  font: inherit; color: var(--rose-1); font-weight: 800; text-decoration: underline;
+  text-underline-offset: 2px;
 }
-.soc-mention:hover { text-decoration: underline; }
+.soc-mention:hover { color: var(--rose-2); }
 
 /* Friends */
 .soc-section { margin-bottom: 22px; }
