@@ -6,8 +6,9 @@ trading, and a social layer. Vanilla JS (no build step / framework):
 (`sw.js`), and IndexedDB. Backend is **Supabase** (auth via email magic
 links, Postgres with RLS, Storage). Photos route through **Cloudflare
 R2/Workers**; hosting is Cloudflare Pages + GitHub Pages from `main`
-(custom domain `plushcrypt.com`). DB changes are hand-applied SQL in
-`db/00NN_*.sql` (run in the Supabase SQL editor).
+(custom domain `plushcrypt.com`; GitHub repo is **`donecast/Plush-Crypt`** —
+the old `donecast/plushie` name still redirects). DB changes are hand-applied
+SQL in `db/00NN_*.sql` (run in the Supabase SQL editor).
 
 ## ⚠️ Standing direction: we will ship native apps via Capacitor
 
@@ -50,6 +51,19 @@ eventual wrap is painless:
 - Bump cache-buster query versions (`app.js?v=N`, `styles.css?v=N`,
   `data.js?v=N`) in `index.html` **and** the `CACHE` const in `sw.js`
   whenever those files change, so clients pick up new code.
-- Work on a branch, open a draft PR to `main`, merge (squash) after the
-  Cloudflare preview is green. Schema changes ship as a new
-  `db/00NN_*.sql` the user applies in Supabase.
+- Schema changes ship as a new `db/00NN_*.sql` the user applies in Supabase.
+
+## Branch & PR workflow
+- **One task = one branch**, cut fresh from the latest `origin/main`
+  (`git fetch origin && git switch -c <short-descriptive-name> origin/main`).
+  Don't reuse or pin a branch across unrelated tasks.
+- **Before starting, check for in-flight work** (`gh pr list --state open`,
+  plus recently-pushed `claude/*` branches). If something already covers the
+  task, build on it or ask — never open a duplicate or force-push a branch
+  another session is on.
+- Push with `git push -u origin <branch>`; open the PR to `main` as
+  ready-for-review (not draft).
+- **Squash-merge once CI is green** (Cloudflare Pages + Workers Builds) —
+  gate only if the user says so. Head branches auto-delete on merge, so no
+  manual branch cleanup is needed.
+- Never commit directly to `main`; never force-push `main`.
