@@ -62,6 +62,7 @@ const state = {
   socProfile: null,           // { profile, posts, top8, friendship } when viewing someone
   socExpandedComments: new Set(), // postIds whose comment box/list is expanded
   socReplyTo: null,               // comment id currently being replied to
+  socEditComment: null,           // comment id currently being edited
   socComposeVis: 'friends',   // visibility selected in the composer
   socComposePhoto: null,      // pending compressed Blob for a new post
   socPendingCount: 0,         // incoming friend requests — drives the tab badge
@@ -301,6 +302,14 @@ function syncCollectionChips() {
   if (sortEl) sortEl.value = state.colSort;
   const viewEl = document.getElementById('col-view');
   if (viewEl) viewEl.value = state.colView;
+  // The Arrange toggle mirrors the 'manual' sort so it's the obvious way in
+  // and out of drag-to-reorder mode (item 20).
+  const arrangeBtn = document.getElementById('col-arrange');
+  if (arrangeBtn) {
+    const on = state.colSort === 'manual';
+    arrangeBtn.classList.toggle('active', on);
+    arrangeBtn.textContent = on ? '✓ Done arranging' : '↕ Arrange';
+  }
 }
 
 function syncWishlistChips() {
@@ -1657,7 +1666,7 @@ function renderAttachedAccessory(a) {
     : '<span class="no-photo">🧥</span>';
   return `
     <div class="attached-acc" data-acc-id="${a.id}">
-      <div class="attached-acc-photo" data-action="open-detail" data-id="${a.id}" role="button" title="Edit / rename / reassign">${photo}</div>
+      <div class="attached-acc-photo" data-action="zoom-photo" data-id="${a.id}" role="button" title="Tap to see it bigger">${photo}</div>
       <div class="attached-acc-info">
         <span class="attached-acc-name" data-action="open-detail" data-id="${a.id}" role="button">${escapeHtml(a.nickname || stripOutfitWord(a.name))}</span>
         <button class="attached-detach" data-action="detach-acc" data-id="${a.id}" title="Hang it back up in the closet">↩ Hang it back up</button>
@@ -1719,7 +1728,7 @@ function renderCard(item, kind) {
   if (tradeMark) badges.push(tradeMark);
 
   const tradeBtn = kind === 'collection'
-    ? `<button data-action="offer-trade" data-id="${item.id}">↻ Offer for trade</button>`
+    ? `<button data-action="offer-trade" data-id="${item.id}">↻ Trade?</button>`
     : `<button data-action="seek-trade" data-id="${item.id}">↺ Seek in trade</button>`;
 
   const qty = item.quantity || 1;
@@ -2066,9 +2075,11 @@ function openModal(kind, item, { fresh = false } = {}) {
   state.editingId = item.id;
 
   const wearable = isWearableItem(item);
+  // Title the editor by what's actually being edited (item 28).
+  const EDIT_TITLE = { plush: 'Edit Plushie', mini: 'Edit Mini', clothing: 'Edit Clothing', accessory: 'Edit Accessory', bundle: 'Edit Bundle', other: 'Edit Other' };
   document.getElementById('modal-title').textContent = fresh
     ? (wearable ? 'Added! Who’s wearing it?' : 'Added! Make it yours')
-    : 'Edit Plushie';
+    : (EDIT_TITLE[itemCategory(item)] || 'Edit Plushie');
   document.getElementById('modal-name').textContent = stripOutfitWord(item.name || '');
 
   // Only true plushes & minis carry "lore"-flavoured fields (a personal name
@@ -3007,6 +3018,13 @@ function wireEvents() {
   wireSelect('col-state', 'filter');
   wireSelect('col-sort', 'colSort');
   wireSelect('col-view', 'colView');
+  // Arrange button: one tap into (and back out of) drag-to-reorder mode.
+  const arrangeBtn = document.getElementById('col-arrange');
+  if (arrangeBtn) arrangeBtn.addEventListener('click', () => {
+    if (state.colSort === 'manual') state.colSort = state._prevColSort || 'acquired_desc';
+    else { state._prevColSort = state.colSort; state.colSort = 'manual'; }
+    render();
+  });
   document.querySelectorAll('#col-extras input[data-col-toggle]').forEach((cb) => {
     cb.addEventListener('change', () => {
       if (cb.dataset.colToggle === 'dupes') state.colDupes = cb.checked;
@@ -6533,13 +6551,22 @@ function renderComment(c, postId, depth = 0) {
   const palette = SOC_REACTIONS.map((e) =>
     `<button class="soc-react-opt" data-soc-action="react-comment" data-comment-id="${c.id}" data-emoji="${e}">${e}</button>`).join('');
   const replying = state.socReplyTo === c.id;
+  const editing = state.socEditComment === c.id;
   const replies = (c.replies || []).map((r) => renderComment(r, postId, Math.min(depth + 1, 1))).join('');
+  const bodyHtml = editing
+    ? `<form class="soc-comment-form soc-comment-edit-form" data-soc-action="submit-comment-edit" data-comment-id="${c.id}">
+         <input type="text" class="soc-comment-input" maxlength="500" value="${escapeHtml(c.body)}" />
+         <button class="btn-primary" type="submit">Save</button>
+         <button class="linklike" type="button" data-soc-action="cancel-edit-comment">Cancel</button>
+       </form>`
+    : `<span>${linkifyMentions(c.body)}</span>`;
   return `
     <div class="soc-comment ${depth ? 'soc-comment-reply' : ''}">
       <div class="soc-comment-main">
         <button class="soc-userlink" data-soc-action="view-profile" data-uid="${c.authorId}"><b>@${escapeHtml(c.authorName)}</b></button>
-        <span>${linkifyMentions(c.body)}</span>
-        ${c.canDelete ? `<button class="soc-comment-del" data-soc-action="delete-comment" data-comment-id="${c.id}" title="Delete">×</button>` : ''}
+        ${bodyHtml}
+        ${(c.mine && !editing) ? `<button class="soc-comment-edit" data-soc-action="edit-comment" data-comment-id="${c.id}" title="Edit">✎</button>` : ''}
+        ${(c.canDelete && !editing) ? `<button class="soc-comment-del" data-soc-action="delete-comment" data-comment-id="${c.id}" title="Delete">×</button>` : ''}
       </div>
       <div class="soc-comment-tools">
         <span class="soc-react-wrap">
@@ -6646,13 +6673,13 @@ function renderFriends() {
             ${tierTag}
           </div>
           <span class="soc-friend-actions">
-            <button class="btn-ghost" data-soc-action="toggle-inner" data-uid="${f.userId}" data-on="${f.isInner ? '0' : '1'}">
-              ${f.isInner ? 'Remove from Castle Crew' : 'Add to Castle Crew'}
-            </button>
             <button class="btn-ghost" data-soc-action="toggle-coffin" data-uid="${f.userId}" data-on="${f.isCoffinBuddy ? '0' : '1'}">
-              ${f.isCoffinBuddy ? 'Remove from Coffin Buddies' : 'Add to Coffin Buddies'}
+              ${f.isCoffinBuddy ? '🚫 Coffin Buddies' : 'Add to Coffin Buddies'}
             </button>
-            <button class="btn-ghost" data-soc-action="remove-friend" data-uid="${f.userId}">Unfriend</button>
+            <button class="btn-ghost" data-soc-action="toggle-inner" data-uid="${f.userId}" data-on="${f.isInner ? '0' : '1'}">
+              ${f.isInner ? '🚫 Castle Crew' : 'Add to Castle Crew'}
+            </button>
+            <button class="btn-ghost" data-soc-action="remove-friend" data-uid="${f.userId}">🚫 Coven</button>
           </span>
         </div>`; }).join('')}
     </section>` : `<p class="empty-note">No friends in your Coven yet — search for a collector above.</p>`;
@@ -6706,9 +6733,9 @@ function renderProfileInto(el, { profile, posts, top8, friendship, isMe, withBac
         ? '<span class="soc-rel-tag">⚰️ Coffin Buddies</span>'
         : (fr.isInner ? '<span class="soc-rel-tag">🏰 Castle Crew</span>' : '<span class="soc-rel-tag">🦇 In your Coven</span>');
       relBtns = `${tierTag}
-               <button class="btn-ghost" data-soc-action="toggle-inner" data-uid="${profile.id}" data-on="${fr.isInner ? '0' : '1'}">${fr.isInner ? 'Remove from Castle Crew' : 'Add to Castle Crew'}</button>
-               <button class="btn-ghost" data-soc-action="toggle-coffin" data-uid="${profile.id}" data-on="${fr.isCoffinBuddy ? '0' : '1'}">${fr.isCoffinBuddy ? 'Remove from Coffin Buddies' : 'Add to Coffin Buddies'}</button>
-               <button class="btn-ghost" data-soc-action="remove-friend" data-uid="${profile.id}">Unfriend</button>`;
+               <button class="btn-ghost" data-soc-action="toggle-coffin" data-uid="${profile.id}" data-on="${fr.isCoffinBuddy ? '0' : '1'}">${fr.isCoffinBuddy ? '🚫 Coffin Buddies' : 'Add to Coffin Buddies'}</button>
+               <button class="btn-ghost" data-soc-action="toggle-inner" data-uid="${profile.id}" data-on="${fr.isInner ? '0' : '1'}">${fr.isInner ? '🚫 Castle Crew' : 'Add to Castle Crew'}</button>
+               <button class="btn-ghost" data-soc-action="remove-friend" data-uid="${profile.id}">🚫 Coven</button>`;
     }
     else if (friendship === 'outgoing') relBtns = `<button class="btn-ghost" data-soc-action="remove-friend" data-uid="${profile.id}">Cancel request</button>`;
     else if (friendship === 'incoming') relBtns = `<button class="btn-primary" data-soc-action="accept-friend" data-uid="${profile.id}">Accept request</button>`;
@@ -6721,7 +6748,7 @@ function renderProfileInto(el, { profile, posts, top8, friendship, isMe, withBac
       ${socAvatar(profile.avatarUrl, profile.username, 'soc-avatar-lg')}
       <div class="soc-profile-id">
         <h2>@${escapeHtml(profile.username)}</h2>
-        ${profile.bio ? `<p class="soc-bio">${escapeHtml(profile.bio)}</p>` : (isMe ? `<p class="soc-bio soc-bio-empty">Add a bio to tell the crypt about yourself…</p>` : '')}
+        ${profile.bio ? `<p class="soc-bio">${linkifyMentions(profile.bio)}</p>` : (isMe ? `<p class="soc-bio soc-bio-empty">Add a bio to tell the crypt about yourself…</p>` : '')}
         <div class="soc-profile-actions">${relBtns}</div>
       </div>
     </header>
@@ -7051,7 +7078,9 @@ function wireSocialEvents() {
   // Comment submit + compose/profile/top8 forms (submit events).
   document.getElementById('social-view').addEventListener('submit', (e) => {
     const f = e.target.closest('[data-soc-action="submit-comment"]');
-    if (f) { e.preventDefault(); submitCommentForm(f); }
+    if (f) { e.preventDefault(); submitCommentForm(f); return; }
+    const ef = e.target.closest('[data-soc-action="submit-comment-edit"]');
+    if (ef) { e.preventDefault(); submitCommentEdit(ef); }
   });
 
   // Graceful image fallback. `error` doesn't bubble, so listen in the
@@ -7138,6 +7167,15 @@ async function onSocialClick(e) {
     case 'edit-post': openPostEditor(postId); break;
     case 'delete-post': await onDeletePost(postId); break;
     case 'delete-comment': await onDeleteComment(target.dataset.commentId); break;
+    case 'edit-comment':
+      state.socEditComment = target.dataset.commentId;
+      state.socReplyTo = null;
+      rerenderSocialCurrent();
+      break;
+    case 'cancel-edit-comment':
+      state.socEditComment = null;
+      rerenderSocialCurrent();
+      break;
     case 'react-comment': await onReactComment(target.dataset.commentId, target.dataset.emoji); break;
     case 'toggle-react-palette': {
       const pal = document.querySelector(`[data-react-palette="${target.dataset.commentId}"]`);
@@ -7219,6 +7257,21 @@ async function submitCommentForm(form) {
     if (state.socProfile) await openProfile(state.socProfile.profile.id);
     else rerenderSocialCurrent();
   } catch (e) { console.error('comment', e); toast('Could not comment.'); }
+}
+
+// Save an edit to one of my own comments (item 25).
+async function submitCommentEdit(form) {
+  const input = form.querySelector('.soc-comment-input');
+  const body = input.value.trim();
+  const commentId = form.dataset.commentId;
+  if (!body) { toast('A comment can’t be empty.'); return; }
+  try {
+    await data.editComment(commentId, body);
+    state.socEditComment = null;
+    await loadSocialData();
+    if (state.socProfile) await openProfile(state.socProfile.profile.id);
+    else rerenderSocialCurrent();
+  } catch (e) { console.error('edit comment', e); toast('Could not save your edit.'); }
 }
 
 // Toggle one of my emoji reactions on a comment, then refresh.
