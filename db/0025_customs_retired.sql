@@ -1,5 +1,5 @@
 -- ============================================================
--- Plushie tracker — migration 0023: customs are retired by default
+-- Plushie tracker — migration 0025: customs are retired by default
 -- Paste into Supabase SQL Editor and run.
 -- Safe to re-run.
 -- ============================================================
