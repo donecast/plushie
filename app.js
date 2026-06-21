@@ -1895,7 +1895,11 @@ function render() {
     const colGrid = document.getElementById('collection-grid');
     colGrid.classList.toggle('grid-compact', compact);
     colGrid.classList.toggle('grid-list', !compact);
-    colGrid.innerHTML = mainItems.map((i) => renderCollectionEntry(i)).join('');
+    // In manual sort, surface a hint so the drag/▲▼ affordance is discoverable.
+    const manualHint = state.colSort === 'manual' && mainItems.length > 1
+      ? '<p class="subview-hint">↕ Drag the ☰ grip or use ▲▼ to arrange your collection exactly how you want.</p>'
+      : '';
+    colGrid.innerHTML = manualHint + mainItems.map((i) => renderCollectionEntry(i)).join('');
     const unwornSection = document.getElementById('unworn-clothing-section');
     if (unwornSection) {
       document.getElementById('unworn-clothing-grid').innerHTML = closetItems.map((i) => renderCard(i, 'collection')).join('');
@@ -2081,6 +2085,12 @@ function openModal(kind, item, { fresh = false } = {}) {
     loreLike ? 'Your name for it (optional)' : 'Alternate name?';
   document.querySelector('#field-meaning > span').textContent =
     loreLike ? 'Personal meaning' : 'Notes';
+  // Placeholders match the relabeled fields: clothing/other gets example
+  // alternate names; "Notes" gets no leading prompt (15/16).
+  document.getElementById('f-nickname').placeholder =
+    loreLike ? 'e.g. Anxious Andy, Sir Floof…' : 'e.g. Birthday Dress, Work Overalls…';
+  document.getElementById('f-meaning').placeholder =
+    loreLike ? 'What this one means to you…' : '';
   if (!loreLike) {
     // Move "Worn by" above the alternate-name field.
     form.insertBefore(wornFieldEl, nicknameField);
@@ -2180,6 +2190,25 @@ function openModal(kind, item, { fresh = false } = {}) {
   // Focus the rename field on a fresh add (the discovery moment), else
   // the meaning field as before.
   setTimeout(() => document.getElementById(fresh ? 'f-nickname' : 'f-meaning').focus(), 50);
+}
+
+// Remove a collection (or wish-list) row, cleaning up any active offering for
+// the same catalog id first. Returns true if it was actually removed.
+async function removeCollectionItem(id) {
+  if (!confirm('Remove this from your collection?')) return false;
+  const col = state.collection.find((x) => x.id === id);
+  const inCol = !!col;
+  // Collection deletes must also clean up any active offering for the same
+  // catalog id, unless reservations would be orphaned.
+  if (inCol && col.catalogId) {
+    const ok = await syncOfferingToOwned(col.catalogId, 0);
+    if (!ok) return false;
+  }
+  await data.delete(inCol ? 'collection' : 'wishlist', id);
+  await loadAll();
+  render();
+  toast('Removed.');
+  return true;
 }
 
 function closeModal() {
@@ -2431,19 +2460,7 @@ async function onCardClickInner(btn) {
   } else if (action === 'move-down') {
     await moveCollectionItem(id, 'down');
   } else if (action === 'delete') {
-    if (!confirm('Remove this plushie?')) return;
-    const col = state.collection.find((x) => x.id === id);
-    const inCol = !!col;
-    // Collection deletes must also clean up any active offering for the same
-    // catalog id, unless reservations would be orphaned.
-    if (inCol && col.catalogId) {
-      const ok = await syncOfferingToOwned(col.catalogId, 0);
-      if (!ok) return;
-    }
-    await data.delete(inCol ? 'collection' : 'wishlist', id);
-    await loadAll();
-    render();
-    toast('Removed.');
+    await removeCollectionItem(id);
   } else if (action === 'got') {
     const item = state.wishlist.find((x) => x.id === id);
     if (!item) return;
@@ -2943,7 +2960,10 @@ function wireEvents() {
       // restore it when the user comes back.
       tabScroll.set(state.tab, window.scrollY);
       state.tab = t.dataset.tab;
-      if (state.tab === 'trade') await loadTradeData();  // refresh from server on enter
+      if (state.tab === 'trade') {
+        state.tradeSubTab = 'browse';   // always land on Browse (item 21)
+        await loadTradeData();          // refresh from server on enter
+      }
       if (state.tab === 'social') {
         state.socProfile = null;       // always land on the feed, not a stale profile
         await loadSocialData();
@@ -3067,6 +3087,11 @@ function wireEvents() {
   );
 
   document.getElementById('plushie-form').addEventListener('submit', submitForm);
+  document.getElementById('modal-remove').addEventListener('click', async () => {
+    if (!state.editingId) return;
+    const ok = await removeCollectionItem(state.editingId);
+    if (ok) closeModal();
+  });
 
   // Reflect the chosen photo filename next to the picker.
   document.getElementById('f-photo').addEventListener('change', (e) => {
@@ -4681,10 +4706,12 @@ async function saveUsername() {
     return;
   }
   if (u === window.currentUser?.username) return;
+  // Make the one-month lock explicit before they commit (item 8).
+  if (!confirm(`Change your username to @${u}?\n\nYou won't be able to change it again for 30 days.`)) return;
   try {
     await data.updateUsername(u);
     document.querySelector('#user-badge .user-name').textContent = '@' + u;
-    toast('Username updated.');
+    toast('Username updated. Locked for 30 days.');
     syncUsernameCooldownHint();
   } catch (err) {
     const msg = (err.message || '').toLowerCase();
@@ -4710,13 +4737,13 @@ async function syncUsernameCooldownHint() {
   let changedAt = null;
   try { changedAt = await data.getUsernameChangedAt(); } catch { /* non-fatal */ }
   const next = changedAt ? new Date(changedAt.getTime() + 30 * 864e5) : null;
+  hint.classList.remove('hidden');
   if (next && next > new Date()) {
-    hint.textContent = `You can change your username again on ${next.toISOString().slice(0, 10)}.`;
-    hint.classList.remove('hidden');
+    hint.textContent = `🔒 Locked — you can change your username again on ${next.toISOString().slice(0, 10)}.`;
     if (saveBtn) saveBtn.disabled = true;
   } else {
-    hint.textContent = '';
-    hint.classList.add('hidden');
+    // Always warn up front that a change is a 30-day commitment (item 8).
+    hint.textContent = '⚠️ Heads up: you can only change your username once every 30 days.';
     if (saveBtn) saveBtn.disabled = false;
   }
 }
@@ -4753,8 +4780,9 @@ async function populateAddressFields() {
     const el = document.getElementById(id);
     if (el) el.value = a[key] || '';
   }
+  // "✓ Saved" shows whenever a usable address is on file (line1 present).
   const badge = document.getElementById('acct-addr-verified');
-  if (badge) badge.classList.toggle('hidden', !a.verified);
+  if (badge) badge.classList.toggle('hidden', !a.line1);
   const err = document.getElementById('acct-addr-error');
   if (err) { err.textContent = ''; err.classList.add('hidden'); }
 }
@@ -4818,7 +4846,10 @@ async function saveDefaultAddress() {
     return;
   }
   try {
-    await data.setMyAddressFull(normalized, { verified: true });
+    // NB: this is a *format* check (required fields + ZIP shape), not a real
+    // postal lookup — so we don't claim the address is "verified", only saved.
+    // A real provider (USPS/Loqate/Google) can slot into verifyAddress() later.
+    await data.setMyAddressFull(normalized, { verified: false });
     // Reflect normalization back into the fields.
     for (const [key, id] of Object.entries(ADDR_FIELDS)) {
       const el = document.getElementById(id);
@@ -4826,7 +4857,7 @@ async function saveDefaultAddress() {
     }
     if (errEl) { errEl.textContent = ''; errEl.classList.add('hidden'); }
     if (badge) badge.classList.remove('hidden');
-    toast('Address verified & saved. ✓');
+    toast('Address saved. ✓');
   } catch (err) {
     console.error(err);
     toast('Could not save address.');
@@ -6607,10 +6638,13 @@ function renderFriends() {
           : (f.isInner ? '<span class="soc-inner-tag">🏰 Castle Crew</span>' : '');
         return `
         <div class="soc-friend-row">
-          <button class="soc-userlink" data-soc-action="view-profile" data-uid="${f.userId}">
-            ${socAvatar(f.avatarUrl, f.username)}
-            <span>@${escapeHtml(f.username)} ${tierTag}</span>
-          </button>
+          <div class="soc-friend-id">
+            <button class="soc-userlink" data-soc-action="view-profile" data-uid="${f.userId}">
+              ${socAvatar(f.avatarUrl, f.username)}
+              <span>@${escapeHtml(f.username)}</span>
+            </button>
+            ${tierTag}
+          </div>
           <span class="soc-friend-actions">
             <button class="btn-ghost" data-soc-action="toggle-inner" data-uid="${f.userId}" data-on="${f.isInner ? '0' : '1'}">
               ${f.isInner ? 'Remove from Castle Crew' : 'Add to Castle Crew'}
@@ -6665,8 +6699,17 @@ function renderProfileInto(el, { profile, posts, top8, friendship, isMe, withBac
     relBtns = `<button class="btn-ghost" data-soc-action="edit-profile">Edit profile</button>
                <button class="btn-ghost" data-soc-action="edit-top8">Edit Top 8 Buns</button>`;
   } else {
-    if (friendship === 'friends') relBtns = `<span class="soc-rel-tag">🦇 In your Coven</span>
+    if (friendship === 'friends') {
+      // Tier flags come from the loaded friends list; default to plain Coven.
+      const fr = (state.socFriends || []).find((x) => x.userId === profile.id) || {};
+      const tierTag = fr.isCoffinBuddy
+        ? '<span class="soc-rel-tag">⚰️ Coffin Buddies</span>'
+        : (fr.isInner ? '<span class="soc-rel-tag">🏰 Castle Crew</span>' : '<span class="soc-rel-tag">🦇 In your Coven</span>');
+      relBtns = `${tierTag}
+               <button class="btn-ghost" data-soc-action="toggle-inner" data-uid="${profile.id}" data-on="${fr.isInner ? '0' : '1'}">${fr.isInner ? 'Remove from Castle Crew' : 'Add to Castle Crew'}</button>
+               <button class="btn-ghost" data-soc-action="toggle-coffin" data-uid="${profile.id}" data-on="${fr.isCoffinBuddy ? '0' : '1'}">${fr.isCoffinBuddy ? 'Remove from Coffin Buddies' : 'Add to Coffin Buddies'}</button>
                <button class="btn-ghost" data-soc-action="remove-friend" data-uid="${profile.id}">Unfriend</button>`;
+    }
     else if (friendship === 'outgoing') relBtns = `<button class="btn-ghost" data-soc-action="remove-friend" data-uid="${profile.id}">Cancel request</button>`;
     else if (friendship === 'incoming') relBtns = `<button class="btn-primary" data-soc-action="accept-friend" data-uid="${profile.id}">Accept request</button>`;
     else relBtns = `<button class="btn-primary" data-soc-action="add-friend" data-uid="${profile.id}">Add friend</button>`;
