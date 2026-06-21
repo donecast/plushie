@@ -2074,7 +2074,9 @@ data._hydratePosts = async function (rows) {
 
   const [{ data: likes }, { data: comments }] = await Promise.all([
     sb.from('post_likes').select('post_id, user_id').in('post_id', postIds),
-    sb.from('post_comments').select('id, post_id, author_id, body, created_at').in('post_id', postIds).order('created_at', { ascending: true }),
+    // parent_comment_id may not exist pre-0031; select('*') so the query
+    // doesn't error on older schemas.
+    sb.from('post_comments').select('*').in('post_id', postIds).order('created_at', { ascending: true }),
   ]);
 
   const likeCount = new Map();
@@ -2089,10 +2091,57 @@ data._hydratePosts = async function (rows) {
     commentsByPost.get(c.post_id).push(c);
   }
 
+  // Comment reactions (item 5) — best-effort so a pre-0031 client still works.
+  const commentIds = (comments || []).map((c) => c.id);
+  const reactByComment = new Map();
+  if (commentIds.length) {
+    try {
+      const { data: reacts } = await sb.from('comment_reactions')
+        .select('comment_id, user_id, emoji').in('comment_id', commentIds);
+      for (const r of (reacts || [])) {
+        if (!reactByComment.has(r.comment_id)) reactByComment.set(r.comment_id, new Map());
+        const m = reactByComment.get(r.comment_id);
+        const cur = m.get(r.emoji) || { count: 0, mine: false };
+        cur.count++; if (r.user_id === uid) cur.mine = true;
+        m.set(r.emoji, cur);
+      }
+    } catch (e) { console.warn('comment_reactions load', e); }
+  }
+  const reactionsFor = (cid) => {
+    const m = reactByComment.get(cid);
+    return m ? [...m.entries()].map(([emoji, v]) => ({ emoji, count: v.count, mine: v.mine })) : [];
+  };
+
   // Resolve every author (posts + comment authors) in one batch.
   const ids = new Set(rows.map((r) => r.author_id));
   for (const c of (comments || [])) ids.add(c.author_id);
   const profs = await data._resolveProfiles([...ids]);
+
+  // Build a threaded comment tree (top-level + nested replies), preserving the
+  // chronological order the rows already arrived in.
+  const buildThread = (list, postAuthorId) => {
+    const toView = (c) => ({
+      id: c.id,
+      authorId: c.author_id,
+      authorName: profs.get(c.author_id)?.username ?? 'unknown',
+      body: c.body,
+      createdAt: c.created_at,
+      parentId: c.parent_comment_id || null,
+      mine: c.author_id === uid,
+      canDelete: c.author_id === uid || postAuthorId === uid,
+      reactions: reactionsFor(c.id),
+      replies: [],
+    });
+    const byId = new Map();
+    const tops = [];
+    for (const c of list) byId.set(c.id, toView(c));
+    for (const c of list) {
+      const v = byId.get(c.id);
+      if (v.parentId && byId.has(v.parentId)) byId.get(v.parentId).replies.push(v);
+      else tops.push(v);
+    }
+    return tops;
+  };
 
   return await Promise.all(rows.map(async (r) => ({
     id: r.id,
@@ -2111,15 +2160,8 @@ data._hydratePosts = async function (rows) {
     mine: r.author_id === uid,
     likeCount: likeCount.get(r.id) || 0,
     likedByMe: likedByMe.has(r.id),
-    comments: (commentsByPost.get(r.id) || []).map((c) => ({
-      id: c.id,
-      authorId: c.author_id,
-      authorName: profs.get(c.author_id)?.username ?? 'unknown',
-      body: c.body,
-      createdAt: c.created_at,
-      mine: c.author_id === uid,
-      canDelete: c.author_id === uid || r.author_id === uid,
-    })),
+    comments: buildThread(commentsByPost.get(r.id) || [], r.author_id),
+    commentCount: (commentsByPost.get(r.id) || []).length,
   })));
 };
 
@@ -2156,12 +2198,10 @@ data.toggleLike = async function (postId, on) {
   }
 };
 
-data.addComment = async function (postId, body) {
-  const { data: row, error } = await sb.from('post_comments').insert({
-    post_id: postId,
-    author_id: window.currentUser.id,
-    body,
-  }).select().single();
+data.addComment = async function (postId, body, parentCommentId = null) {
+  const insert = { post_id: postId, author_id: window.currentUser.id, body };
+  if (parentCommentId) insert.parent_comment_id = parentCommentId;
+  const { data: row, error } = await sb.from('post_comments').insert(insert).select().single();
   if (error) throw error;
   return row;
 };
@@ -2169,6 +2209,28 @@ data.addComment = async function (postId, body) {
 data.deleteComment = async function (commentId) {
   const { error } = await sb.from('post_comments').delete().eq('id', commentId);
   if (error) throw error;
+};
+
+// Toggle one of my emoji reactions on a comment (item 5).
+data.toggleCommentReaction = async function (commentId, emoji, on) {
+  const uid = window.currentUser.id;
+  if (on) {
+    const { error } = await sb.from('comment_reactions')
+      .upsert({ comment_id: commentId, user_id: uid, emoji });
+    if (error) throw error;
+  } else {
+    const { error } = await sb.from('comment_reactions')
+      .delete().eq('comment_id', commentId).eq('user_id', uid).eq('emoji', emoji);
+    if (error) throw error;
+  }
+};
+
+// Resolve a @username to a user id (for tapping an @mention). Case-insensitive.
+data.findUserIdByUsername = async function (username) {
+  const { data: row, error } = await sb.from('profiles')
+    .select('id').ilike('username', username).maybeSingle();
+  if (error) { console.warn('findUserIdByUsername', error); return null; }
+  return row?.id || null;
 };
 
 // ─── Top 8 ──────────────────────────────────────────────────────────

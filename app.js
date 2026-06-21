@@ -61,6 +61,7 @@ const state = {
   socSearchQuery: '',
   socProfile: null,           // { profile, posts, top8, friendship } when viewing someone
   socExpandedComments: new Set(), // postIds whose comment box/list is expanded
+  socReplyTo: null,               // comment id currently being replied to
   socComposeVis: 'friends',   // visibility selected in the composer
   socComposePhoto: null,      // pending compressed Blob for a new post
   socPendingCount: 0,         // incoming friend requests — drives the tab badge
@@ -6103,11 +6104,54 @@ function renderFeed() {
   el.innerHTML = composer + `<div class="soc-feed-list">${posts}</div>`;
 }
 
+// Quick-reaction palette for comments (item 5).
+const SOC_REACTIONS = ['🖤', '😂', '😮', '😢', '😡', '👏'];
+
+// Escape text, then linkify @username mentions into tappable chips (item 5).
+function linkifyMentions(text) {
+  return escapeHtml(text || '').replace(/@([a-zA-Z0-9_-]{3,20})/g,
+    (m, name) => `<button class="soc-mention" data-soc-action="view-mention" data-username="${escapeHtml(name)}">@${escapeHtml(name)}</button>`);
+}
+
+// One comment (and its nested replies). depth caps the visual indent.
+function renderComment(c, postId, depth = 0) {
+  const reactChips = (c.reactions || []).map((r) =>
+    `<button class="soc-react-chip ${r.mine ? 'mine' : ''}" data-soc-action="react-comment" data-comment-id="${c.id}" data-emoji="${r.emoji}">${r.emoji} ${r.count}</button>`).join('');
+  const palette = SOC_REACTIONS.map((e) =>
+    `<button class="soc-react-opt" data-soc-action="react-comment" data-comment-id="${c.id}" data-emoji="${e}">${e}</button>`).join('');
+  const replying = state.socReplyTo === c.id;
+  const replies = (c.replies || []).map((r) => renderComment(r, postId, Math.min(depth + 1, 1))).join('');
+  return `
+    <div class="soc-comment ${depth ? 'soc-comment-reply' : ''}">
+      <div class="soc-comment-main">
+        <button class="soc-userlink" data-soc-action="view-profile" data-uid="${c.authorId}"><b>@${escapeHtml(c.authorName)}</b></button>
+        <span>${linkifyMentions(c.body)}</span>
+        ${c.canDelete ? `<button class="soc-comment-del" data-soc-action="delete-comment" data-comment-id="${c.id}" title="Delete">×</button>` : ''}
+      </div>
+      <div class="soc-comment-tools">
+        <span class="soc-react-wrap">
+          <button class="linklike soc-react-btn" data-soc-action="toggle-react-palette" data-comment-id="${c.id}">React</button>
+          <span class="soc-react-palette hidden" data-react-palette="${c.id}">${palette}</span>
+        </span>
+        <button class="linklike soc-reply-btn" data-soc-action="reply-comment" data-comment-id="${c.id}" data-post-id="${postId}">Reply</button>
+        ${reactChips ? `<span class="soc-react-chips">${reactChips}</span>` : ''}
+      </div>
+      ${replying ? `
+        <form class="soc-comment-form soc-reply-form" data-soc-action="submit-comment" data-post-id="${postId}" data-parent-id="${c.id}">
+          <input type="text" class="soc-comment-input" maxlength="500" placeholder="Reply to @${escapeHtml(c.authorName)}…" />
+          <button class="btn-primary" type="submit">Reply</button>
+        </form>` : ''}
+      ${replies ? `<div class="soc-comment-replies">${replies}</div>` : ''}
+    </div>`;
+}
+
 function renderPostCard(p) {
   const img = p.photoUrl || catalogImageFor(p.catalogId);
   const expanded = state.socExpandedComments.has(p.id);
+  const commentCount = p.commentCount ?? p.comments.length;
+  // Collapsed: show the last 2 top-level threads; expanded: all.
   const shownComments = expanded ? p.comments : p.comments.slice(-2);
-  const moreCount = p.comments.length - shownComments.length;
+  const moreCount = commentCount - shownComments.reduce((n, c) => n + 1 + (c.replies ? c.replies.length : 0), 0);
 
   return `
   <article class="soc-post" data-post-id="${p.id}">
@@ -6121,27 +6165,22 @@ function renderPostCard(p) {
                   <button class="soc-post-del" data-soc-action="delete-post" data-post-id="${p.id}" title="Delete">🗑</button>` : ''}
     </header>
     ${p.plushName ? `<p class="soc-post-plush">🧸 ${escapeHtml(p.plushName)}</p>` : ''}
-    ${p.body ? `<p class="soc-post-body">${escapeHtml(p.body)}</p>` : ''}
+    ${p.body ? `<p class="soc-post-body">${linkifyMentions(p.body)}</p>` : ''}
     ${img ? `<div class="soc-post-photo"><img src="${escapeHtml(img)}" loading="lazy" alt="" /></div>` : ''}
     <div class="soc-post-actions">
       <button class="soc-like ${p.likedByMe ? 'liked' : ''}" data-soc-action="toggle-like" data-post-id="${p.id}">
         ${p.likedByMe ? '🖤' : '🤍'} <span>${p.likeCount || ''}</span>
       </button>
       <button class="soc-comment-btn" data-soc-action="toggle-comments" data-post-id="${p.id}">
-        💬 <span>${p.comments.length || ''}</span>
+        💬 <span>${commentCount || ''}</span>
       </button>
     </div>
     <div class="soc-comments">
       ${moreCount > 0 ? `<button class="linklike soc-more-comments" data-soc-action="toggle-comments" data-post-id="${p.id}">View ${moreCount} more comment${moreCount === 1 ? '' : 's'}</button>` : ''}
-      ${shownComments.map((c) => `
-        <div class="soc-comment">
-          <button class="soc-userlink" data-soc-action="view-profile" data-uid="${c.authorId}"><b>@${escapeHtml(c.authorName)}</b></button>
-          <span>${escapeHtml(c.body)}</span>
-          ${c.canDelete ? `<button class="soc-comment-del" data-soc-action="delete-comment" data-comment-id="${c.id}" title="Delete">×</button>` : ''}
-        </div>`).join('')}
+      ${shownComments.map((c) => renderComment(c, p.id)).join('')}
       ${expanded ? `
         <form class="soc-comment-form" data-soc-action="submit-comment" data-post-id="${p.id}">
-          <input type="text" class="soc-comment-input" maxlength="500" placeholder="Add a comment…" />
+          <input type="text" class="soc-comment-input" maxlength="500" placeholder="Add a comment… (@mention someone)" />
           <button class="btn-primary" type="submit">Post</button>
         </form>` : ''}
     </div>
@@ -6674,6 +6713,26 @@ async function onSocialClick(e) {
     case 'edit-post': openPostEditor(postId); break;
     case 'delete-post': await onDeletePost(postId); break;
     case 'delete-comment': await onDeleteComment(target.dataset.commentId); break;
+    case 'react-comment': await onReactComment(target.dataset.commentId, target.dataset.emoji); break;
+    case 'toggle-react-palette': {
+      const pal = document.querySelector(`[data-react-palette="${target.dataset.commentId}"]`);
+      if (pal) pal.classList.toggle('hidden');
+      break;
+    }
+    case 'reply-comment': {
+      const cid = target.dataset.commentId;
+      state.socReplyTo = (state.socReplyTo === cid) ? null : cid;
+      // Make sure the thread is expanded so the reply box is visible.
+      if (postId) state.socExpandedComments.add(postId);
+      rerenderSocialCurrent();
+      break;
+    }
+    case 'view-mention': {
+      const id = await data.findUserIdByUsername(target.dataset.username);
+      if (id) await openProfile(id);
+      else toast(`No collector named @${target.dataset.username}.`);
+      break;
+    }
 
     case 'add-friend':    await socFriendAction(() => data.sendFriendRequest(uid), 'Friend request sent.'); break;
     case 'accept-friend': await socFriendAction(() => data.acceptFriendRequest(uid), 'Friend added. 🦇'); break;
@@ -6726,13 +6785,44 @@ async function submitCommentForm(form) {
   const body = input.value.trim();
   if (!body) return;
   const postId = form.dataset.postId;
+  const parentId = form.dataset.parentId || null;
   input.value = '';
   try {
-    await data.addComment(postId, body);
+    await data.addComment(postId, body, parentId);
+    state.socReplyTo = null;
     await loadSocialData();
     if (state.socProfile) await openProfile(state.socProfile.profile.id);
     else rerenderSocialCurrent();
   } catch (e) { console.error('comment', e); toast('Could not comment.'); }
+}
+
+// Toggle one of my emoji reactions on a comment, then refresh.
+async function onReactComment(commentId, emoji) {
+  const post = state.socFeed.find((p) => (p.comments || []).some((c) => commentHasId(c, commentId)))
+    || (state.socProfile?.posts || []).find((p) => (p.comments || []).some((c) => commentHasId(c, commentId)));
+  const c = post && findCommentById(post.comments, commentId);
+  const mine = c && (c.reactions || []).some((r) => r.emoji === emoji && r.mine);
+  try {
+    await data.toggleCommentReaction(commentId, emoji, !mine);
+    await loadSocialData();
+    if (state.socProfile) await openProfile(state.socProfile.profile.id);
+    else rerenderSocialCurrent();
+  } catch (e) {
+    console.error('react', e);
+    toast(/comment_reactions/i.test(e?.message || '')
+      ? 'Run the latest migration (db/0031_comment_social.sql).'
+      : 'Could not react.');
+  }
+}
+
+function commentHasId(c, id) { return findCommentById([c], id) != null; }
+function findCommentById(list, id) {
+  for (const c of (list || [])) {
+    if (c.id === id) return c;
+    const found = findCommentById(c.replies, id);
+    if (found) return found;
+  }
+  return null;
 }
 
 async function onDeletePost(postId) {
