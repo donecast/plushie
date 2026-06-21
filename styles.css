@@ -3347,9 +3347,13 @@ body.locked { overflow: hidden; }
 
 /* Top 8 */
 .soc-top8-grid {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;
+  align-items: start;
 }
-.soc-top8-slot { position: relative; text-align: center; }
+/* min-width:0 is essential: without it each 1fr track keeps an `auto`
+   minimum equal to its (nowrap) name width, so longer-named slots balloon
+   while others shrink. Pinning it to 0 makes every slot the same size. */
+.soc-top8-slot { position: relative; text-align: center; min-width: 0; }
 .soc-top8-rank {
   position: absolute; top: 4px; left: 4px; z-index: 1;
   background: var(--gold); color: var(--text-on-gold);
@@ -3372,12 +3376,13 @@ body.locked { overflow: hidden; }
 /* Top 8 picker (modal) */
 .soc-help { color: var(--ink-mute); font-size: 0.86rem; margin: 0 0 12px; }
 .soc-pick-grid {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;
   max-height: 50vh; overflow-y: auto; margin-bottom: 14px;
 }
 .soc-pick {
   position: relative; background: var(--surface-2); cursor: pointer;
   border: 2px solid transparent; border-radius: 10px; padding: 6px; font: inherit; color: var(--ink);
+  min-width: 0; /* keep every pick tile the same width (see .soc-top8-slot) */
 }
 .soc-pick.picked { border-color: var(--gold); background: var(--gold-soft-bg); }
 .soc-pick-photo {
@@ -3394,8 +3399,8 @@ body.locked { overflow: hidden; }
 .soc-file-name { font-size: 0.8rem; color: var(--gold); }
 
 @media (max-width: 520px) {
-  .soc-top8-grid { grid-template-columns: repeat(4, 1fr); gap: 6px; }
-  .soc-pick-grid { grid-template-columns: repeat(3, 1fr); }
+  .soc-top8-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .soc-pick-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .soc-profile-head { gap: 12px; }
 }
 

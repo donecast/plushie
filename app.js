@@ -360,6 +360,12 @@ function isPlushieCollectible(item) {
 }
 
 function isMiniPlushie(item) {
+  // A manual category override is authoritative — it must win over the
+  // tag/type heuristic everywhere, including the "Mini" badge. Otherwise an
+  // item like Tooth Scary (pinned to 'plush') would still flash a Mini badge
+  // because it's a keychain-typed plushie.
+  const ov = categoryOverride(item);
+  if (ov) return ov === 'mini';
   const tags = (item.tags || []).map((t) => t.toLowerCase());
   const name = item.name.toLowerCase();
   const type = (item.type || '').toLowerCase();
@@ -379,6 +385,10 @@ const CATEGORY_OVERRIDES = [
   // the regular size is charm-sized (a mini), the XL is full-size (a plush).
   { test: (it) => String(it.id) === '8991250350312', category: 'mini' },
   { test: (it) => String(it.id) === '9031367786728', category: 'plush' },
+  // Masks (gas mask, plague mask) are worn ON a plush — they're closet
+  // clothing, not standalone buns. Pin them to 'clothing' so they sort into
+  // the closet and get a "Worn by" assignment instead of a plush card.
+  { test: (it) => /\b(gas|plague)\s*-?\s*mask\b/i.test(it.name || ''), category: 'clothing' },
 ];
 function categoryOverride(item) {
   for (const o of CATEGORY_OVERRIDES) if (o.test(item)) return o.category;
@@ -1292,6 +1302,9 @@ function catalogForItem(item) {
 // of the named clothing lines, or it's an accessory-typed product whose name
 // carries a clothing keyword.
 function catalogIsClothing(cat) {
+  // A manual 'clothing' override (e.g. gas/plague masks that Shopify types as
+  // plushes) forces wearable behaviour regardless of product_type.
+  if (categoryOverride(cat) === 'clothing') return true;
   const name = (cat?.name || '').toLowerCase();
   const type = (cat?.type || '').toLowerCase();
   if (PLUSH_CLOTHING_LINES.test(name)) return true;
@@ -1316,6 +1329,18 @@ function clothingIsMini(item) {
   const cat = catalogForItem(item);
   const name = `${cat?.name || ''} ${item.name || ''}`.toLowerCase();
   return /\bmini\b/.test(name);
+}
+
+// Is a (non-clothing) plush a mini? Resolves through the catalog category so
+// overrides win. Used to keep clothing on a same-scale plush.
+function plushIsMini(item) {
+  return itemCategory(item) === 'mini';
+}
+
+// Scale gate for attaching clothing to a plush: mini clothing only fits mini
+// plushes, full-size clothing only fits full-size plushes. Never the twain.
+function clothingFitsPlush(acc, plush) {
+  return clothingIsMini(acc) === plushIsMini(plush);
 }
 
 // Which collection sub-tab an item belongs to: 'plushes' | 'minis' |
@@ -1350,7 +1375,7 @@ function renderAttachedAccessory(a) {
       <div class="attached-acc-photo" data-action="open-detail" data-id="${a.id}" role="button" title="Edit / rename / reassign">${photo}</div>
       <div class="attached-acc-info">
         <span class="attached-acc-name" data-action="open-detail" data-id="${a.id}" role="button">${escapeHtml(a.nickname || stripOutfitWord(a.name))}</span>
-        <button class="attached-detach" data-action="detach-acc" data-id="${a.id}" title="Detach from this plush">✕ Detach</button>
+        <button class="attached-detach" data-action="detach-acc" data-id="${a.id}" title="Hang it back up in the closet">↩ Hang it back up</button>
       </div>
     </div>`;
 }
@@ -1703,6 +1728,28 @@ function openModal(kind, item, { fresh = false } = {}) {
     : 'Edit Plushie';
   document.getElementById('modal-name').textContent = stripOutfitWord(item.name || '');
 
+  // Only true plushes & minis carry "lore"-flavoured fields (a personal name
+  // and a personal meaning). For everything else — clothing, accessories,
+  // other merch — the name field is just an "Alternate name?" and the meaning
+  // field is plain "Notes". For wearables we also float the "Worn by" picker
+  // to the very top of the form (it's the thing you actually want to set).
+  const editCat = itemCategory(item);
+  const loreLike = editCat === 'plush' || editCat === 'mini' || editCat === 'bundle';
+  const form = document.getElementById('plushie-form');
+  const nicknameField = document.getElementById('field-nickname');
+  const wornFieldEl = document.getElementById('field-worn-by');
+  document.querySelector('#field-nickname > span').textContent =
+    loreLike ? 'Your name for it (optional)' : 'Alternate name?';
+  document.querySelector('#field-meaning > span').textContent =
+    loreLike ? 'Personal meaning' : 'Notes';
+  if (!loreLike) {
+    // Move "Worn by" above the alternate-name field.
+    form.insertBefore(wornFieldEl, nicknameField);
+  } else {
+    // Restore canonical order: "Worn by" sits just before the action buttons.
+    form.insertBefore(wornFieldEl, form.querySelector('.form-actions'));
+  }
+
   document.getElementById('f-nickname').value = item.nickname ?? '';
   document.getElementById('f-meaning').value = item.meaning ?? '';
   document.getElementById('f-date').value = item.dateCollected ?? '';
@@ -1753,7 +1800,7 @@ function openModal(kind, item, { fresh = false } = {}) {
   const wornField = document.getElementById('field-worn-by');
   const wornSel = document.getElementById('f-worn-by');
   if (wearable) {
-    const candidates = state.collection.filter((c) => c.id !== item.id && !isWearableItem(c));
+    const candidates = state.collection.filter((c) => c.id !== item.id && !isWearableItem(c) && clothingFitsPlush(item, c));
     let suggestedId = item.wornBy || null;
     if (!suggestedId) {
       const m = (item.nickname || item.name || '').match(/^([\p{L}\p{N}'’.\- ]+?)['’]s\b/u);
@@ -1802,7 +1849,7 @@ async function setWearer(accId, plushId) {
     if (it) it.wornBy = plushId;
     closeWearerModal();
     render();
-    toast(plushId ? 'Attached. 🧥' : 'Detached.');
+    toast(plushId ? 'Attached. 🧥' : 'Hung back up. 🧥');
   } catch (e) {
     console.error('setWornBy', e);
     toast(/column.*worn_by/i.test(e?.message || '')
@@ -1814,8 +1861,9 @@ async function setWearer(accId, plushId) {
 function openWearerPicker(accId) {
   const acc = state.collection.find((i) => i.id === accId);
   if (!acc) return;
-  // Candidates = your plushes (not other wearables, not this item).
-  const candidates = state.collection.filter((i) => i.id !== accId && !isWearableItem(i));
+  // Candidates = your plushes (not other wearables, not this item) that match
+  // the garment's scale — mini clothing on minis, full-size on full-size.
+  const candidates = state.collection.filter((i) => i.id !== accId && !isWearableItem(i) && clothingFitsPlush(acc, i));
   // Auto-suggest from a possessive name: "Ni'ni's Purple Overalls" → ni'ni.
   const m = (acc.nickname || acc.name || '').match(/^([\p{L}\p{N}'’.\- ]+?)['’]s\b/u);
   const hint = m ? m[1].trim().toLowerCase() : null;
@@ -1841,7 +1889,7 @@ function openWearerPicker(accId) {
     <p class="modal-name">${accName}</p>
     ${candidates.length
       ? `<div class="wearer-list">${rows}</div>`
-      : `<p class="empty-note">No plushes to attach to yet — add a plush to your collection first.</p>`}
+      : `<p class="empty-note">No ${clothingIsMini(acc) ? 'mini' : 'full-size'} plushes to dress yet — ${clothingIsMini(acc) ? 'mini' : 'full-size'} clothing only fits ${clothingIsMini(acc) ? 'mini' : 'full-size'} plushes.</p>`}
     <div class="form-actions">
       <button type="button" class="btn-ghost" data-close-wearer>Cancel</button>
     </div>`;
@@ -5177,8 +5225,12 @@ async function openCatalogDetailModal(cid) {
          <h3>Set includes</h3>
          <ul class="cd-list">${item.accessories.map((a) => `<li>${escapeHtml(a.name)}</li>`).join('')}</ul>
        </section>` : '';
+  // "Lore" is a plush/mini concept; on clothing, accessories & other merch the
+  // same free-text reads as plain "Notes".
+  const loreCat = catalogCategory(item);
+  const loreHeading = (loreCat === 'plush' || loreCat === 'mini' || loreCat === 'bundle') ? 'Lore' : 'Notes';
   const loreHtml = item.lore
-    ? `<section class="cd-section"><h3>Lore</h3>${item.lore.split(/\n{2,}/).map((p) => `<p>${escapeHtml(p)}</p>`).join('')}</section>`
+    ? `<section class="cd-section"><h3>${loreHeading}</h3>${item.lore.split(/\n{2,}/).map((p) => `<p>${escapeHtml(p)}</p>`).join('')}</section>`
     : '';
   // Symbolism: we keep some HTML from the parsed block (one image per
   // distinct src already deduped). Sanitized lightly — strip <script>
