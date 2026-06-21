@@ -209,7 +209,7 @@ const data = {
 
   // Per-item visibility (item 11). A dedicated column update so it never rides
   // through _itemToRow — that keeps ordinary saves working even before the
-  // 0030 migration adds the column (this call just no-ops with a warning).
+  // 0031 migration adds the column (this call just no-ops with a warning).
   async setItemVisibility(itemId, visibility) {
     const { error } = await sb
       .from('plushies')
@@ -220,7 +220,7 @@ const data = {
 
   // Persist a manual collection ordering (item 20). `orderedIds` is the full
   // sequence; we write each row's sort_order = its index. One update per row
-  // keeps it RLS-safe. Tolerates the column not existing yet (pre-0028).
+  // keeps it RLS-safe. Tolerates the column not existing yet (pre-0029).
   async saveCollectionOrder(orderedIds) {
     const now = new Date().toISOString();
     const results = await Promise.all(orderedIds.map((id, i) =>
@@ -1014,7 +1014,7 @@ data.getMyAddress = async function () {
 };
 
 // Structured default shipping address (item 7). Falls back gracefully if the
-// 0027 migration hasn't been applied (the extra columns won't exist yet) by
+// 0028 migration hasn't been applied (the extra columns won't exist yet) by
 // returning just the legacy blob in `address`.
 data.getMyAddressFull = async function () {
   const cols = 'recipient_name, line1, line2, city, region, postal, country, verified, verified_at, address';
@@ -2074,7 +2074,7 @@ data._hydratePosts = async function (rows) {
 
   const [{ data: likes }, { data: comments }] = await Promise.all([
     sb.from('post_likes').select('post_id, user_id').in('post_id', postIds),
-    // parent_comment_id may not exist pre-0031; select('*') so the query
+    // parent_comment_id may not exist pre-0032; select('*') so the query
     // doesn't error on older schemas.
     sb.from('post_comments').select('*').in('post_id', postIds).order('created_at', { ascending: true }),
   ]);
@@ -2091,7 +2091,7 @@ data._hydratePosts = async function (rows) {
     commentsByPost.get(c.post_id).push(c);
   }
 
-  // Comment reactions (item 5) — best-effort so a pre-0031 client still works.
+  // Comment reactions (item 5) — best-effort so a pre-0032 client still works.
   const commentIds = (comments || []).map((c) => c.id);
   const reactByComment = new Map();
   if (commentIds.length) {

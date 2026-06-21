@@ -1,4 +1,4 @@
--- 0031_comment_social.sql
+-- 0032_comment_social.sql
 -- Item 5: make comments more social — threaded replies + emoji reactions.
 -- (Tags/@mentions are parsed & linkified client-side, no schema needed.)
 

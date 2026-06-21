@@ -1,4 +1,4 @@
--- 0030_item_visibility.sql
+-- 0031_item_visibility.sql
 -- Item 11: per-collection-item visibility. Same tiers as posts, plus a
 -- private "Only me" option:
 --   public · friends (Coven) · inner (Castle Crew) · coffin_buddies · private

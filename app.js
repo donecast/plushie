@@ -1154,7 +1154,7 @@ async function persistManualOrder(orderedIds) {
   } catch (e) {
     console.error('saveCollectionOrder', e);
     toast(/sort_order/i.test(e?.message || '')
-      ? 'Run the latest migration (db/0028_collection_sort.sql) — the sort_order column is missing.'
+      ? 'Run the latest migration (db/0029_collection_sort.sql) — the sort_order column is missing.'
       : 'Could not save the new order.');
   }
 }
@@ -6812,7 +6812,7 @@ async function onReactComment(commentId, emoji) {
   } catch (e) {
     console.error('react', e);
     toast(/comment_reactions/i.test(e?.message || '')
-      ? 'Run the latest migration (db/0031_comment_social.sql).'
+      ? 'Run the latest migration (db/0032_comment_social.sql).'
       : 'Could not react.');
   }
 }

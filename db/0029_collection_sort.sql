@@ -1,4 +1,4 @@
--- 0028_collection_sort.sql
+-- 0029_collection_sort.sql
 -- Item 20: let collectors hand-sort their collection (drag & drop / move
 -- up-down). A nullable sort_order on plushies; NULL means "not yet hand-placed"
 -- and sorts after placed items (newest-added first) in the client.

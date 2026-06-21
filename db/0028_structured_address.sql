@@ -1,4 +1,4 @@
--- 0027_structured_address.sql
+-- 0028_structured_address.sql
 -- Item 7: replace the single free-text default shipping address with proper
 -- structured fields, plus a light verification flag. We keep the legacy
 -- `address` text column populated (a composed one-liner) so the existing

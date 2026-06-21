@@ -1,4 +1,4 @@
--- 0029_coffin_buddies.sql
+-- 0030_coffin_buddies.sql
 -- Item 10: rename "Inner Coffin" → "Castle Crew" (label-only — the DB value
 -- stays 'inner') and add a new, even-more-restricted tier "Coffin Buddies".
 --

@@ -1,4 +1,4 @@
--- 0026_username_cooldown.sql
+-- 0027_username_cooldown.sql
 -- Item 8: changing your username is fine — doing it more than once every
 -- 30 days is not. We track when the username last changed and enforce the
 -- cooldown in a BEFORE UPDATE trigger so it can't be bypassed from the client.
