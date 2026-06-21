@@ -961,7 +961,7 @@ function extractSetIncludes(blocks, startIdx, endIdx, title = '') {
     const byWord = /\b(rabbit|bunny|puppet|plush|dinosaur)\b/i.test(it.name);
     let byTitle = false;
     if (!byWord && titleTok.size) {
-      const itTok = primaryTokens(it.name);
+      const itTok = primaryTokens(canonicalizeAccessoryName(it.name));
       let shared = 0;
       for (const w of itTok) if (titleTok.has(w)) shared++;
       byTitle = shared >= 2 || (itTok.size > 0 && shared === itTok.size);
@@ -1022,6 +1022,21 @@ function canonicalizeAccessoryName(raw) {
   const out = (raw || '')
     // Drop the 'Nx ' or 'N× ' quantity prefix.
     .replace(/^\d+\s*[x×]\s+/i, '')
+    // Drop a leading 'Comes with a/the …' prose lead-in ('Comes with a tote
+    // bag …' → 'tote bag …'); the item name is what follows.
+    .replace(/^\s*comes with\s+(?:a|an|the|one|two|your)?\s*/i, '')
+    // Cut a trailing prose clause the brand tacks onto an item — a relative
+    // clause ('… that attach to her face', '… which is fireproof'), a
+    // material/purpose clause ('Tote made of sturdy paper', 'Tote Bag to shop
+    // for goods', 'Envelope for your Love Letters'), or a predicate ('Baby
+    // Opossums are detachable …'). These connectors never begin a real item
+    // name, so trimming from them leaves the clean noun phrase. Anchored to a
+    // leading space so a one-word item is never wiped.
+    .replace(/\s+\b(?:that|which|made\s+(?:of|from|with)|to\s+(?:shop|carry|hold|store|keep|protect|match|complete|wear)|for\s+(?:your|all|the)\b)\b.*$/i, '')
+    .replace(/\s+\b(?:is|are)\s+(?:detachable|removable|reversible|fireproof|made|waterproof)\b.*$/i, '')
+    // '- Approximately NNcm' / '- Approx. NN' size tails (a worded variant of
+    // the dash-measurement rule below).
+    .replace(/\s*[-–—]\s*approx(?:\.|imately)?\b.*$/i, '')
     // Cut trailing size/measurement clauses. The brand appends these
     // inconsistently ('- measures 38cm', 'that measures 11x13 inches',
     // 'measuring 24cm', a bare '38x34cms' or '25cm diameter'). Left in,
@@ -1035,6 +1050,8 @@ function canonicalizeAccessoryName(raw) {
     .replace(/\s+\d+(\.\d+)?\s*(cm|mm|inch(es)?|in|")\b.*$/i, '')  // bare '25cmx', '9.4 inch tall'
     // Drop anything left in trailing parentheses.
     .replace(/\s*\([^)]*\)\s*[.,;]*\s*$/g, '')
+    // Trailing sentence punctuation left after a clause trim ('… canvas bag.').
+    .replace(/\s*[.,;:]+\s*$/, '')
     .trim();
   return stripOutfitWord(out);
 }
