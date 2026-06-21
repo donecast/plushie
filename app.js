@@ -747,6 +747,13 @@ function parseBodyHtml(html, title = '') {
       accessories = extractSetIncludes(blocks, firstQty - 1, blocks.length, title);
     }
   }
+  // Last resort for the Victorian McGee items, which list contents as bare
+  // prose with no heading, no quantities and no bullets — just the primary
+  // plush's "… measures NNcm (head to toe)" line followed by its extras
+  // ("Tote Bag measures 40x37cm", "Plush Knife", "\"Drink Me\" Potion").
+  if (accessories.length === 0) {
+    accessories = extractSpecTail(blocks, title);
+  }
   // Bundle detection is tag-only now. The earlier heuristic of '2+ plush
   // items in the Set Includes' false-flagged single products like the
   // Gemini Rabbit, which legitimately ships with multiple plushie pieces.
@@ -886,6 +893,14 @@ function setIncludesLineItem(line) {
     const n = leadingBulletLen(s);
     if (n > 0) { s = s.slice(n).trim(); ok = true; }
   }
+  // A short "<name> measures <dims>" line is a sized item, not prose — this
+  // is how Victorian McGee lists tote bags etc. ("Tote Bag measures
+  // 40x37cm") with no quantity or bullet. The measurement is trimmed off
+  // the name later in canonicalizeAccessoryName. Bounded to a short lead so
+  // a lore sentence that happens to contain "measures" isn't swept in.
+  if (!ok && /^.{2,45}?\s+measures?\s+\d/i.test(s) && !/\b(head to toe|ears? to toes?)\b/i.test(s)) {
+    ok = true;
+  }
   if (!ok || !s || NOISE_LINE_RE.test(s)) return null;
   // A question is brand patter, not an item ("Can (maybe) be convinced to
   // guard the gates to your home? Try carrots?").
@@ -960,6 +975,44 @@ function extractSetIncludes(blocks, startIdx, endIdx, title = '') {
   // missing_accessories array would drift whenever Plushie Dreadfuls
   // re-words their Set Includes line.
   return filtered.map((it) => {
+    const display = canonicalizeAccessoryName(it.name);
+    return { name: display, key: display.toLowerCase() };
+  });
+}
+
+// Victorian McGee's plushes mostly skip the whole "Set Includes" convention:
+// no heading, no quantities, no bullets. The contents are just bare lines at
+// the end of the description — the primary plush's size line ("X measures
+// NNcm (head to toe)") followed by its extras ("Tote Bag measures 40x37cm",
+// "Plush Knife", "\"Drink Me\" Potion"). We anchor on the primary's
+// head-to-toe / ears-to-toes size line (that phrasing is unique to the
+// primary, never an accessory) and treat the short item-like lines that
+// follow, up to the copyright trailer, as the extras. Only used as a last
+// resort when every structured path came up empty, so it can't disturb the
+// products that do use a real Set Includes list.
+function extractSpecTail(blocks, title = '') {
+  const lines = [];
+  for (const b of blocks) for (const l of blockLines(b)) lines.push(l);
+  const pi = lines.findIndex((l) => /\b(head to toe|ears? to toes?)\b/i.test(l));
+  if (pi === -1) return [];
+  const wordCount = (s) => s.split(/\s+/).filter(Boolean).length;
+  const out = [];
+  for (let i = pi + 1; i < lines.length && out.length < 8; i++) {
+    const l = lines[i];
+    // Hard stops: the copyright trailer, a section heading, or back into
+    // prose (a long line / a multi-word sentence).
+    if (/copyright|trademark|beware|exclusively available|important note|^symbol/i.test(l)) break;
+    if (l.length > 55) break;
+    if (/[.!?]$/.test(l) && wordCount(l) > 5) break;
+    if (NOISE_LINE_RE.test(l) || /\?/.test(l)) continue;
+    // Item-like = a sized line ("… measures 40x37cm") or a short, capitalised
+    // noun phrase ("Plush Knife", "Mini Pumpkin Purse", "\"Drink Me\" Potion").
+    const sized = /\bmeasures?\s+\d/i.test(l);
+    const shortNoun = wordCount(l) <= 6 && /^["'“(]?[A-Z0-9]/.test(l);
+    if (!sized && !shortNoun) break;
+    out.push({ name: l });
+  }
+  return out.map((it) => {
     const display = canonicalizeAccessoryName(it.name);
     return { name: display, key: display.toLowerCase() };
   });
