@@ -1524,9 +1524,11 @@ function renderCard(item, kind) {
     ? `<button data-action="assign-wearer" data-id="${item.id}" title="Attach this to the plush wearing it">🧥 Who's wearing this?</button>`
     : '';
 
-  // Manual reorder controls (item 20) — only in My-order mode. A drag grip
+  // Manual reorder controls (item 20) — only in My-order mode, and only for
+  // items that live in the main collection grid (clothing sits in its own
+  // closet section, so it doesn't take part in manual ordering). A drag grip
   // (desktop) plus up/down arrows (works everywhere, incl. touch).
-  const manualMode = kind === 'collection' && state.colSort === 'manual';
+  const manualMode = kind === 'collection' && state.colSort === 'manual' && !isWearableItem(item);
   const reorder = manualMode
     ? `<div class="col-reorder" title="Drag the grip to reorder, or use the arrows">
          <button class="reorder-btn" data-action="move-up" data-id="${item.id}" aria-label="Move up">▲</button>
@@ -5981,7 +5983,7 @@ function registerSW() {
 
 // ─── Boot ────────────────────────────────────────────────────────────
 // ════════════════════════════════════════════════════════════════════
-// Social tab — friends (Coven), Inner Coffin, posts, likes, comments,
+// Social tab — friends (Coven), Castle Crew, posts, likes, comments,
 // Top 8, profiles. Early-Facebook-meets-MySpace, account required.
 // ════════════════════════════════════════════════════════════════════
 

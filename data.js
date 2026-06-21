@@ -1811,7 +1811,7 @@ data.whoShipsFirst = function (myNet, theirNet) {
 };
 
 // ════════════════════════════════════════════════════════════════════
-// Social — friends (Coven), Inner Coffin, posts, likes, comments, Top 8.
+// Social — friends (Coven), Castle Crew, posts, likes, comments, Top 8.
 // Mirrors the trade layer's conventions: denormalized snapshots instead
 // of cross-user FKs, usernames resolved in a separate batch query, and
 // photos routed through the same storage helpers (here, the 'social'
@@ -1960,7 +1960,7 @@ data.removeFriend = async function (otherId) {
     .delete()
     .or(`and(requester_id.eq.${uid},addressee_id.eq.${otherId}),and(requester_id.eq.${otherId},addressee_id.eq.${uid})`);
   if (error) throw error;
-  // Also drop them from my Inner Coffin if present (best-effort).
+  // Also drop them from my Castle Crew if present (best-effort).
   try { await sb.from('inner_circle').delete().eq('owner_id', uid).eq('member_id', otherId); }
   catch (e) { console.warn('inner cleanup', e); }
 };
