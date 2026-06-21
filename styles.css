@@ -3416,9 +3416,10 @@ body.locked { overflow: hidden; }
   display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap;
 }
 .col-entry.outfitted > .card { flex: 2 1 260px; min-width: 0; }
-/* Accessories cluster beside the plush; wraps for multiple, drops below
-   when the row gets tight. */
-.attached-wrap { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; flex: 1 1 280px; }
+/* Accessories cluster beside the plush, pushed to the right edge of the row
+   (right-justified, matching the closet) so worn clothes hug the far side
+   instead of floating mid-row. Wraps for multiple; drops below when tight. */
+.attached-wrap { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; flex: 1 1 280px; justify-content: flex-end; }
 .attached-acc {
   position: relative; width: 150px; flex: 0 0 auto;
   background: var(--surface); border: 1px solid var(--border-rose-mild);
