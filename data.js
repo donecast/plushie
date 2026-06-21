@@ -1007,6 +1007,18 @@ data.updateUsername = async function (username) {
   window.currentUser.username = username;
 };
 
+// When did the username last change? Used to show the 30-day cooldown hint
+// (item 8). Returns a Date or null. Tolerates the column not existing yet.
+data.getUsernameChangedAt = async function () {
+  const { data: row, error } = await sb
+    .from('profiles')
+    .select('username_updated_at')
+    .eq('id', window.currentUser.id)
+    .maybeSingle();
+  if (error) { console.warn('getUsernameChangedAt', error); return null; }
+  return row?.username_updated_at ? new Date(row.username_updated_at) : null;
+};
+
 data.updateEmail = async function (email) {
   const { error } = await sb.auth.updateUser({ email });
   if (error) throw error;

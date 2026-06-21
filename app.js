@@ -4166,6 +4166,7 @@ async function openAccountModal() {
   document.getElementById('acct-avatar').value = '';
   document.getElementById('acct-avatar-name').textContent = '';
   syncAcctAvatarPreview();
+  syncUsernameCooldownHint();
   const themeSel = document.getElementById('acct-theme');
   if (themeSel) themeSel.value = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
   // Admin tag in the modal header so it's obvious who you're signed in as.
@@ -4223,10 +4224,39 @@ async function saveUsername() {
     await data.updateUsername(u);
     document.querySelector('#user-badge .user-name').textContent = '@' + u;
     toast('Username updated.');
+    syncUsernameCooldownHint();
   } catch (err) {
     const msg = (err.message || '').toLowerCase();
-    if (msg.includes('duplicate') || msg.includes('unique')) toast('That username is taken.');
-    else toast('Could not update username.');
+    if (msg.includes('username_cooldown') || msg.includes('once every 30 days')) {
+      // Surface the next-allowed date the trigger reported, if present.
+      const m = (err.message || '').match(/(\d{4}-\d{2}-\d{2})/);
+      toast(m ? `You can change your username again on ${m[1]}.` : 'You can only change your username once every 30 days.');
+      syncUsernameCooldownHint();
+    } else if (msg.includes('duplicate') || msg.includes('unique')) {
+      toast('That username is taken.');
+    } else {
+      toast('Could not update username.');
+    }
+  }
+}
+
+// Show "next change allowed on …" under the username field when inside the
+// 30-day cooldown window, and disable the Save button until then.
+async function syncUsernameCooldownHint() {
+  const hint = document.getElementById('acct-username-cooldown');
+  const saveBtn = document.getElementById('acct-save-username');
+  if (!hint) return;
+  let changedAt = null;
+  try { changedAt = await data.getUsernameChangedAt(); } catch { /* non-fatal */ }
+  const next = changedAt ? new Date(changedAt.getTime() + 30 * 864e5) : null;
+  if (next && next > new Date()) {
+    hint.textContent = `You can change your username again on ${next.toISOString().slice(0, 10)}.`;
+    hint.classList.remove('hidden');
+    if (saveBtn) saveBtn.disabled = true;
+  } else {
+    hint.textContent = '';
+    hint.classList.add('hidden');
+    if (saveBtn) saveBtn.disabled = false;
   }
 }
 
