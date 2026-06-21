@@ -207,6 +207,17 @@ const data = {
     if (error) throw error;
   },
 
+  // Per-item visibility (item 11). A dedicated column update so it never rides
+  // through _itemToRow — that keeps ordinary saves working even before the
+  // 0030 migration adds the column (this call just no-ops with a warning).
+  async setItemVisibility(itemId, visibility) {
+    const { error } = await sb
+      .from('plushies')
+      .update({ visibility })
+      .eq('id', itemId);
+    if (error) throw error;
+  },
+
   // Persist a manual collection ordering (item 20). `orderedIds` is the full
   // sequence; we write each row's sort_order = its index. One update per row
   // keeps it RLS-safe. Tolerates the column not existing yet (pre-0028).
@@ -353,6 +364,7 @@ const data = {
         quantity: r.quantity ?? 1,
         wornBy: r.worn_by || null,
         sortOrder: r.sort_order ?? null,
+        visibility: r.visibility || 'friends',
       };
     }
     return {
@@ -1864,12 +1876,19 @@ data.listFriends = async function () {
   const otherIds = rows.map((r) => (r.requester_id === uid ? r.addressee_id : r.requester_id));
   const { data: inner } = await sb.from('inner_circle').select('member_id').eq('owner_id', uid);
   const innerSet = new Set((inner || []).map((r) => r.member_id));
+  // Coffin Buddies (item 10) — best-effort so older schemas don't break.
+  let coffinSet = new Set();
+  try {
+    const { data: coffin } = await sb.from('coffin_buddies').select('member_id').eq('owner_id', uid);
+    coffinSet = new Set((coffin || []).map((r) => r.member_id));
+  } catch (e) { console.warn('coffin_buddies load', e); }
   const profs = await data._resolveProfiles(otherIds);
   return otherIds.map((id) => ({
     userId: id,
     username: profs.get(id)?.username ?? 'unknown',
     avatarUrl: profs.get(id)?.avatarUrl ?? null,
-    isInner: innerSet.has(id),
+    isInner: innerSet.has(id) || coffinSet.has(id),
+    isCoffinBuddy: coffinSet.has(id),
   })).sort((a, b) => a.username.localeCompare(b.username));
 };
 
@@ -1952,7 +1971,22 @@ data.setInner = async function (otherId, on) {
     const { error } = await sb.from('inner_circle').upsert({ owner_id: uid, member_id: otherId });
     if (error) throw error;
   } else {
+    // DB trigger cascades the matching coffin_buddies removal (Castle Crew is a
+    // prerequisite for Coffin Buddies).
     const { error } = await sb.from('inner_circle').delete().eq('owner_id', uid).eq('member_id', otherId);
+    if (error) throw error;
+  }
+};
+
+// Coffin Buddies (item 10). Adding implies Castle Crew (a DB trigger inserts
+// the inner_circle row); removing leaves Castle Crew intact.
+data.setCoffinBuddy = async function (otherId, on) {
+  const uid = window.currentUser.id;
+  if (on) {
+    const { error } = await sb.from('coffin_buddies').upsert({ owner_id: uid, member_id: otherId });
+    if (error) throw error;
+  } else {
+    const { error } = await sb.from('coffin_buddies').delete().eq('owner_id', uid).eq('member_id', otherId);
     if (error) throw error;
   }
 };

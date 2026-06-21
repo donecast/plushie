@@ -66,12 +66,19 @@ const state = {
   socPendingCount: 0,         // incoming friend requests — drives the tab badge
 };
 
-// Themed visibility tiers. The DB enum is public|friends|inner; these
-// are the gothic-cute labels the UI shows. Rename here to re-theme.
+// Themed visibility tiers. The DB enum is public|friends|inner|coffin_buddies;
+// these are the gothic-cute labels the UI shows. Rename here to re-theme.
+// Nesting: Public ⊇ Coven ⊇ Castle Crew ('inner') ⊇ Coffin Buddies.
 const VIS_META = {
-  public:  { label: 'Public',       glyph: '🌍', hint: 'Anyone with an account' },
-  friends: { label: 'Coven',        glyph: '🦇', hint: 'Your accepted friends' },
-  inner:   { label: 'Inner Coffin', glyph: '🖤', hint: 'Friends you placed in your inner circle' },
+  public:         { label: 'Public',         glyph: '🌍', hint: 'Anyone with an account' },
+  friends:        { label: 'Coven',          glyph: '🦇', hint: 'Your accepted friends' },
+  inner:          { label: 'Castle Crew',    glyph: '🏰', hint: 'Friends in your Castle Crew' },
+  coffin_buddies: { label: 'Coffin Buddies', glyph: '⚰️', hint: 'Your innermost Coffin Buddies' },
+};
+// Per-item visibility (item 11): the post tiers plus a private "Only me".
+const ITEM_VIS_META = {
+  ...VIS_META,
+  private: { label: 'Only me', glyph: '🔒', hint: 'Just you' },
 };
 
 const PRODUCT_URL_BASE = 'https://plushiedreadfuls.com/products/';
@@ -1844,6 +1851,12 @@ function openModal(kind, item, { fresh = false } = {}) {
 
   document.getElementById('f-nickname').value = item.nickname ?? '';
   document.getElementById('f-meaning').value = item.meaning ?? '';
+
+  // Per-item visibility (item 11). Options broad → narrow, ending in "Only me".
+  const visSel = document.getElementById('f-visibility');
+  const curVis = item.visibility || 'friends';
+  visSel.innerHTML = Object.entries(ITEM_VIS_META).map(([k, m]) =>
+    `<option value="${k}" ${k === curVis ? 'selected' : ''}>${m.glyph} ${m.label} — ${m.hint}</option>`).join('');
   document.getElementById('f-date').value = item.dateCollected ?? '';
   document.getElementById('f-acquired').value = item.acquiredHow ?? '';
 
@@ -2009,6 +2022,7 @@ async function submitForm(e) {
     ...existing,
     nickname: document.getElementById('f-nickname').value.trim() || null,
     meaning: document.getElementById('f-meaning').value.trim() || null,
+    visibility: document.getElementById('f-visibility').value || 'friends',
     dateCollected: document.getElementById('f-date').value || null,
     acquiredHow: document.getElementById('f-acquired').value || null,
     missingAccessories,
@@ -2027,6 +2041,13 @@ async function submitForm(e) {
   }
 
   await data.put(kind, record);
+
+  // Persist per-item visibility separately (item 11) — best-effort so a
+  // pre-migration client still saves everything else cleanly.
+  if (record.visibility && record.visibility !== existing.visibility) {
+    try { await data.setItemVisibility(record.id, record.visibility); }
+    catch (err) { console.warn('setItemVisibility', err); }
+  }
 
   // Persist the "worn by" assignment when the field is shown (clothing
   // accessories). Dedicated update so it never rides through _itemToRow.
@@ -6159,19 +6180,26 @@ function renderFriends() {
   const friends = state.socFriends.length ? `
     <section class="soc-section">
       <h2 class="soc-section-head">Your Coven · ${state.socFriends.length}</h2>
-      ${state.socFriends.map((f) => `
+      ${state.socFriends.map((f) => {
+        const tierTag = f.isCoffinBuddy
+          ? '<span class="soc-inner-tag">⚰️ Coffin Buddies</span>'
+          : (f.isInner ? '<span class="soc-inner-tag">🏰 Castle Crew</span>' : '');
+        return `
         <div class="soc-friend-row">
           <button class="soc-userlink" data-soc-action="view-profile" data-uid="${f.userId}">
             ${socAvatar(f.avatarUrl, f.username)}
-            <span>@${escapeHtml(f.username)} ${f.isInner ? '<span class="soc-inner-tag">🖤 Inner Coffin</span>' : ''}</span>
+            <span>@${escapeHtml(f.username)} ${tierTag}</span>
           </button>
           <span class="soc-friend-actions">
             <button class="btn-ghost" data-soc-action="toggle-inner" data-uid="${f.userId}" data-on="${f.isInner ? '0' : '1'}">
-              ${f.isInner ? 'Remove from Inner Coffin' : 'Add to Inner Coffin'}
+              ${f.isInner ? 'Remove from Castle Crew' : 'Add to Castle Crew'}
+            </button>
+            <button class="btn-ghost" data-soc-action="toggle-coffin" data-uid="${f.userId}" data-on="${f.isCoffinBuddy ? '0' : '1'}">
+              ${f.isCoffinBuddy ? 'Remove from Coffin Buddies' : 'Add to Coffin Buddies'}
             </button>
             <button class="btn-ghost" data-soc-action="remove-friend" data-uid="${f.userId}">Unfriend</button>
           </span>
-        </div>`).join('')}
+        </div>`; }).join('')}
     </section>` : `<p class="empty-note">No friends in your Coven yet — search for a collector above.</p>`;
 
   el.innerHTML = `
@@ -6651,7 +6679,8 @@ async function onSocialClick(e) {
     case 'accept-friend': await socFriendAction(() => data.acceptFriendRequest(uid), 'Friend added. 🦇'); break;
     case 'decline-friend':await socFriendAction(() => data.removeFriend(uid), 'Request declined.'); break;
     case 'remove-friend': await socFriendAction(() => data.removeFriend(uid), 'Removed.'); break;
-    case 'toggle-inner':  await socFriendAction(() => data.setInner(uid, target.dataset.on === '1'), 'Inner Coffin updated. 🖤'); break;
+    case 'toggle-inner':  await socFriendAction(() => data.setInner(uid, target.dataset.on === '1'), 'Castle Crew updated. 🏰'); break;
+    case 'toggle-coffin': await socFriendAction(() => data.setCoffinBuddy(uid, target.dataset.on === '1'), 'Coffin Buddies updated. ⚰️'); break;
   }
 }
 
