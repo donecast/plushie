@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=77" />
+  <link rel="stylesheet" href="./styles.css?v=78" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -252,8 +252,12 @@
         <!-- Clothing accessories not assigned to a plush get their own
              section. Populated by render(); hidden when empty. -->
         <section id="unworn-clothing-section" class="collection-section hidden">
-          <h2 class="collection-section-head">🧥 The Closet <span id="unworn-clothing-count" class="dim"></span></h2>
+          <h2 class="collection-section-head">🧥 The Closet <span id="unworn-clothing-count" class="dim"></span>
+            <button type="button" id="add-custom-clothing-btn" class="filter-action hidden"
+              title="Add a piece that isn't from Plushie Dreadfuls — stays private to your crypt">+ Add your own</button>
+          </h2>
           <div id="unworn-clothing-grid" class="grid grid-list closet-grid"></div>
+          <p id="closet-empty-note" class="empty-note hidden">Nothing in the closet yet. Add your own clothing, or hit “🧥 Who’s wearing this?” on a Plushie Dreadfuls outfit.</p>
         </section>
       </div>
 
@@ -402,6 +406,51 @@
   <div id="wearer-modal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-backdrop" data-close-wearer></div>
     <div class="modal-card" id="wearer-modal-card"></div>
+  </div>
+
+  <!-- Add-your-own clothing (gated: feature.custom_clothing). Creates a
+       private, off-catalog clothing row in the user's own collection. -->
+  <div id="custom-clothing-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="cc-title">
+    <div class="modal-backdrop" data-close-cc></div>
+    <div class="modal-card">
+      <button class="modal-close" data-close-cc aria-label="Close">×</button>
+      <h2 id="cc-title">Add your own clothing</h2>
+      <p class="dim">A piece that isn't from Plushie Dreadfuls — handmade, thrifted, or from another shop. It stays private to your crypt; no one else can see it.</p>
+      <form id="custom-clothing-form">
+        <label class="field">
+          <span>Name</span>
+          <input type="text" id="cc-name" maxlength="80" required placeholder="e.g. Hand-knit black cardigan" />
+        </label>
+
+        <fieldset class="accessory-fieldset" id="cc-scale-field">
+          <legend>Size</legend>
+          <label class="checkbox accessory-row">
+            <input type="radio" name="cc-scale" value="full" checked />
+            <span>Full-size plush</span>
+          </label>
+          <label class="checkbox accessory-row">
+            <input type="radio" name="cc-scale" value="mini" />
+            <span>Mini</span>
+          </label>
+        </fieldset>
+
+        <label class="field" id="cc-worn-field">
+          <span>Worn by (optional)</span>
+          <select id="cc-worn-by"></select>
+        </label>
+
+        <label class="field hidden" id="cc-photo-field">
+          <span>Photo (optional)</span>
+          <input type="file" id="cc-photo" accept="image/*" />
+          <span id="cc-photo-name" class="soc-file-name"></span>
+        </label>
+
+        <div class="form-actions">
+          <button type="button" class="btn-ghost" data-close-cc>Cancel</button>
+          <button type="submit" class="btn-primary">Add to closet</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <footer class="app-footer">
@@ -1035,9 +1084,9 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./config.js?v=51"></script>
-  <script src="./auth.js?v=54"></script>
+  <script src="./auth.js?v=55"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=59"></script>
-  <script src="./app.js?v=68"></script>
+  <script src="./data.js?v=60"></script>
+  <script src="./app.js?v=73"></script>
 </body>
 </html>

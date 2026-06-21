@@ -623,7 +623,7 @@ function normalizeShopifyProduct(p) {
   const available = variants.some((v) => v.available);
   const priceNums = variants.map((v) => parseFloat(v.price)).filter((n) => !isNaN(n));
   const tags = p.tags || [];
-  const parsed = parseBodyHtml(p.body_html);
+  const parsed = parseBodyHtml(p.body_html, p.title);
   const item = {
     id: String(p.id),
     name: p.title,
@@ -663,7 +663,7 @@ function normalizeShopifyProduct(p) {
 //                   single primary plush (which is implied)
 // Returns nulls / empty arrays for sections that don't exist on a given
 // product, which is fine — the UI hides empty sections.
-function parseBodyHtml(html) {
+function parseBodyHtml(html, title = '') {
   const empty = { lore: null, symbolism: null, symbolismHtml: null, accessories: [], isBundle: false };
   if (!html || typeof html !== 'string') return empty;
   let doc;
@@ -684,29 +684,43 @@ function parseBodyHtml(html) {
   // otherwise a wrapper's combined textContent overruns the heading
   // length guards below and 'Set Includes' is never detected.
   const blocks = flattenBlocks(root);
+  // Find section headings by text. The brand's section ORDER is
+  // inconsistent — some products put 'Symbolism' before 'Set Includes',
+  // some after — so we record both indices and bound each section by the
+  // *next* heading rather than assuming a fixed order. (Previously the
+  // symbolism index was passed as the Set-Includes end boundary, so a
+  // Symbolism heading sitting before Set Includes collapsed the window to
+  // nothing — e.g. Chronic Pain.) The heading may also be the first line
+  // of a multi-line block, so we scan lines, not just block text.
   let setIncludesIdx = -1;
   let symbolismIdx = -1;
   for (let i = 0; i < blocks.length; i++) {
-    const t = (blocks[i].textContent || '').trim();
-    if (setIncludesIdx === -1 && /set\s+includes/i.test(t) && t.length < 80) setIncludesIdx = i;
-    if (symbolismIdx === -1 && /^symbolism\s*:?\s*$/i.test(t)) symbolismIdx = i;
+    const lines = blockLines(blocks[i]);
+    if (setIncludesIdx === -1 &&
+        lines.some((l) => l.length < 80 && /set\s+includes/i.test(l))) setIncludesIdx = i;
+    if (symbolismIdx === -1 && lines.some((l) => /^symbol(ism|ogy)\s*:?\s*$/i.test(l))) symbolismIdx = i;
   }
+  const headingIdxs = [setIncludesIdx, symbolismIdx].filter((i) => i >= 0).sort((a, b) => a - b);
+  const firstHeading = headingIdxs.length ? headingIdxs[0] : blocks.length;
+  // End of a section = the next heading after it, else end of document.
+  const sectionEnd = (idx) => {
+    for (const hi of headingIdxs) if (hi > idx) return hi;
+    return blocks.length;
+  };
 
-  // Lore = blocks[0 .. setIncludesIdx) as plain text, joined.
-  const loreEnd = setIncludesIdx === -1 ? blocks.length : setIncludesIdx;
+  // Lore = everything before the first section heading.
   const loreParas = [];
-  for (let i = 0; i < loreEnd; i++) {
-    if (symbolismIdx !== -1 && i >= symbolismIdx) break;
+  for (let i = 0; i < firstHeading; i++) {
     const txt = textOf(blocks[i]);
     if (txt) loreParas.push(txt);
   }
   const lore = loreParas.length ? loreParas.join('\n\n') : null;
 
-  // Symbolism = blocks[symbolismIdx+1 .. next-divider-or-end).
+  // Symbolism = blocks[symbolismIdx+1 .. its section end).
   let symbolism = null;
   let symbolismHtml = null;
   if (symbolismIdx !== -1) {
-    const symEnd = blocks.length;
+    const symEnd = sectionEnd(symbolismIdx);
     const symBlocks = [];
     const seenImgSrcs = new Set();
     for (let i = symbolismIdx + 1; i < symEnd; i++) {
@@ -715,6 +729,10 @@ function parseBodyHtml(html) {
       // Stop at the IMPORTANT NOTE we already stripped — but if some
       // variant slipped through, stop again here.
       if (/^important\s+note/i.test(t)) break;
+      // Some products list Symbolism *before* the Set Includes section, so
+      // stop here too — otherwise the included items bleed into the
+      // symbolism prose.
+      if (/set\s+includes/i.test(t) && t.length < 80) break;
       // Dedupe identical images (the DPDR Rabbit triple-heart case).
       const img = b.querySelector ? b.querySelector('img') : null;
       if (img && img.src) {
@@ -731,11 +749,32 @@ function parseBodyHtml(html) {
     }
   }
 
-  // Accessories = bullet list items under 'Set Includes', minus
-  // anything that looks like the primary plush ('1x …Rabbit', '1x …Puppet')
-  // and minus the tote/draw-string bag (which goes in its own field
-  // when we add accessories Phase C).
-  const accessories = setIncludesIdx === -1 ? [] : extractSetIncludes(blocks, setIncludesIdx, symbolismIdx);
+  // Accessories = items under 'Set Includes' (bounded by its own section
+  // end), minus the primary plush. When there's NO heading at all, fall
+  // back to a run of bare 'Nx …' lines (≥2) — several products list their
+  // contents as plain '1x …' lines with no heading (Dreadful Dinosaur, the
+  // Victorian McGee sets).
+  let accessories = [];
+  if (setIncludesIdx !== -1) {
+    accessories = extractSetIncludes(blocks, setIncludesIdx, sectionEnd(setIncludesIdx), title);
+  } else {
+    let firstQty = -1, qtyLines = 0;
+    for (let i = 0; i < blocks.length; i++) {
+      if (symbolismIdx !== -1 && i >= symbolismIdx && i < sectionEnd(symbolismIdx)) continue;
+      const hits = blockLines(blocks[i]).filter((l) => /^\d+\s*[x×]\s+/i.test(l)).length;
+      if (hits) { if (firstQty === -1) firstQty = i; qtyLines += hits; }
+    }
+    if (qtyLines >= 2 && firstQty !== -1) {
+      accessories = extractSetIncludes(blocks, firstQty - 1, blocks.length, title);
+    }
+  }
+  // Last resort for the Victorian McGee items, which list contents as bare
+  // prose with no heading, no quantities and no bullets — just the primary
+  // plush's "… measures NNcm (head to toe)" line followed by its extras
+  // ("Tote Bag measures 40x37cm", "Plush Knife", "\"Drink Me\" Potion").
+  if (accessories.length === 0) {
+    accessories = extractSpecTail(blocks, title);
+  }
   // Bundle detection is tag-only now. The earlier heuristic of '2+ plush
   // items in the Set Includes' false-flagged single products like the
   // Gemini Rabbit, which legitimately ships with multiple plushie pieces.
@@ -834,41 +873,121 @@ function blockLines(el) {
     .filter(Boolean);
 }
 
-function extractSetIncludes(blocks, startIdx, endIdx) {
+// Length of the leading bullet glyph(s) on a line — list markers (•·▪),
+// dingbats, arrows, and emoji (incl. surrogate-pair emoji like 💖 and the
+// ❤️/⚓️ the brand favours), plus the variation-selector / ZWJ / whitespace
+// that travels with them. Returns 0 when the line starts with real text.
+function leadingBulletLen(s) {
+  let i = 0, sawGlyph = false;
+  while (i < s.length) {
+    const c = s.codePointAt(i);
+    const ws = c === 0x20 || c === 0x09;
+    const glyph =
+      c === 0x2022 || c === 0x00B7 || c === 0x2023 || c === 0x2043 || c === 0x2219 ||
+      c === 0x25AA || c === 0x25CF || c === 0x25E6 || c === 0x2043 ||
+      (c >= 0x2190 && c <= 0x21FF) ||   // arrows
+      (c >= 0x2600 && c <= 0x27BF) ||   // misc symbols + dingbats
+      (c >= 0x2B00 && c <= 0x2BFF) ||   // stars/arrows (⭐)
+      c === 0x2693 || c === 0x2764 ||   // ⚓ ❤
+      c === 0xFE0F || c === 0x200D || c === 0x20E3 ||  // VS16 / ZWJ / keycap
+      (c >= 0x1F000 && c <= 0x1FAFF);   // emoji blocks
+    if (ws) { i += 1; continue; }
+    if (glyph) { sawGlyph = true; i += c > 0xFFFF ? 2 : 1; continue; }
+    break;
+  }
+  return sawGlyph ? i : 0;
+}
+
+// Lines inside a 'Set Includes' block that are notes/footnotes, not items.
+const NOISE_LINE_RE = /^(please note\b|note:|n\.?b\.?\b|fits most|mask only|regular siz|full siz|big chesh|other plushies|materials for|pictures? are|design featur)|not included\b|sold separately|shown for scale/i;
+
+// Pull one item name from a Set-Includes line, or null. Accepts a quantity
+// prefix ('1x …') or a leading bullet glyph (❤️/⚓️/•/⭐). Plain prose lines
+// (no marker) are rejected so lore sentences don't leak in.
+function setIncludesLineItem(line) {
+  let s = (line || '').trim();
+  if (!s) return null;
+  let ok = false;
+  if (/^\d+\s*[x×]\s+/i.test(s)) {
+    ok = true;
+  } else {
+    const n = leadingBulletLen(s);
+    if (n > 0) { s = s.slice(n).trim(); ok = true; }
+  }
+  // A short "<name> measures <dims>" line is a sized item, not prose — this
+  // is how Victorian McGee lists tote bags etc. ("Tote Bag measures
+  // 40x37cm") with no quantity or bullet. The measurement is trimmed off
+  // the name later in canonicalizeAccessoryName. Bounded to a short lead so
+  // a lore sentence that happens to contain "measures" isn't swept in.
+  if (!ok && /^.{2,45}?\s+measures?\s+\d/i.test(s) && !/\b(head to toe|ears? to toes?)\b/i.test(s)) {
+    ok = true;
+  }
+  if (!ok || !s || NOISE_LINE_RE.test(s)) return null;
+  // A question is brand patter, not an item ("Can (maybe) be convinced to
+  // guard the gates to your home? Try carrots?").
+  if (/\?/.test(s)) return null;
+  return s;
+}
+
+// Significant tokens of a name, minus brand/format filler — used to spot
+// the line that restates the primary plush (named after the product).
+function primaryTokens(str) {
+  return new Set(String(str || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !/^(the|and|plush|plushie|dreadful|dreadfuls|stuffed|animal|toy|mini|super|soft|edition|limited|victorian|mcgees|mcgee|set|includes|with|cryptid)$/.test(w)));
+}
+
+function extractSetIncludes(blocks, startIdx, endIdx, title = '') {
   const items = [];
-  const stop = endIdx === -1 ? blocks.length : endIdx;
-  for (let i = startIdx + 1; i < stop; i++) {
+  // Stop is a soft cap: the next-section heading may share a block with the
+  // last item line (e.g. '1x Tote Bag<br>Symbolism:'), so we iterate up to
+  // and *including* the boundary block and stop at the heading LINE — not
+  // the block — or we'd drop that trailing item.
+  const isHeadingLine = (s) => /^(symbol(ism|ogy)|important note|fun fact)/i
+    .test((s || '').replace(/^[^\p{L}\p{N}]+/u, ''));
+  const cap = endIdx === -1 ? blocks.length - 1 : Math.min(endIdx, blocks.length - 1);
+  outer:
+  for (let i = startIdx + 1; i <= cap; i++) {
     const b = blocks[i];
     if (!b) break;
-    // Stop at the next obvious section heading.
-    const t = (b.textContent || '').trim();
-    if (/^(symbolism|important note|fun fact)/i.test(t)) break;
-    // Pick up <li> elements OR paragraphs whose text starts with NNx /
-    // 1× / 1x / "Includes".
     const lis = b.querySelectorAll('li');
     if (lis.length) {
       for (const li of lis) {
         const name = (li.textContent || '').trim().replace(/^[•·]\s*/, '');
-        if (name) items.push({ name });
+        if (isHeadingLine(name)) break outer;
+        if (name && !NOISE_LINE_RE.test(name) && !/\?/.test(name)) items.push({ name });
       }
     } else {
-      // A single paragraph may hold several "1x …" entries separated by
-      // <br>; split on the breaks and keep each line that reads as a
-      // quantity-prefixed item.
       for (const line of blockLines(b)) {
-        if (/^\d+\s*[x×]\s+/i.test(line)) items.push({ name: line });
+        if (isHeadingLine(line)) break outer;
+        const name = setIncludesLineItem(line);
+        if (name) items.push({ name });
       }
     }
   }
-  // Strip the primary plush (first 'NNx …Rabbit/Bunny/Puppet/Plush') so
-  // accessories are *just* the extras. Same logic the Phase C accessory
-  // checkbox system will use.
+  // Strip the primary plush so accessories are *just* the extras. The
+  // primary is either the first line that reads as a plush ('Super Soft
+  // Rabbit', 'Plush Alice Bunny') OR the first line that restates the
+  // product title ('Putti Cherub Bun', 'Pourfect Bunny Teapot') — the
+  // latter catches animals the plush-word list misses (bun/hare/cat/owl).
+  // Either way only the FIRST qualifying line is dropped, and never an
+  // obvious accessory (bag/sticker/patch), so companion minis survive.
+  const titleTok = primaryTokens(title);
   let primaryDropped = false;
   const filtered = items.filter((it) => {
-    if (!primaryDropped && /\b(rabbit|bunny|puppet|plush|dinosaur)\b/i.test(it.name) && !/bag|tote|backpack|patch|sticker|standee/i.test(it.name)) {
-      primaryDropped = true;
-      return false;
+    if (primaryDropped) return true;
+    if (/\b(bag|tote|backpack|patch|sticker|standee|purse|pin|card)\b/i.test(it.name)) return true;
+    const byWord = /\b(rabbit|bunny|puppet|plush|dinosaur)\b/i.test(it.name);
+    let byTitle = false;
+    if (!byWord && titleTok.size) {
+      const itTok = primaryTokens(canonicalizeAccessoryName(it.name));
+      let shared = 0;
+      for (const w of itTok) if (titleTok.has(w)) shared++;
+      byTitle = shared >= 2 || (itTok.size > 0 && shared === itTok.size);
     }
+    if (byWord || byTitle) { primaryDropped = true; return false; }
     return true;
   });
   // Canonicalize: each accessory carries both a display name (clean,
@@ -882,14 +1001,78 @@ function extractSetIncludes(blocks, startIdx, endIdx) {
   });
 }
 
+// Victorian McGee's plushes mostly skip the whole "Set Includes" convention:
+// no heading, no quantities, no bullets. The contents are just bare lines at
+// the end of the description — the primary plush's size line ("X measures
+// NNcm (head to toe)") followed by its extras ("Tote Bag measures 40x37cm",
+// "Plush Knife", "\"Drink Me\" Potion"). We anchor on the primary's
+// head-to-toe / ears-to-toes size line (that phrasing is unique to the
+// primary, never an accessory) and treat the short item-like lines that
+// follow, up to the copyright trailer, as the extras. Only used as a last
+// resort when every structured path came up empty, so it can't disturb the
+// products that do use a real Set Includes list.
+function extractSpecTail(blocks, title = '') {
+  const lines = [];
+  for (const b of blocks) for (const l of blockLines(b)) lines.push(l);
+  const pi = lines.findIndex((l) => /\b(head to toe|ears? to toes?)\b/i.test(l));
+  if (pi === -1) return [];
+  const wordCount = (s) => s.split(/\s+/).filter(Boolean).length;
+  const out = [];
+  for (let i = pi + 1; i < lines.length && out.length < 8; i++) {
+    const l = lines[i];
+    // Hard stops: the copyright trailer, a section heading, or back into
+    // prose (a long line / a multi-word sentence).
+    if (/copyright|trademark|beware|exclusively available|important note|^symbol/i.test(l)) break;
+    if (l.length > 55) break;
+    if (/[.!?]$/.test(l) && wordCount(l) > 5) break;
+    if (NOISE_LINE_RE.test(l) || /\?/.test(l)) continue;
+    // Item-like = a sized line ("… measures 40x37cm") or a short, capitalised
+    // noun phrase ("Plush Knife", "Mini Pumpkin Purse", "\"Drink Me\" Potion").
+    const sized = /\bmeasures?\s+\d/i.test(l);
+    const shortNoun = wordCount(l) <= 6 && /^["'“(]?[A-Z0-9]/.test(l);
+    if (!sized && !shortNoun) break;
+    out.push({ name: l });
+  }
+  return out.map((it) => {
+    const display = canonicalizeAccessoryName(it.name);
+    return { name: display, key: display.toLowerCase() };
+  });
+}
+
 function canonicalizeAccessoryName(raw) {
   const out = (raw || '')
     // Drop the 'Nx ' or 'N× ' quantity prefix.
     .replace(/^\d+\s*[x×]\s+/i, '')
-    // Drop anything in trailing parentheses (usually 'measures NNcm…').
-    .replace(/\s*\([^)]*\)\s*$/g, '')
-    // Drop a trailing em-dash sub-clause ('— measures 38cm x 33cm').
-    .replace(/\s*[—–-]\s*measures?.*$/i, '')
+    // Drop a leading 'Comes with a/the …' prose lead-in ('Comes with a tote
+    // bag …' → 'tote bag …'); the item name is what follows.
+    .replace(/^\s*comes with\s+(?:a|an|the|one|two|your)?\s*/i, '')
+    // Cut a trailing prose clause the brand tacks onto an item — a relative
+    // clause ('… that attach to her face', '… which is fireproof'), a
+    // material/purpose clause ('Tote made of sturdy paper', 'Tote Bag to shop
+    // for goods', 'Envelope for your Love Letters'), or a predicate ('Baby
+    // Opossums are detachable …'). These connectors never begin a real item
+    // name, so trimming from them leaves the clean noun phrase. Anchored to a
+    // leading space so a one-word item is never wiped.
+    .replace(/\s+\b(?:that|which|made\s+(?:of|from|with)|to\s+(?:shop|carry|hold|store|keep|protect|match|complete|wear)|for\s+(?:your|all|the)\b)\b.*$/i, '')
+    .replace(/\s+\b(?:is|are)\s+(?:detachable|removable|reversible|fireproof|made|waterproof)\b.*$/i, '')
+    // '- Approximately NNcm' / '- Approx. NN' size tails (a worded variant of
+    // the dash-measurement rule below).
+    .replace(/\s*[-–—]\s*approx(?:\.|imately)?\b.*$/i, '')
+    // Cut trailing size/measurement clauses. The brand appends these
+    // inconsistently ('- measures 38cm', 'that measures 11x13 inches',
+    // 'measuring 24cm', a bare '38x34cms' or '25cm diameter'). Left in,
+    // they clutter the name and — worse — trip NON_ACCESSORY_RE's \d+cm
+    // rule, which would drop the whole item (the lost tote bags / bracelets
+    // in the capture audit).
+    .replace(/\s*[-–—(]?\s*(that\s+|which\s+)?measur(es|ing)\b.*$/i, '')  // '… measures …'
+    .replace(/\s*\(\s*\d.*$/, '')                            // '(33x40cm / 13"x16")' size paren
+    .replace(/\s*[-–—]\s*\d.*$/, '')                         // '- 3cm wide', '- 38x34cms'
+    .replace(/\s+\d+(\.\d+)?\s*[x×]\s*\d.*$/i, '')           // '11x13 inches', '38x34cms'
+    .replace(/\s+\d+(\.\d+)?\s*(cm|mm|inch(es)?|in|")\b.*$/i, '')  // bare '25cmx', '9.4 inch tall'
+    // Drop anything left in trailing parentheses.
+    .replace(/\s*\([^)]*\)\s*[.,;]*\s*$/g, '')
+    // Trailing sentence punctuation left after a clause trim ('… canvas bag.').
+    .replace(/\s*[.,;:]+\s*$/, '')
     .trim();
   return stripOutfitWord(out);
 }
@@ -904,12 +1087,13 @@ function canonicalizeAccessoryName(raw) {
 
 // A line matching this reads as a feature/spec, not a physical accessory.
 const NON_ACCESSORY_RE = new RegExp([
-  'pose', 'poseable', 'articulat', 'magnetic', 'connects? to',
+  'pose', 'poseable', 'articulat', 'magnetic hands?', 'connects? to',
   'attach(es|ed)? to (the )?(face|body|head)', 'embroider', 'printed',
   'stitched (on|in)', 'pouch body', 'zipper(ed)? body', 'hidden zip',
   'measures?', '\\d+\\s*cm', '\\d+\\s*(inch|in\\b|")', 'tall',
   'ears? to toes?', 'head to toe', 'machine wash', 'spot clean',
   'surface wash', 'washable', 'polyester', 'stuffing',
+  'softest', 'luxurious', 'most luxurious',
 ].join('|'), 'i');
 
 // Identity key for de-duping: drop counts, size/material adjectives, and
@@ -1390,6 +1574,9 @@ function catalogIsClothing(cat) {
 }
 
 function isWearableItem(item) {
+  // User-added off-catalog clothing carries an explicit scale flag — the
+  // most authoritative signal, so check it first.
+  if (item.clothingScale) return true;
   const cat = catalogForItem(item);
   if (cat) return catalogIsClothing(cat);
   // Pre-catalog / custom items: fall back to the user's own name, which
@@ -1403,6 +1590,8 @@ function isWearableItem(item) {
 // stripped of the "Mini Plush Outfit" wording) and fall back to the item's
 // own name for custom pieces.
 function clothingIsMini(item) {
+  // User-added clothing records its scale explicitly.
+  if (item.clothingScale) return item.clothingScale === 'mini';
   const cat = catalogForItem(item);
   const name = `${cat?.name || ''} ${item.name || ''}`.toLowerCase();
   return /\bmini\b/.test(name);
@@ -1685,9 +1874,22 @@ function render() {
     const unwornSection = document.getElementById('unworn-clothing-section');
     if (unwornSection) {
       document.getElementById('unworn-clothing-grid').innerHTML = closetItems.map((i) => renderCard(i, 'collection')).join('');
-      unwornSection.classList.toggle('hidden', closetItems.length === 0);
+      // The closet shows on the Plushes/Minis tabs when there's unworn
+      // clothing to display, OR when the user is entitled to add their
+      // own (so the "+ Add your own" affordance is reachable from empty).
+      const isClosetTab = (sub === 'plushes' || sub === 'minis');
+      const canAddClothing = data.featureEnabled('feature.custom_clothing');
+      unwornSection.classList.toggle('hidden', !(isClosetTab && (closetItems.length > 0 || canAddClothing)));
       const cnt = document.getElementById('unworn-clothing-count');
       if (cnt) cnt.textContent = closetItems.length ? `· ${closetItems.length}` : '';
+      const addBtn = document.getElementById('add-custom-clothing-btn');
+      if (addBtn) {
+        addBtn.classList.toggle('hidden', !(isClosetTab && canAddClothing));
+        // Add into whichever closet the user is looking at.
+        addBtn.dataset.scale = (sub === 'minis') ? 'mini' : 'full';
+      }
+      const emptyNote = document.getElementById('closet-empty-note');
+      if (emptyNote) emptyNote.classList.toggle('hidden', !(closetItems.length === 0 && canAddClothing));
     }
     const tabTotal = mainItems.length + closetItems.length;
     document.getElementById('collection-empty').classList.toggle('hidden', tabTotal > 0);
@@ -1871,7 +2073,9 @@ function openModal(kind, item, { fresh = false } = {}) {
   // bag toggle for backwards compatibility, but only on full-size
   // Plushies. Other types get no accessory section at all.
   const cat = item.catalogId ? resolveCatalogItem(state.catalog.find((c) => c.id === item.catalogId)) : null;
-  const isPlushie = !cat || (cat.type || '').toLowerCase() === 'plush';
+  // Wearables (incl. user-added custom clothing) never get the bag/accessory
+  // fallback — a cardigan has no "tote bag".
+  const isPlushie = !isWearableItem(item) && (!cat || (cat.type || '').toLowerCase() === 'plush');
   const expected = (cat && Array.isArray(cat.accessories)) ? cat.accessories : [];
   const missing = Array.isArray(item.missingAccessories) ? item.missingAccessories : [];
 
@@ -2007,6 +2211,90 @@ function openWearerPicker(accId) {
 function closeWearerModal() {
   document.getElementById('wearer-modal').classList.add('hidden');
   document.getElementById('wearer-modal-card').innerHTML = '';
+}
+
+// ─── Add-your-own clothing (gated: feature.custom_clothing) ─────────
+// Lets entitled users add an off-catalog clothing piece straight into
+// their closet. Stored as a normal collection row with catalog_id null
+// and an explicit clothing_scale, so RLS keeps it private and the
+// client treats it as wearable without guessing from the name.
+function openCustomClothingModal(scale = 'full') {
+  if (!data.featureEnabled('feature.custom_clothing')) return;
+  const form = document.getElementById('custom-clothing-form');
+  form.reset();
+  document.getElementById('cc-name').value = '';
+  // Default the scale to the closet they're standing in.
+  const want = scale === 'mini' ? 'mini' : 'full';
+  form.querySelectorAll('input[name="cc-scale"]').forEach((r) => { r.checked = (r.value === want); });
+
+  // Worn-by candidates: the user's plushes that aren't themselves clothing.
+  const candidates = state.collection.filter((c) => !isWearableItem(c));
+  document.getElementById('cc-worn-by').innerHTML = ['<option value="">— not assigned —</option>']
+    .concat(candidates.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.nickname || c.name)}</option>`))
+    .join('');
+
+  // Photo upload rides the same per-user gate as everywhere else.
+  const photoField = document.getElementById('cc-photo-field');
+  document.getElementById('cc-photo').value = '';
+  document.getElementById('cc-photo-name').textContent = '';
+  photoField.classList.toggle('hidden', !data.featureEnabled('feature.user_photo_uploads'));
+
+  document.getElementById('custom-clothing-modal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('cc-name').focus(), 50);
+}
+
+function closeCustomClothingModal() {
+  document.getElementById('custom-clothing-modal').classList.add('hidden');
+  document.getElementById('custom-clothing-form').reset();
+}
+
+async function submitCustomClothing(e) {
+  e.preventDefault();
+  if (!data.featureEnabled('feature.custom_clothing')) return;
+  const name = document.getElementById('cc-name').value.trim();
+  if (!name) { document.getElementById('cc-name').focus(); return; }
+  const scale = document.querySelector('input[name="cc-scale"]:checked')?.value === 'mini' ? 'mini' : 'full';
+  const wornVal = document.getElementById('cc-worn-by').value || null;
+
+  const id = crypto.randomUUID();
+  const record = {
+    id,
+    name,
+    catalogId: null,
+    catalogHandle: null,
+    clothingScale: scale,
+    meaning: null,
+    dateCollected: new Date().toISOString().slice(0, 10),
+    acquiredHow: null,
+    hasBag: true,
+    missingAccessories: [],
+    retired: false,
+    quantity: 1,
+    addedAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  const photoFile = document.getElementById('cc-photo').files?.[0];
+  if (photoFile && data.featureEnabled('feature.user_photo_uploads')) {
+    record.photo = await compressImage(photoFile).catch(() => photoFile);
+  }
+
+  try {
+    await data.put('collection', record);
+    if (wornVal) {
+      try { await data.setWornBy(id, wornVal); }
+      catch (err) { console.warn('setWornBy', err); }
+    }
+    await loadAll();
+    closeCustomClothingModal();
+    render();
+    toast(wornVal ? 'Added to the closet and dressed. 🧥' : 'Added to your closet. 🧥');
+  } catch (err) {
+    console.error('add custom clothing', err);
+    toast(/column.*clothing_scale/i.test(err?.message || '')
+      ? 'Run the latest migration (db/0026_custom_clothing.sql) — the clothing_scale column is missing.'
+      : 'Could not add: ' + (err.message || err));
+  }
 }
 
 async function submitForm(e) {
@@ -2783,6 +3071,20 @@ function wireEvents() {
   document.getElementById('unworn-clothing-grid').addEventListener('click', onCardClick);
   document.getElementById('wishlist-grid').addEventListener('click', onCardClick);
   document.getElementById('catalog-grid').addEventListener('click', onCardClick);
+
+  // Add-your-own clothing: open from the closet header, plus modal wiring.
+  document.getElementById('add-custom-clothing-btn').addEventListener('click', (e) => {
+    openCustomClothingModal(e.currentTarget.dataset.scale || 'full');
+  });
+  document.getElementById('custom-clothing-modal').addEventListener('click', (e) => {
+    if (e.target.closest('[data-close-cc]')) closeCustomClothingModal();
+  });
+  document.getElementById('custom-clothing-form').addEventListener('submit', submitCustomClothing);
+  document.getElementById('cc-photo').addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    document.getElementById('cc-photo-name').textContent = file ? '✓ ' + file.name : '';
+  });
+
   // Wearer picker modal — pick a plush to attach an accessory to.
   document.getElementById('wearer-modal').addEventListener('click', (e) => {
     if (e.target.closest('[data-close-wearer]')) { closeWearerModal(); return; }
@@ -4744,6 +5046,34 @@ async function onTogglePhotoUploadsForUser(e) {
   }
 }
 
+async function onToggleCustomClothingForUser(e) {
+  const cb = e.target;
+  const userId = cb.dataset.userId;
+  const next = cb.checked;
+  cb.disabled = true;
+  try {
+    await data.adminSetCustomClothing(userId, next);
+    const u = state.adminUsers.find((x) => x.id === userId);
+    if (u) u.custom_clothing_enabled = next;
+    if (state.adminUserView?.user?.id === userId) {
+      state.adminUserView.user.custom_clothing_enabled = next;
+    }
+    // If the admin toggled their own row, update the live shadow + re-render
+    // so the closet's add button re-gates immediately.
+    if (userId === window.currentUser?.id) {
+      window.currentUser.customClothingEnabled = next;
+      if (state.tab === 'collection') render();
+    }
+    toast(next ? 'Custom clothing enabled for this user.' : 'Custom clothing disabled for this user.');
+  } catch (err) {
+    console.error(err);
+    cb.checked = !next;
+    toast('Could not save: ' + (err.message || err));
+  } finally {
+    cb.disabled = false;
+  }
+}
+
 function renderAdminUserView() {
   const { user, snapshot } = state.adminUserView;
   const renderItemRow = (it, kind) => {
@@ -4807,6 +5137,19 @@ function renderAdminUserView() {
           <span>${user.is_admin ? 'Always on (admin)' : (user.photo_uploads_enabled === true ? 'Enabled' : 'Disabled')}</span>
         </label>
       </div>
+      <div class="admin-tool">
+        <div>
+          <strong>Custom clothing (private closets)</strong>
+          <p class="dim">Lets this user add their own off-catalog clothing to a plush's closet — pieces that aren't from Plushie Dreadfuls. Private to their collection. Admins (and a small built-in allowlist) are always allowed.</p>
+        </div>
+        ${(() => {
+          const alwaysOn = user.is_admin || (data.ALWAYS_GRANTED_USERNAMES || []).includes((user.username || '').toLowerCase());
+          return `<label class="checkbox" style="white-space:nowrap;">
+          <input type="checkbox" data-admin-toggle="custom-clothing" data-user-id="${user.id}" ${user.custom_clothing_enabled === true ? 'checked' : ''} ${alwaysOn ? 'disabled title="Always allowed"' : ''} />
+          <span>${alwaysOn ? `Always on (${user.is_admin ? 'admin' : 'allowlist'})` : (user.custom_clothing_enabled === true ? 'Enabled' : 'Disabled')}</span>
+        </label>`;
+        })()}
+      </div>
     </section>
 
     <section class="my-items-section">
@@ -4844,6 +5187,8 @@ function renderAdminUserView() {
   `;
   document.querySelector('[data-admin-toggle="photo-uploads"]')
     ?.addEventListener('change', onTogglePhotoUploadsForUser);
+  document.querySelector('[data-admin-toggle="custom-clothing"]')
+    ?.addEventListener('change', onToggleCustomClothingForUser);
 }
 
 async function onAdminClick(e) {

@@ -41,9 +41,17 @@ const auth = {
     // still sign in before all migrations have been applied.
     let { data, error } = await sb
       .from('profiles')
-      .select('id, username, is_admin, photo_uploads_enabled')
+      .select('id, username, is_admin, photo_uploads_enabled, custom_clothing_enabled')
       .eq('id', session.user.id)
       .maybeSingle();
+    if (error && /column.*custom_clothing_enabled/i.test(error.message || '')) {
+      console.warn('[auth] profiles.custom_clothing_enabled missing; run migration 0026');
+      ({ data, error } = await sb
+        .from('profiles')
+        .select('id, username, is_admin, photo_uploads_enabled')
+        .eq('id', session.user.id)
+        .maybeSingle());
+    }
     if (error && /column.*photo_uploads_enabled/i.test(error.message || '')) {
       console.warn('[auth] profiles.photo_uploads_enabled missing; run migration 0019');
       ({ data, error } = await sb
@@ -161,6 +169,9 @@ async function runAuthGate(onReady) {
         // when photo_uploads_enabled is explicitly true. Admins get
         // access via the override in data.featureEnabled().
         photoUploadsEnabled: profile.photo_uploads_enabled === true,
+        // Off by default; admins + a small allowlist override in
+        // data.featureEnabled(). Gates the "add your own clothing" closet.
+        customClothingEnabled: profile.custom_clothing_enabled === true,
       };
       updateUserBadge();
       hide();
