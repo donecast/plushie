@@ -134,6 +134,10 @@ create table if not exists trade_items (
   catalog_id text,
   catalog_handle text,
   photo_path text,
+  -- Public-readable copy in the 'social' bucket so other collectors can
+  -- see the photo when browsing offerings (see migration 0024). photo_path
+  -- stays collection-scoped for the owner's own views.
+  photo_social_path text,
   notes text,
   quantity integer not null default 1 check (quantity > 0),
   reserved integer not null default 0 check (reserved >= 0),

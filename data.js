@@ -236,6 +236,10 @@ const data = {
 
   // ─── Routing helpers ─────────────────────────────────────────────
   async _uploadToStorage(bucket, path, blob) {
+    // Re-uploading to an existing path (e.g. replacing a collection
+    // photo) must invalidate any cached URL so the next render fetches
+    // the new image instead of the stale signed URL.
+    data._photoUrlCache.delete(`${bucket}:${path}`);
     if (window.R2_BASE) {
       return await data._r2Put(bucket, path, blob);
     }
@@ -454,15 +458,29 @@ data.listMyTradeItems = async function () {
   return items;
 };
 
-data.addTradeItem = async function ({ kind, catalogId, catalogHandle, name, photoPath, quantity, notes }) {
-  const { data: row, error } = await sb.from('trade_items').insert({
+data.addTradeItem = async function ({ kind, catalogId, catalogHandle, name, photoPath, photoSocialPath, quantity, notes }) {
+  const insert = {
     owner_id: window.currentUser.id,
     kind, catalog_id: catalogId, catalog_handle: catalogHandle,
     name, photo_path: photoPath ?? null,
+    photo_social_path: photoSocialPath ?? null,
     quantity, notes: notes ?? null,
-  }).select().single();
-  if (error) throw error;
-  return data._tradeItemFromRow(row);
+  };
+  // photo_social_path arrived in migration 0024 — if it hasn't been run
+  // yet, PostgREST rejects the unknown column; strip it and retry so
+  // listing for trade still works (the photo just won't reach Browse).
+  let attempts = 0;
+  while (attempts++ < 2) {
+    const { data: row, error } = await sb.from('trade_items').insert(insert).select().single();
+    if (!error) return data._tradeItemFromRow(row);
+    const missing = /Could not find the '(\w+)' column/i.exec(error.message || '');
+    if (missing && missing[1] in insert) {
+      console.warn(`[addTradeItem] missing column ${missing[1]}; retrying without it`);
+      delete insert[missing[1]];
+      continue;
+    }
+    throw error;
+  }
 };
 
 data.updateTradeItem = async function (id, patch) {
@@ -498,7 +516,7 @@ data.browseOfferings = async function () {
   // All offerings except the current user's, where at least one unit is unreserved.
   const { data: rows, error } = await sb
     .from('trade_items')
-    .select('id, owner_id, name, catalog_id, catalog_handle, photo_path, quantity, reserved, notes, created_at, kind')
+    .select('id, owner_id, name, catalog_id, catalog_handle, photo_path, photo_social_path, quantity, reserved, notes, created_at, kind')
     .eq('kind', 'offering')
     .eq('archived', false)
     .neq('owner_id', window.currentUser.id)
@@ -516,10 +534,15 @@ data.browseOfferings = async function () {
     ...data._tradeItemFromRow(r),
     ownerUsername: usernames.get(r.owner_id) ?? 'unknown',
   }));
-  // Don't try to resolve photoPath here — the storage bucket's RLS is
-  // collection-scoped, so other users' photos are unreadable and produce
-  // 400s in the console. The card renderer falls back to the catalog
-  // image (keyed by catalog_id) instead.
+  // Resolve photos from the public 'social' bucket (photo_social_path),
+  // not photoPath — the 'photos' bucket is collection-scoped and other
+  // users' objects there are unreadable (400s). Items listed before
+  // migration 0024, or whose copy-to-social failed, have no social path;
+  // the card renderer falls back to the catalog image (keyed by
+  // catalog_id) for those.
+  await Promise.all(items.map(async (it) => {
+    if (it.photoSocialPath) it.photo = await data.socialPhotoUrl(it.photoSocialPath);
+  }));
   return items;
 };
 
@@ -1606,6 +1629,9 @@ data._tradeItemFromRow = function (r) {
     catalogId: r.catalog_id,
     catalogHandle: r.catalog_handle,
     photoPath: r.photo_path || null,
+    // Public 'social'-bucket copy used by Browse so other collectors can
+    // see the photo (the owner reads photoPath out of 'photos' directly).
+    photoSocialPath: r.photo_social_path || null,
     photo: null,
     quantity: r.quantity,
     reserved: r.reserved,
