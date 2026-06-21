@@ -1683,6 +1683,12 @@ function renderCard(item, kind) {
   }
 
   const badges = [];
+  // Custom (user-added, off-catalog) clothing gets a ✨ tag so it reads
+  // clearly as "not a Plushie Dreadfuls item." First in the stack → it
+  // sits in the upper-left corner of the card.
+  if (kind === 'collection' && item.clothingScale) {
+    badges.push(`<span class="badge badge-custom" title="Custom — not a Plushie Dreadfuls item">✨ Custom</span>`);
+  }
   if (kind === 'collection' && item.retired) badges.push(`<span class="badge badge-retired">Retired</span>`);
   if (kind === 'wishlist' && item.outOfStock) badges.push(`<span class="badge badge-oos">Out of Stock</span>`);
   if (kind === 'collection' && (item.quantity || 1) > 1) {
@@ -1874,12 +1880,16 @@ function render() {
     const unwornSection = document.getElementById('unworn-clothing-section');
     if (unwornSection) {
       document.getElementById('unworn-clothing-grid').innerHTML = closetItems.map((i) => renderCard(i, 'collection')).join('');
-      // The closet shows on the Plushes/Minis tabs when there's unworn
-      // clothing to display, OR when the user is entitled to add their
-      // own (so the "+ Add your own" affordance is reachable from empty).
+      // The closet is a permanent fixture of the Plushes/Minis tabs —
+      // shown even when empty so it reads as a consistent home for
+      // clothing. The "+ Add your own" affordance, though, is gated to
+      // users the feature is turned on for.
       const isClosetTab = (sub === 'plushes' || sub === 'minis');
       const canAddClothing = data.featureEnabled('feature.custom_clothing');
-      unwornSection.classList.toggle('hidden', !(isClosetTab && (closetItems.length > 0 || canAddClothing)));
+      // Always-on once the crypt has anything in it; suppressed only for a
+      // brand-new, totally empty collection so the single "crypt is empty"
+      // prompt isn't doubled up with an empty closet.
+      unwornSection.classList.toggle('hidden', !(isClosetTab && state.collection.length > 0));
       const cnt = document.getElementById('unworn-clothing-count');
       if (cnt) cnt.textContent = closetItems.length ? `· ${closetItems.length}` : '';
       const addBtn = document.getElementById('add-custom-clothing-btn');
@@ -1889,7 +1899,13 @@ function render() {
         addBtn.dataset.scale = (sub === 'minis') ? 'mini' : 'full';
       }
       const emptyNote = document.getElementById('closet-empty-note');
-      if (emptyNote) emptyNote.classList.toggle('hidden', !(closetItems.length === 0 && canAddClothing));
+      if (emptyNote) {
+        emptyNote.classList.toggle('hidden', closetItems.length > 0);
+        // Only invite a custom add when the user can actually do it.
+        emptyNote.textContent = canAddClothing
+          ? 'Nothing in the closet yet. Add your own clothing, or hit “🧥 Who’s wearing this?” on a Plushie Dreadfuls outfit.'
+          : 'Nothing in the closet yet. Hit “🧥 Who’s wearing this?” on an outfit to hang it here.';
+      }
     }
     const tabTotal = mainItems.length + closetItems.length;
     document.getElementById('collection-empty').classList.toggle('hidden', tabTotal > 0);
