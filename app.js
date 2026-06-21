@@ -1467,6 +1467,9 @@ function catalogIsClothing(cat) {
 }
 
 function isWearableItem(item) {
+  // User-added off-catalog clothing carries an explicit scale flag — the
+  // most authoritative signal, so check it first.
+  if (item.clothingScale) return true;
   const cat = catalogForItem(item);
   if (cat) return catalogIsClothing(cat);
   // Pre-catalog / custom items: fall back to the user's own name, which
@@ -1480,6 +1483,8 @@ function isWearableItem(item) {
 // stripped of the "Mini Plush Outfit" wording) and fall back to the item's
 // own name for custom pieces.
 function clothingIsMini(item) {
+  // User-added clothing records its scale explicitly.
+  if (item.clothingScale) return item.clothingScale === 'mini';
   const cat = catalogForItem(item);
   const name = `${cat?.name || ''} ${item.name || ''}`.toLowerCase();
   return /\bmini\b/.test(name);
@@ -1725,9 +1730,22 @@ function render() {
     const unwornSection = document.getElementById('unworn-clothing-section');
     if (unwornSection) {
       document.getElementById('unworn-clothing-grid').innerHTML = closetItems.map((i) => renderCard(i, 'collection')).join('');
-      unwornSection.classList.toggle('hidden', closetItems.length === 0);
+      // The closet shows on the Plushes/Minis tabs when there's unworn
+      // clothing to display, OR when the user is entitled to add their
+      // own (so the "+ Add your own" affordance is reachable from empty).
+      const isClosetTab = (sub === 'plushes' || sub === 'minis');
+      const canAddClothing = data.featureEnabled('feature.custom_clothing');
+      unwornSection.classList.toggle('hidden', !(isClosetTab && (closetItems.length > 0 || canAddClothing)));
       const cnt = document.getElementById('unworn-clothing-count');
       if (cnt) cnt.textContent = closetItems.length ? `· ${closetItems.length}` : '';
+      const addBtn = document.getElementById('add-custom-clothing-btn');
+      if (addBtn) {
+        addBtn.classList.toggle('hidden', !(isClosetTab && canAddClothing));
+        // Add into whichever closet the user is looking at.
+        addBtn.dataset.scale = (sub === 'minis') ? 'mini' : 'full';
+      }
+      const emptyNote = document.getElementById('closet-empty-note');
+      if (emptyNote) emptyNote.classList.toggle('hidden', !(closetItems.length === 0 && canAddClothing));
     }
     const tabTotal = mainItems.length + closetItems.length;
     document.getElementById('collection-empty').classList.toggle('hidden', tabTotal > 0);
@@ -1883,7 +1901,9 @@ function openModal(kind, item, { fresh = false } = {}) {
   // bag toggle for backwards compatibility, but only on full-size
   // Plushies. Other types get no accessory section at all.
   const cat = item.catalogId ? resolveCatalogItem(state.catalog.find((c) => c.id === item.catalogId)) : null;
-  const isPlushie = !cat || (cat.type || '').toLowerCase() === 'plush';
+  // Wearables (incl. user-added custom clothing) never get the bag/accessory
+  // fallback — a cardigan has no "tote bag".
+  const isPlushie = !isWearableItem(item) && (!cat || (cat.type || '').toLowerCase() === 'plush');
   const expected = (cat && Array.isArray(cat.accessories)) ? cat.accessories : [];
   const missing = Array.isArray(item.missingAccessories) ? item.missingAccessories : [];
 
@@ -2018,6 +2038,90 @@ function openWearerPicker(accId) {
 function closeWearerModal() {
   document.getElementById('wearer-modal').classList.add('hidden');
   document.getElementById('wearer-modal-card').innerHTML = '';
+}
+
+// ─── Add-your-own clothing (gated: feature.custom_clothing) ─────────
+// Lets entitled users add an off-catalog clothing piece straight into
+// their closet. Stored as a normal collection row with catalog_id null
+// and an explicit clothing_scale, so RLS keeps it private and the
+// client treats it as wearable without guessing from the name.
+function openCustomClothingModal(scale = 'full') {
+  if (!data.featureEnabled('feature.custom_clothing')) return;
+  const form = document.getElementById('custom-clothing-form');
+  form.reset();
+  document.getElementById('cc-name').value = '';
+  // Default the scale to the closet they're standing in.
+  const want = scale === 'mini' ? 'mini' : 'full';
+  form.querySelectorAll('input[name="cc-scale"]').forEach((r) => { r.checked = (r.value === want); });
+
+  // Worn-by candidates: the user's plushes that aren't themselves clothing.
+  const candidates = state.collection.filter((c) => !isWearableItem(c));
+  document.getElementById('cc-worn-by').innerHTML = ['<option value="">— not assigned —</option>']
+    .concat(candidates.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.nickname || c.name)}</option>`))
+    .join('');
+
+  // Photo upload rides the same per-user gate as everywhere else.
+  const photoField = document.getElementById('cc-photo-field');
+  document.getElementById('cc-photo').value = '';
+  document.getElementById('cc-photo-name').textContent = '';
+  photoField.classList.toggle('hidden', !data.featureEnabled('feature.user_photo_uploads'));
+
+  document.getElementById('custom-clothing-modal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('cc-name').focus(), 50);
+}
+
+function closeCustomClothingModal() {
+  document.getElementById('custom-clothing-modal').classList.add('hidden');
+  document.getElementById('custom-clothing-form').reset();
+}
+
+async function submitCustomClothing(e) {
+  e.preventDefault();
+  if (!data.featureEnabled('feature.custom_clothing')) return;
+  const name = document.getElementById('cc-name').value.trim();
+  if (!name) { document.getElementById('cc-name').focus(); return; }
+  const scale = document.querySelector('input[name="cc-scale"]:checked')?.value === 'mini' ? 'mini' : 'full';
+  const wornVal = document.getElementById('cc-worn-by').value || null;
+
+  const id = crypto.randomUUID();
+  const record = {
+    id,
+    name,
+    catalogId: null,
+    catalogHandle: null,
+    clothingScale: scale,
+    meaning: null,
+    dateCollected: new Date().toISOString().slice(0, 10),
+    acquiredHow: null,
+    hasBag: true,
+    missingAccessories: [],
+    retired: false,
+    quantity: 1,
+    addedAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  const photoFile = document.getElementById('cc-photo').files?.[0];
+  if (photoFile && data.featureEnabled('feature.user_photo_uploads')) {
+    record.photo = await compressImage(photoFile).catch(() => photoFile);
+  }
+
+  try {
+    await data.put('collection', record);
+    if (wornVal) {
+      try { await data.setWornBy(id, wornVal); }
+      catch (err) { console.warn('setWornBy', err); }
+    }
+    await loadAll();
+    closeCustomClothingModal();
+    render();
+    toast(wornVal ? 'Added to the closet and dressed. 🧥' : 'Added to your closet. 🧥');
+  } catch (err) {
+    console.error('add custom clothing', err);
+    toast(/column.*clothing_scale/i.test(err?.message || '')
+      ? 'Run the latest migration (db/0026_custom_clothing.sql) — the clothing_scale column is missing.'
+      : 'Could not add: ' + (err.message || err));
+  }
 }
 
 async function submitForm(e) {
@@ -2748,6 +2852,20 @@ function wireEvents() {
   document.getElementById('unworn-clothing-grid').addEventListener('click', onCardClick);
   document.getElementById('wishlist-grid').addEventListener('click', onCardClick);
   document.getElementById('catalog-grid').addEventListener('click', onCardClick);
+
+  // Add-your-own clothing: open from the closet header, plus modal wiring.
+  document.getElementById('add-custom-clothing-btn').addEventListener('click', (e) => {
+    openCustomClothingModal(e.currentTarget.dataset.scale || 'full');
+  });
+  document.getElementById('custom-clothing-modal').addEventListener('click', (e) => {
+    if (e.target.closest('[data-close-cc]')) closeCustomClothingModal();
+  });
+  document.getElementById('custom-clothing-form').addEventListener('submit', submitCustomClothing);
+  document.getElementById('cc-photo').addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    document.getElementById('cc-photo-name').textContent = file ? '✓ ' + file.name : '';
+  });
+
   // Wearer picker modal — pick a plush to attach an accessory to.
   document.getElementById('wearer-modal').addEventListener('click', (e) => {
     if (e.target.closest('[data-close-wearer]')) { closeWearerModal(); return; }
@@ -4510,6 +4628,34 @@ async function onTogglePhotoUploadsForUser(e) {
   }
 }
 
+async function onToggleCustomClothingForUser(e) {
+  const cb = e.target;
+  const userId = cb.dataset.userId;
+  const next = cb.checked;
+  cb.disabled = true;
+  try {
+    await data.adminSetCustomClothing(userId, next);
+    const u = state.adminUsers.find((x) => x.id === userId);
+    if (u) u.custom_clothing_enabled = next;
+    if (state.adminUserView?.user?.id === userId) {
+      state.adminUserView.user.custom_clothing_enabled = next;
+    }
+    // If the admin toggled their own row, update the live shadow + re-render
+    // so the closet's add button re-gates immediately.
+    if (userId === window.currentUser?.id) {
+      window.currentUser.customClothingEnabled = next;
+      if (state.tab === 'collection') render();
+    }
+    toast(next ? 'Custom clothing enabled for this user.' : 'Custom clothing disabled for this user.');
+  } catch (err) {
+    console.error(err);
+    cb.checked = !next;
+    toast('Could not save: ' + (err.message || err));
+  } finally {
+    cb.disabled = false;
+  }
+}
+
 function renderAdminUserView() {
   const { user, snapshot } = state.adminUserView;
   const renderItemRow = (it, kind) => {
@@ -4573,6 +4719,19 @@ function renderAdminUserView() {
           <span>${user.is_admin ? 'Always on (admin)' : (user.photo_uploads_enabled === true ? 'Enabled' : 'Disabled')}</span>
         </label>
       </div>
+      <div class="admin-tool">
+        <div>
+          <strong>Custom clothing (private closets)</strong>
+          <p class="dim">Lets this user add their own off-catalog clothing to a plush's closet — pieces that aren't from Plushie Dreadfuls. Private to their collection. Admins (and a small built-in allowlist) are always allowed.</p>
+        </div>
+        ${(() => {
+          const alwaysOn = user.is_admin || (data.ALWAYS_GRANTED_USERNAMES || []).includes((user.username || '').toLowerCase());
+          return `<label class="checkbox" style="white-space:nowrap;">
+          <input type="checkbox" data-admin-toggle="custom-clothing" data-user-id="${user.id}" ${user.custom_clothing_enabled === true ? 'checked' : ''} ${alwaysOn ? 'disabled title="Always allowed"' : ''} />
+          <span>${alwaysOn ? `Always on (${user.is_admin ? 'admin' : 'allowlist'})` : (user.custom_clothing_enabled === true ? 'Enabled' : 'Disabled')}</span>
+        </label>`;
+        })()}
+      </div>
     </section>
 
     <section class="my-items-section">
@@ -4610,6 +4769,8 @@ function renderAdminUserView() {
   `;
   document.querySelector('[data-admin-toggle="photo-uploads"]')
     ?.addEventListener('change', onTogglePhotoUploadsForUser);
+  document.querySelector('[data-admin-toggle="custom-clothing"]')
+    ?.addEventListener('change', onToggleCustomClothingForUser);
 }
 
 async function onAdminClick(e) {

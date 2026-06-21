@@ -3485,8 +3485,11 @@ body.locked { overflow: hidden; }
 .collection-section-head {
   font-family: var(--display); font-size: 1.05rem; margin: 0 0 10px;
   padding-bottom: 6px; border-bottom: 1px solid var(--hairline);
+  display: flex; align-items: center; gap: 8px;
 }
 .collection-section-head .dim { font-family: var(--sans); font-size: 0.85rem; }
+/* "+ Add your own" sits at the right edge of the closet header. */
+.collection-section-head #add-custom-clothing-btn { margin-left: auto; }
 
 /* The Closet: clothing cards don't need the full list width, so pack them
    two (or more) across and right-justify them — the clothes read as a
