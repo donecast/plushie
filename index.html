@@ -911,13 +911,41 @@
       </section>
 
       <section class="account-section">
-        <h3>Default shipping address</h3>
+        <h3>Default shipping address <span class="addr-verified-badge hidden" id="acct-addr-verified">✓ Verified</span></h3>
         <p class="account-hint">Pre-fills your address on every trade so you don't have to type it each time. The other side only sees it once they've also entered theirs.</p>
-        <label class="field">
-          <textarea id="acct-address" rows="4" placeholder="Name, street, city, state, postal code, country"></textarea>
-        </label>
+        <div class="addr-grid">
+          <label class="field addr-span-2">
+            <span>Recipient name</span>
+            <input type="text" id="acct-addr-name" autocomplete="name" maxlength="100" />
+          </label>
+          <label class="field addr-span-2">
+            <span>Address line 1</span>
+            <input type="text" id="acct-addr-line1" autocomplete="address-line1" maxlength="120" />
+          </label>
+          <label class="field addr-span-2">
+            <span>Address line 2 <span class="dim">(optional)</span></span>
+            <input type="text" id="acct-addr-line2" autocomplete="address-line2" maxlength="120" />
+          </label>
+          <label class="field">
+            <span>City</span>
+            <input type="text" id="acct-addr-city" autocomplete="address-level2" maxlength="80" />
+          </label>
+          <label class="field">
+            <span>State / region</span>
+            <input type="text" id="acct-addr-region" autocomplete="address-level1" maxlength="80" />
+          </label>
+          <label class="field">
+            <span>Postal code</span>
+            <input type="text" id="acct-addr-postal" autocomplete="postal-code" maxlength="16" />
+          </label>
+          <label class="field">
+            <span>Country</span>
+            <input type="text" id="acct-addr-country" autocomplete="country-name" maxlength="60" placeholder="United States" />
+          </label>
+        </div>
+        <p class="account-hint addr-error hidden" id="acct-addr-error"></p>
         <div class="account-row right">
-          <button class="btn-ghost" id="acct-save-address">Save address</button>
+          <button class="btn-ghost" id="acct-save-address">Verify &amp; save</button>
         </div>
       </section>
 

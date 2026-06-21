@@ -4156,7 +4156,7 @@ function switchLegalTab(which) {
 async function openAccountModal() {
   document.getElementById('acct-username').value = window.currentUser?.username ?? '';
   document.getElementById('acct-email').value    = window.currentUser?.email ?? '';
-  document.getElementById('acct-address').value  = await data.getMyAddress();
+  await populateAddressFields();
 
   // Profile (bio + avatar) lives here now (item 9) so it's not buried in the
   // social tab. Populate from the My Crypt cache and reset the pending picker.
@@ -4273,11 +4273,99 @@ async function saveEmail() {
   }
 }
 
+// ─── Default shipping address (structured + verified) ────────────────
+const ADDR_FIELDS = {
+  recipientName: 'acct-addr-name',
+  line1: 'acct-addr-line1',
+  line2: 'acct-addr-line2',
+  city: 'acct-addr-city',
+  region: 'acct-addr-region',
+  postal: 'acct-addr-postal',
+  country: 'acct-addr-country',
+};
+
+async function populateAddressFields() {
+  let a;
+  try { a = await data.getMyAddressFull(); }
+  catch (err) { console.warn('getMyAddressFull', err); a = {}; }
+  for (const [key, id] of Object.entries(ADDR_FIELDS)) {
+    const el = document.getElementById(id);
+    if (el) el.value = a[key] || '';
+  }
+  const badge = document.getElementById('acct-addr-verified');
+  if (badge) badge.classList.toggle('hidden', !a.verified);
+  const err = document.getElementById('acct-addr-error');
+  if (err) { err.textContent = ''; err.classList.add('hidden'); }
+}
+
+function readAddressFields() {
+  const out = {};
+  for (const [key, id] of Object.entries(ADDR_FIELDS)) {
+    out[key] = (document.getElementById(id)?.value || '').trim();
+  }
+  return out;
+}
+
+// Lightweight address verification. This is format-level validation +
+// normalization (required fields, postal-code shape per country) — a clean
+// seam where a real provider (USPS / Loqate / Google Address Validation)
+// can drop in later behind the same call. Returns { ok, errors, normalized }.
+function verifyAddress(a) {
+  const errors = [];
+  const norm = { ...a };
+  // Country normalization: accept common US aliases.
+  const c = (a.country || '').trim();
+  if (/^(us|usa|u\.s\.a?\.?|united states( of america)?)$/i.test(c)) norm.country = 'United States';
+  if (!norm.line1) errors.push('Street address (line 1) is required.');
+  if (!a.city) errors.push('City is required.');
+  if (!a.region) errors.push('State / region is required.');
+  if (!a.postal) errors.push('Postal code is required.');
+  if (!norm.country) errors.push('Country is required.');
+  // Postal-code shape check for the US (ZIP / ZIP+4); other countries: just
+  // require something alphanumeric so we don't reject valid foreign formats.
+  if (a.postal) {
+    if (norm.country === 'United States') {
+      if (!/^\d{5}(-\d{4})?$/.test(a.postal.trim())) errors.push('US ZIP must be 5 digits (or ZIP+4).');
+      norm.region = a.region.trim().toUpperCase().slice(0, 20);
+    } else if (!/[A-Za-z0-9]/.test(a.postal)) {
+      errors.push('Postal code looks invalid.');
+    }
+  }
+  return { ok: errors.length === 0, errors, normalized: norm };
+}
+
 async function saveDefaultAddress() {
-  const a = document.getElementById('acct-address').value.trim();
+  const raw = readAddressFields();
+  const errEl = document.getElementById('acct-addr-error');
+  const badge = document.getElementById('acct-addr-verified');
+  const empty = Object.values(raw).every((v) => !v);
+  if (empty) {
+    // Clearing the whole address out is allowed.
+    try {
+      await data.setMyAddressFull(raw, { verified: false });
+      if (badge) badge.classList.add('hidden');
+      if (errEl) { errEl.textContent = ''; errEl.classList.add('hidden'); }
+      toast('Default address cleared.');
+    } catch (err) { console.error(err); toast('Could not save address.'); }
+    return;
+  }
+  const { ok, errors, normalized } = verifyAddress(raw);
+  if (!ok) {
+    if (errEl) { errEl.textContent = errors.join(' '); errEl.classList.remove('hidden'); }
+    if (badge) badge.classList.add('hidden');
+    toast('Please fix the address fields.');
+    return;
+  }
   try {
-    await data.setMyAddress(a);
-    toast(a ? 'Default address saved.' : 'Default address cleared.');
+    await data.setMyAddressFull(normalized, { verified: true });
+    // Reflect normalization back into the fields.
+    for (const [key, id] of Object.entries(ADDR_FIELDS)) {
+      const el = document.getElementById(id);
+      if (el) el.value = normalized[key] || '';
+    }
+    if (errEl) { errEl.textContent = ''; errEl.classList.add('hidden'); }
+    if (badge) badge.classList.remove('hidden');
+    toast('Address verified & saved. ✓');
   } catch (err) {
     console.error(err);
     toast('Could not save address.');

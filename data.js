@@ -989,6 +989,79 @@ data.getMyAddress = async function () {
   return row?.address ?? '';
 };
 
+// Structured default shipping address (item 7). Falls back gracefully if the
+// 0027 migration hasn't been applied (the extra columns won't exist yet) by
+// returning just the legacy blob in `address`.
+data.getMyAddressFull = async function () {
+  const cols = 'recipient_name, line1, line2, city, region, postal, country, verified, verified_at, address';
+  let { data: row, error } = await sb
+    .from('user_addresses')
+    .select(cols)
+    .eq('user_id', window.currentUser.id)
+    .maybeSingle();
+  if (error) {
+    // Pre-0027 schema: retry with just the legacy blob.
+    const fallback = await sb
+      .from('user_addresses')
+      .select('address')
+      .eq('user_id', window.currentUser.id)
+      .maybeSingle();
+    row = fallback.data || null;
+  }
+  return {
+    recipientName: row?.recipient_name ?? '',
+    line1: row?.line1 ?? '',
+    line2: row?.line2 ?? '',
+    city: row?.city ?? '',
+    region: row?.region ?? '',
+    postal: row?.postal ?? '',
+    country: row?.country ?? '',
+    verified: !!row?.verified,
+    legacy: row?.address ?? '',
+  };
+};
+
+// Compose the structured fields into the legacy one-line(ish) blob used by the
+// trade address-exchange UI.
+data.composeAddress = function (a) {
+  return [
+    a.recipientName,
+    a.line1,
+    a.line2,
+    [a.city, a.region, a.postal].filter(Boolean).join(', '),
+    a.country,
+  ].map((s) => (s || '').trim()).filter(Boolean).join('\n');
+};
+
+data.setMyAddressFull = async function (a, { verified = false } = {}) {
+  const address = data.composeAddress(a);
+  const patch = {
+    user_id: window.currentUser.id,
+    recipient_name: a.recipientName || null,
+    line1: a.line1 || null,
+    line2: a.line2 || null,
+    city: a.city || null,
+    region: a.region || null,
+    postal: a.postal || null,
+    country: a.country || null,
+    verified,
+    verified_at: verified ? new Date().toISOString() : null,
+    address,
+    updated_at: new Date().toISOString(),
+  };
+  let { error } = await sb.from('user_addresses').upsert(patch);
+  if (error) {
+    // Pre-0027 schema: fall back to writing just the legacy blob so the user
+    // isn't blocked before the migration lands.
+    console.warn('setMyAddressFull (structured) failed, falling back to blob', error);
+    const fb = await sb.from('user_addresses').upsert({
+      user_id: window.currentUser.id, address, updated_at: new Date().toISOString(),
+    });
+    if (fb.error) throw fb.error;
+  }
+  return address;
+};
+
 data.setMyAddress = async function (address) {
   const { error } = await sb.from('user_addresses').upsert({
     user_id: window.currentUser.id,
