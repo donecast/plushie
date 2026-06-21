@@ -807,8 +807,41 @@ main {
   padding: 6px 9px;
 }
 /* Outfitted entries: keep the dense row, let attached pieces wrap below. */
-.grid-compact .col-entry.outfitted { display: block; }
-.grid-compact .col-entry.outfitted .attached-wrap { padding: 2px 0 4px 52px; }
+/* Outfitted plushes in list/compact views: keep the plush row its normal
+   height and render worn clothing as a compact, non-growing thumbnail strip to
+   the right so every row stays the same height (item 22). */
+.grid-list .col-entry.outfitted,
+.grid-compact .col-entry.outfitted {
+  display: flex; flex-wrap: nowrap; align-items: stretch; gap: 10px;
+}
+.grid-list .col-entry.outfitted > .card,
+.grid-compact .col-entry.outfitted > .card { flex: 1 1 auto; min-width: 0; }
+.grid-list .col-entry.outfitted .attached-wrap,
+.grid-compact .col-entry.outfitted .attached-wrap {
+  flex: 0 1 auto; max-width: 48%;
+  flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start;
+  align-items: stretch; gap: 6px; padding: 0;
+}
+.grid-list .attached-acc,
+.grid-compact .attached-acc {
+  flex: 0 0 auto; width: auto; max-width: 200px;
+  flex-direction: row; align-items: center; gap: 8px;
+  padding: 4px 8px 4px 4px; border-radius: 10px;
+}
+.grid-list .attached-acc::before,
+.grid-compact .attached-acc::before { display: none; }   /* drop the floating 'worn' tag in compact strips */
+.grid-list .attached-acc-photo,
+.grid-compact .attached-acc-photo {
+  width: 44px; height: 44px; aspect-ratio: 1; border-radius: 8px; flex: none;
+}
+.grid-list .attached-acc-info,
+.grid-compact .attached-acc-info {
+  padding: 0; gap: 2px; min-width: 0;
+}
+.grid-list .attached-acc-name,
+.grid-compact .attached-acc-name { font-size: 0.78rem; }
+.grid-compact .attached-detach,
+.grid-list .attached-detach { font-size: 0.68rem; padding: 2px 5px; align-self: flex-start; }
 
 .card-status {
   font-family: var(--sans);
@@ -3498,15 +3531,21 @@ body.locked { overflow: hidden; }
   width: 100%; padding: 11px 14px; border-radius: 999px;
   border: 1px solid var(--border-rose-mild); background: var(--surface); font: inherit; color: var(--ink);
 }
+/* Friend row: identity (avatar + @name + tier chip) on top, actions below —
+   so the Castle Crew / Coffin Buddies tag is never truncated (item 10). */
 .soc-friend-row {
-  display: flex; align-items: center; gap: 10px; padding: 8px 0;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 10px 0;
   border-bottom: 1px solid var(--hairline);
 }
-.soc-friend-row .soc-userlink { flex: 1; min-width: 0; }
+.soc-friend-id { display: flex; align-items: center; gap: 8px; flex: 1 1 100%; min-width: 0; }
+.soc-friend-id .soc-userlink { min-width: 0; flex: 0 1 auto; }
 .soc-friend-row .soc-userlink span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.soc-friend-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.soc-friend-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .soc-friend-actions button { font-size: 0.78rem; padding: 5px 9px; }
-.soc-inner-tag, .soc-rel-tag { font-size: 0.72rem; color: var(--gold); white-space: nowrap; }
+.soc-inner-tag, .soc-rel-tag {
+  font-size: 0.72rem; color: var(--gold); white-space: nowrap; flex: none;
+  background: var(--gold-soft-bg, var(--blush)); border-radius: 999px; padding: 2px 8px;
+}
 .soc-search-results { margin-bottom: 16px; }
 
 /* Profile */

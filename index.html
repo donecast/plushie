@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=78" />
+  <link rel="stylesheet" href="./styles.css?v=79" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -99,7 +99,7 @@
           </div>
         </details>
         <select id="col-sort" class="filter-select" aria-label="Sort collection">
-          <option value="manual">My order</option>
+          <option value="manual">My order (drag to sort)</option>
           <option value="acquired_desc">Newest acquired</option>
           <option value="acquired_asc">Oldest acquired</option>
           <option value="added_desc">Newest added</option>
@@ -391,6 +391,7 @@
           <button type="button" class="btn-ghost" data-close>Cancel</button>
           <button type="submit" class="btn-primary">Save</button>
         </div>
+        <button type="button" class="btn-link btn-remove-collection" id="modal-remove">Remove from collection</button>
       </form>
     </div>
   </div>
@@ -965,7 +966,7 @@
       </section>
 
       <section class="account-section">
-        <h3>Default shipping address <span class="addr-verified-badge hidden" id="acct-addr-verified">✓ Verified</span></h3>
+        <h3>Default shipping address <span class="addr-verified-badge hidden" id="acct-addr-verified">✓ Saved</span></h3>
         <p class="account-hint">Pre-fills your address on every trade so you don't have to type it each time. The other side only sees it once they've also entered theirs.</p>
         <div class="addr-grid">
           <label class="field addr-span-2">
@@ -999,7 +1000,7 @@
         </div>
         <p class="account-hint addr-error hidden" id="acct-addr-error"></p>
         <div class="account-row right">
-          <button class="btn-ghost" id="acct-save-address">Verify &amp; save</button>
+          <button class="btn-ghost" id="acct-save-address">Save address</button>
         </div>
       </section>
 
@@ -1087,6 +1088,6 @@
   <script src="./auth.js?v=55"></script>
   <script src="./db.js?v=51"></script>
   <script src="./data.js?v=60"></script>
-  <script src="./app.js?v=73"></script>
+  <script src="./app.js?v=74"></script>
 </body>
 </html>
