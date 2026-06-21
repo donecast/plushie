@@ -341,6 +341,9 @@ const data = {
         retired: r.retired,
         quantity: r.quantity ?? 1,
         wornBy: r.worn_by || null,
+        // Set only on user-added off-catalog clothing ('full' | 'mini').
+        // null for everything sourced from the catalog.
+        clothingScale: r.clothing_scale || null,
       };
     }
     return {
@@ -376,6 +379,7 @@ const data = {
         missing_accessories: missing,
         retired: !!item.retired,
         quantity: Math.max(1, parseInt(item.quantity, 10) || 1),
+        clothing_scale: item.clothingScale ?? null,
       };
     }
     return {
@@ -1020,7 +1024,7 @@ data.updateEmail = async function (email) {
 data.adminListUsers = async function () {
   const { data: rows, error } = await sb
     .from('profiles')
-    .select('id, username, is_admin, created_at, photo_uploads_enabled')
+    .select('id, username, is_admin, created_at, photo_uploads_enabled, custom_clothing_enabled')
     .order('created_at', { ascending: false });
   if (error) throw error;
   // Enrich with feedback summary
@@ -1659,6 +1663,11 @@ data.loadAppSettings = async function () {
   }
 };
 
+// Usernames (lowercase) that are always granted gated features
+// regardless of their per-user flag — alongside admins. Kept tiny and
+// explicit; add a name here to comp someone before billing exists.
+data.ALWAYS_GRANTED_USERNAMES = ['redrambler'];
+
 data.featureEnabled = function (key, defaultValue = true) {
   // Per-user photo uploads: profiles.photo_uploads_enabled, with an
   // unconditional admin override. The global app_settings row from
@@ -1668,6 +1677,15 @@ data.featureEnabled = function (key, defaultValue = true) {
     if (window.currentUser?.isAdmin) return true;
     // Off by default — only an explicit clearance enables uploads.
     return window.currentUser?.photoUploadsEnabled === true;
+  }
+  // Private custom clothing: profiles.custom_clothing_enabled, OFF by
+  // default. Admins + the allowlist always have it; everyone else needs
+  // an admin to flip their flag.
+  if (key === 'feature.custom_clothing') {
+    if (window.currentUser?.isAdmin) return true;
+    const uname = (window.currentUser?.username || '').toLowerCase();
+    if (data.ALWAYS_GRANTED_USERNAMES.includes(uname)) return true;
+    return window.currentUser?.customClothingEnabled === true;
   }
   const v = data.appSettings[key];
   if (v === undefined || v === null) return defaultValue;
@@ -1681,6 +1699,16 @@ data.adminSetPhotoUploads = async function (userId, enabled) {
   const { error } = await sb
     .from('profiles')
     .update({ photo_uploads_enabled: !!enabled })
+    .eq('id', userId);
+  if (error) throw error;
+};
+
+// Admin toggles another user's access to private custom clothing. Same
+// RLS path as adminSetPhotoUploads (admins can update any profile row).
+data.adminSetCustomClothing = async function (userId, enabled) {
+  const { error } = await sb
+    .from('profiles')
+    .update({ custom_clothing_enabled: !!enabled })
     .eq('id', userId);
   if (error) throw error;
 };
