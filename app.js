@@ -694,6 +694,10 @@ function parseBodyHtml(html) {
       // Stop at the IMPORTANT NOTE we already stripped — but if some
       // variant slipped through, stop again here.
       if (/^important\s+note/i.test(t)) break;
+      // Some products list Symbolism *before* the Set Includes section, so
+      // stop here too — otherwise the included items bleed into the
+      // symbolism prose.
+      if (/set\s+includes/i.test(t) && t.length < 80) break;
       // Dedupe identical images (the DPDR Rabbit triple-heart case).
       const img = b.querySelector ? b.querySelector('img') : null;
       if (img && img.src) {
@@ -714,7 +718,13 @@ function parseBodyHtml(html) {
   // anything that looks like the primary plush ('1x …Rabbit', '1x …Puppet')
   // and minus the tote/draw-string bag (which goes in its own field
   // when we add accessories Phase C).
-  const accessories = setIncludesIdx === -1 ? [] : extractSetIncludes(blocks, setIncludesIdx, symbolismIdx);
+  // The Symbolism heading is only a valid end boundary for the Set Includes
+  // list when it comes *after* it. Some products list Symbolism first, which
+  // would otherwise hand extractSetIncludes an inverted range (capturing
+  // nothing). Fall back to scanning to the end — extractSetIncludes has its
+  // own forward stop conditions for the next section heading.
+  const accEnd = symbolismIdx > setIncludesIdx ? symbolismIdx : blocks.length;
+  const accessories = setIncludesIdx === -1 ? [] : extractSetIncludes(blocks, setIncludesIdx, accEnd);
   // Bundle detection is tag-only now. The earlier heuristic of '2+ plush
   // items in the Set Includes' false-flagged single products like the
   // Gemini Rabbit, which legitimately ships with multiple plushie pieces.
