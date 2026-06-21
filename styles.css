@@ -971,6 +971,13 @@ main {
   color: #fff;
   border: 1px solid var(--gold-1);
 }
+/* Custom (off-catalog) clothing marker — distinct from Retired so it's
+   obvious at a glance that the piece didn't come from Plushie Dreadfuls. */
+.badge-custom {
+  background: var(--pending-fill);
+  color: var(--pending-text);
+  border: 1px solid var(--pending-text);
+}
 .badge-oos {
   background: var(--negative-fill);
   color: var(--negative-text);
