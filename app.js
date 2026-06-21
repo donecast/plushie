@@ -1121,6 +1121,61 @@ function sortCollection(items, mode) {
   return a;
 }
 
+// ─── Manual collection ordering (item 20) ───────────────────────────
+// Stamp each collection item's sortOrder to match the given full-collection
+// id sequence, so the next render (in 'manual' mode) reflects the new order.
+function applyManualOrder(orderedIds) {
+  const pos = new Map(orderedIds.map((id, i) => [id, i]));
+  for (const it of state.collection) {
+    if (pos.has(it.id)) it.sortOrder = pos.get(it.id);
+  }
+}
+
+// The ids currently shown in the collection grid, in display order. Read from
+// the DOM so it always matches exactly what the user sees.
+function displayedCollectionIds() {
+  return [...document.querySelectorAll('#collection-grid [data-reorder-id]')]
+    .map((el) => el.dataset.reorderId);
+}
+
+async function persistManualOrder(orderedIds) {
+  applyManualOrder(orderedIds);
+  render();
+  try {
+    await data.saveCollectionOrder(orderedIds);
+  } catch (e) {
+    console.error('saveCollectionOrder', e);
+    toast(/sort_order/i.test(e?.message || '')
+      ? 'Run the latest migration (db/0028_collection_sort.sql) — the sort_order column is missing.'
+      : 'Could not save the new order.');
+  }
+}
+
+// Move an item one slot up/down within the displayed list, preserving the
+// positions of everything not currently shown (other sub-tabs, the closet).
+async function moveCollectionItem(id, dir) {
+  const displayed = displayedCollectionIds();
+  const di = displayed.indexOf(id);
+  if (di === -1) return;
+  const neighbor = dir === 'up' ? displayed[di - 1] : displayed[di + 1];
+  if (!neighbor) return; // already at the edge
+  const gIds = sortCollection(state.collection.slice(), 'manual').map((x) => x.id);
+  gIds.splice(gIds.indexOf(id), 1);
+  let at = gIds.indexOf(neighbor);
+  if (dir === 'down') at += 1;
+  gIds.splice(at, 0, id);
+  await persistManualOrder(gIds);
+}
+
+// Drag-drop: drop `dragId` onto `targetId`'s slot in the global order.
+async function dropReorder(dragId, targetId) {
+  if (!dragId || !targetId || dragId === targetId) return;
+  const gIds = sortCollection(state.collection.slice(), 'manual').map((x) => x.id);
+  gIds.splice(gIds.indexOf(dragId), 1);
+  gIds.splice(gIds.indexOf(targetId), 0, dragId);
+  await persistManualOrder(gIds);
+}
+
 function sortWishlist(items, mode) {
   const a = items.slice();
   const cmpName = (x, y) => (x.name || '').localeCompare(y.name || '');
@@ -1461,8 +1516,20 @@ function renderCard(item, kind) {
     ? `<button data-action="assign-wearer" data-id="${item.id}" title="Attach this to the plush wearing it">🧥 Who's wearing this?</button>`
     : '';
 
+  // Manual reorder controls (item 20) — only in My-order mode. A drag grip
+  // (desktop) plus up/down arrows (works everywhere, incl. touch).
+  const manualMode = kind === 'collection' && state.colSort === 'manual';
+  const reorder = manualMode
+    ? `<div class="col-reorder" title="Drag the grip to reorder, or use the arrows">
+         <button class="reorder-btn" data-action="move-up" data-id="${item.id}" aria-label="Move up">▲</button>
+         <span class="reorder-grip" aria-hidden="true">☰</span>
+         <button class="reorder-btn" data-action="move-down" data-id="${item.id}" aria-label="Move down">▼</button>
+       </div>`
+    : '';
+
   const actions = kind === 'collection'
     ? `
+      ${reorder}
       ${qtyControl}
       ${wearerBtn}
       ${tradeBtn}
@@ -1504,8 +1571,9 @@ function renderCard(item, kind) {
   const photoZoom = src
     ? ` data-action="zoom-photo" data-id="${item.id}" role="button" tabindex="0" aria-label="View larger" title="Tap to see it bigger"`
     : '';
+  const dragAttr = manualMode ? ` draggable="true" data-reorder-id="${item.id}"` : '';
   return `
-    <article class="card" data-id="${item.id}">
+    <article class="card${manualMode ? ' card-draggable' : ''}" data-id="${item.id}"${dragAttr}>
       <div class="card-photo"${photoZoom}>
         ${photoHtml}
         ${badges.length ? `<div class="badge-stack">${badges.join('')}</div>` : ''}
@@ -2011,6 +2079,10 @@ async function onCardClickInner(btn) {
     const item = state.collection.find((x) => x.id === id) || state.wishlist.find((x) => x.id === id);
     const src = item && (photoSrc(item) || catalogImageFor(item.catalogId));
     if (src) openLightbox(src, stripOutfitWord(item.nickname || item.name || ''));
+  } else if (action === 'move-up') {
+    await moveCollectionItem(id, 'up');
+  } else if (action === 'move-down') {
+    await moveCollectionItem(id, 'down');
   } else if (action === 'delete') {
     if (!confirm('Remove this plushie?')) return;
     const col = state.collection.find((x) => x.id === id);
@@ -2656,6 +2728,34 @@ function wireEvents() {
   });
 
   document.getElementById('collection-grid').addEventListener('click', onCardClick);
+  // Drag-and-drop manual reordering (item 20) — active only in 'My order' mode
+  // where cards carry data-reorder-id. Touch users use the ▲▼ arrows instead.
+  const colGrid = document.getElementById('collection-grid');
+  colGrid.addEventListener('dragstart', (e) => {
+    const card = e.target.closest('[data-reorder-id]');
+    if (!card) return;
+    state._dragId = card.dataset.reorderId;
+    card.classList.add('dragging');
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+  });
+  colGrid.addEventListener('dragover', (e) => {
+    if (state._dragId) e.preventDefault();
+  });
+  colGrid.addEventListener('dragend', () => {
+    colGrid.querySelectorAll('.dragging').forEach((el) => el.classList.remove('dragging'));
+    state._dragId = null;
+  });
+  colGrid.addEventListener('drop', async (e) => {
+    if (!state._dragId) return;
+    e.preventDefault();
+    const target = e.target.closest('[data-reorder-id]');
+    const dragId = state._dragId;
+    state._dragId = null;
+    colGrid.querySelectorAll('.dragging').forEach((el) => el.classList.remove('dragging'));
+    if (target && target.dataset.reorderId !== dragId) {
+      await dropReorder(dragId, target.dataset.reorderId);
+    }
+  });
   document.getElementById('unworn-clothing-grid').addEventListener('click', onCardClick);
   document.getElementById('wishlist-grid').addEventListener('click', onCardClick);
   document.getElementById('catalog-grid').addEventListener('click', onCardClick);

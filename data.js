@@ -207,6 +207,17 @@ const data = {
     if (error) throw error;
   },
 
+  // Persist a manual collection ordering (item 20). `orderedIds` is the full
+  // sequence; we write each row's sort_order = its index. One update per row
+  // keeps it RLS-safe. Tolerates the column not existing yet (pre-0028).
+  async saveCollectionOrder(orderedIds) {
+    const now = new Date().toISOString();
+    const results = await Promise.all(orderedIds.map((id, i) =>
+      sb.from('plushies').update({ sort_order: i, updated_at: now }).eq('id', id)));
+    const failed = results.find((r) => r.error);
+    if (failed) throw failed.error;
+  },
+
   // ─── Photos (R2 via Worker, with Supabase Storage fallback) ──────
   // Routing is controlled by window.R2_BASE in config.js:
   //   * empty / unset → legacy Supabase Storage 'photos' bucket
@@ -341,6 +352,7 @@ const data = {
         retired: r.retired,
         quantity: r.quantity ?? 1,
         wornBy: r.worn_by || null,
+        sortOrder: r.sort_order ?? null,
       };
     }
     return {

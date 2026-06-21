@@ -736,6 +736,36 @@ main {
   gap: 12px;
 }
 
+/* Manual reorder controls (item 20) */
+.col-reorder {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 4px;
+}
+.reorder-btn {
+  border: 1px solid var(--hairline-3);
+  background: var(--surface-2, var(--surface));
+  border-radius: 6px;
+  width: 26px;
+  height: 22px;
+  line-height: 1;
+  font-size: 0.7rem;
+  cursor: pointer;
+  color: var(--ink);
+  padding: 0;
+}
+.reorder-btn:hover { border-color: var(--rose-1); }
+.reorder-grip {
+  cursor: grab;
+  font-size: 0.95rem;
+  color: var(--muted-1);
+  padding: 0 2px;
+  user-select: none;
+}
+.card-draggable { cursor: grab; }
+.card-draggable.dragging { opacity: 0.5; outline: 2px dashed var(--rose-1); }
+
 /* Compact list view for My Collection (item 13): one dense row per item —
    tiny thumbnail on the left, name + actions on the right, no meaning blurb. */
 .grid-compact {
