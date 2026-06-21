@@ -1825,6 +1825,32 @@ main {
 .legal-section li { margin-bottom: 8px; line-height: 1.5; color: var(--ink); }
 .legal-section strong { color: var(--rose-2); font-weight: 700; }
 .legal-section a { color: var(--rose-1); }
+.legal-section code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+  background: var(--rose-bg, rgba(0, 0, 0, 0.05));
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.changelog-day { margin-bottom: 20px; }
+.changelog-day:not(:last-child) {
+  padding-bottom: 16px;
+  border-bottom: 1px dashed var(--line, rgba(0, 0, 0, 0.12));
+}
+.changelog-date {
+  font-family: var(--display);
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: var(--rose-2);
+  margin: 0 0 8px;
+  letter-spacing: 0.01em;
+}
+.changelog-fixes {
+  margin: 6px 0 0 !important;
+  font-style: italic;
+  font-size: 0.92rem;
+  color: var(--ink-2);
+}
 .footer-note {
   flex-basis: 100%;
   margin: 0;

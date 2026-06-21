@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=80" />
+  <link rel="stylesheet" href="./styles.css?v=81" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -465,6 +465,8 @@
       ·
       <button type="button" class="footer-link" data-open-legal="privacy">Privacy</button>
       ·
+      <button type="button" class="footer-link" data-open-legal="changelog">Change Log</button>
+      ·
       <a class="footer-link" href="mailto:support@plushcrypt.com">Contact</a>
     </p>
   </footer>
@@ -804,6 +806,7 @@
       <nav class="subtabs">
         <button class="subtab active" data-legal-tab="terms">Terms</button>
         <button class="subtab" data-legal-tab="privacy">Privacy</button>
+        <button class="subtab" data-legal-tab="changelog">Change Log</button>
         <button class="subtab" data-legal-tab="about">About</button>
       </nav>
 
@@ -835,6 +838,72 @@
           <li><strong>Third parties:</strong> auth, database, storage, and transactional email run on Supabase. Magic-link emails send via our SMTP provider (Resend). Catalog data is fetched from plushiedreadfuls.com. We don't sell your data.</li>
           <li><strong>Deletion:</strong> email <a href="mailto:support@plushcrypt.com">support@plushcrypt.com</a> from your account address and we'll wipe your rows and photos.</li>
         </ul>
+      </section>
+
+      <section class="legal-section hidden" data-legal-section="changelog">
+        <h2>Change Log</h2>
+        <p>What's new in the crypt, freshest first. We'll keep adding to this as we dig.</p>
+
+        <div class="changelog">
+          <div class="changelog-day">
+            <h3 class="changelog-date">June 21, 2026</h3>
+            <ul>
+              <li>A big feature pass across <strong>Collection</strong>, <strong>Social</strong>, and <strong>Trade</strong> — 20 of your requested tweaks in one sweep.</li>
+              <li>Custom clothing now lives in an always-on closet and wears a ✨ <strong>Custom</strong> tag so it's easy to spot.</li>
+              <li>Friend tiers (your <strong>Coven</strong> and your <strong>Inner Coffin</strong>) got clearer.</li>
+              <li>Smarter accessory detection — we now pull "set includes" pieces from more of the brand's wildly inconsistent product write-ups.</li>
+              <li>Tidier outfitted-plush layouts, clearer username warnings, and more honest shipping-address handling.</li>
+            </ul>
+            <p class="changelog-fixes">Misc bug fixes.</p>
+          </div>
+
+          <div class="changelog-day">
+            <h3 class="changelog-date">June 20, 2026</h3>
+            <ul>
+              <li>New <strong>Social</strong> tab: friends (your Coven), an Inner Coffin for your closest few, posts, and a <strong>Top 8 Buns</strong> showcase. It's also the new landing tab.</li>
+              <li>Edit your own posts after publishing.</li>
+              <li>Get notified when someone sends you a friend request.</li>
+              <li><strong>The Closet</strong>: unworn clothing split into its own 2-up grid, and clothing can now be "worn by" one of your plushes.</li>
+              <li>A smarter "Have" flow plus a per-item accessory checklist so you can track exactly what's missing.</li>
+              <li>Photo uploads in Collection and Trades (now on faster cloud storage).</li>
+              <li>Search learned new tricks: <code>-exclusions</code> and "exact phrases", plus mask &amp; clothing categories.</li>
+              <li>Stock images show by default — your own photos are optional.</li>
+            </ul>
+            <p class="changelog-fixes">Misc bug fixes (theme toggle, accessory lists, admin queue, and more).</p>
+          </div>
+
+          <div class="changelog-day">
+            <h3 class="changelog-date">June 19, 2026</h3>
+            <ul>
+              <li>Catalog detail view with each plush's <strong>lore &amp; symbolism</strong>, opening on demand.</li>
+              <li>Bundles get their own category — marking a bundle "Have" explodes it into its component pieces.</li>
+              <li>Accessories tracked as a per-item checklist.</li>
+              <li>Pens (your plush counts) can grow reference photos.</li>
+              <li>Catalog polish: equal-height cards and a cleaner badge order.</li>
+            </ul>
+            <p class="changelog-fixes">Misc bug fixes.</p>
+          </div>
+
+          <div class="changelog-day">
+            <h3 class="changelog-date">June 18, 2026</h3>
+            <ul>
+              <li>Add <strong>custom catalog items</strong>, plus "do you have this picture?" submissions to fill in missing art.</li>
+              <li>Catalog variants now inherit their parent's details field-by-field.</li>
+              <li><strong>Trade disputes</strong>: both sides can file a statement, with an admin resolution queue to sort it out.</li>
+            </ul>
+            <p class="changelog-fixes">Misc bug fixes (stuck trade reservations, mutual-confirmation fall-through).</p>
+          </div>
+
+          <div class="changelog-day">
+            <h3 class="changelog-date">June 17, 2026 — first guests in the crypt 🦇</h3>
+            <ul>
+              <li>The Plush Crypt opened its doors to its first real collectors.</li>
+              <li>Browse the <strong>Catalog</strong>, track <strong>My Collection</strong>, keep a <strong>Wish List</strong>, and set up <strong>Trades</strong> — all live.</li>
+              <li>Passwordless sign-in by magic link.</li>
+              <li>Light parchment and dark gothic themes.</li>
+            </ul>
+          </div>
+        </div>
       </section>
 
       <section class="legal-section hidden" data-legal-section="about">
