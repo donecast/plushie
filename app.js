@@ -3137,18 +3137,43 @@ function renderBrowse() {
     if (!byOwner.has(it.ownerId)) byOwner.set(it.ownerId, { username: it.ownerUsername, items: [] });
     byOwner.get(it.ownerId).items.push(it);
   }
-  const groups = [...byOwner.entries()].map(([ownerId, g]) => `
+  const groups = [...byOwner.entries()].map(([ownerId, g]) => {
+    // Sort each trader's offerings by category, then alphabetically by name
+    // (item 19) — a tidy, scannable order within each crypt.
+    g.items.sort((a, b) =>
+      tradeCategoryRank(a) - tradeCategoryRank(b)
+      || (a.name || '').localeCompare(b.name || ''));
+    return `
     <section class="trader-group">
       <h2 class="trader-head">
         ${repBadge(ownerId, g.username, state.partnerFeedback.get(ownerId), { large: true })}
         <button class="btn-link" data-action="propose-trade" data-uid="${ownerId}">Propose a trade →</button>
       </h2>
-      <div class="grid grid-tight">
+      <ul class="trade-offer-list">
         ${g.items.map((it) => renderOfferingCard(it)).join('')}
-      </div>
+      </ul>
     </section>
-  `).join('');
+  `; }).join('');
   document.getElementById('subtab-browse').innerHTML = groups;
+}
+
+// Resolve a trade item's category (plush/mini/clothing/accessory/bundle/other)
+// via the catalog, with a name-based fallback for custom pieces.
+const TRADE_CAT_ORDER = ['plush', 'mini', 'clothing', 'accessory', 'bundle', 'other'];
+const TRADE_CAT_LABEL = {
+  plush: 'Plush', mini: 'Mini', clothing: 'Clothing',
+  accessory: 'Accessory', bundle: 'Bundle', other: 'Other',
+};
+function tradeItemCategory(it) {
+  if (it.catalogId) {
+    const cat = state.catalog.find((c) => c.id === it.catalogId);
+    if (cat) return catalogCategory(cat);
+  }
+  return CLOTHING_RE.test((it.name || '').toLowerCase()) ? 'clothing' : 'other';
+}
+function tradeCategoryRank(it) {
+  const i = TRADE_CAT_ORDER.indexOf(tradeItemCategory(it));
+  return i === -1 ? TRADE_CAT_ORDER.length : i;
 }
 
 function catalogImageFor(catalogId) {
@@ -3159,22 +3184,26 @@ function catalogImageFor(catalogId) {
 
 function renderOfferingCard(it) {
   const src = it.photo || catalogImageFor(it.catalogId);
-  const photo = src ? `<img src="${escapeHtml(src)}" loading="lazy" />` : `<span class="no-photo">🖤</span>`;
-  // Quick-trade button drops you straight into the offer builder with
-  // this one item pre-selected on their side — much faster than the
-  // owner-header "Propose a trade" path when you only want one thing.
+  const photo = src
+    ? `<img src="${escapeHtml(src)}" loading="lazy" data-action="zoom-trade" data-src="${escapeHtml(src)}" data-name="${escapeHtml(stripOutfitWord(it.name))}" />`
+    : `<span class="no-photo">🖤</span>`;
+  // Compact row (item 19): small picture on the left, bullet-pointed facts on
+  // the right, with a quick-trade CTA. Quick-trade drops you straight into the
+  // offer builder with this one item pre-selected on their side.
+  const facts = [
+    `<li>${TRADE_CAT_LABEL[tradeItemCategory(it)] || 'Other'}</li>`,
+    `<li>Available: ${it.available}</li>`,
+  ];
+  if (it.notes) facts.push(`<li class="trade-offer-note">${escapeHtml(it.notes)}</li>`);
   return `
-    <article class="card card-small">
-      <div class="card-photo">${photo}</div>
-      <div class="card-body">
-        <h3 class="card-name">${escapeHtml(stripOutfitWord(it.name))}</h3>
-        <div class="card-meta"><span>Available: ${it.available}</span></div>
-        ${it.notes ? `<p class="card-meaning">${escapeHtml(it.notes)}</p>` : ''}
+    <li class="trade-offer-row">
+      <div class="trade-offer-photo">${photo}</div>
+      <div class="trade-offer-body">
+        <h3 class="trade-offer-name">${escapeHtml(stripOutfitWord(it.name))}</h3>
+        <ul class="trade-offer-facts">${facts.join('')}</ul>
       </div>
-      <div class="card-actions">
-        <button class="btn-primary" data-action="quick-trade" data-uid="${it.ownerId}" data-item-id="${it.id}">I'll trade for this</button>
-      </div>
-    </article>
+      <button class="btn-primary trade-offer-cta" data-action="quick-trade" data-uid="${it.ownerId}" data-item-id="${it.id}">I'll trade for this</button>
+    </li>
   `;
 }
 
@@ -3481,7 +3510,8 @@ async function onTradeClick(e) {
   // silently doing nothing — that was the original "can't remove"
   // symptom.
   try {
-    if (action === 'propose-trade')         await openOfferModal(uid);
+    if (action === 'zoom-trade')            openLightbox(btn.dataset.src, btn.dataset.name);
+    else if (action === 'propose-trade')         await openOfferModal(uid);
     else if (action === 'quick-trade')      await openOfferModal(uid, null, btn.dataset.itemId);
     else if (action === 'trade-item-remove') await removeMyTradeItem(id);
     else if (action === 'trade-item-adjust') await adjustMyTradeItem(id);
