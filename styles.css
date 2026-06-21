@@ -736,6 +736,80 @@ main {
   gap: 12px;
 }
 
+/* Manual reorder controls (item 20) */
+.col-reorder {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 4px;
+}
+.reorder-btn {
+  border: 1px solid var(--hairline-3);
+  background: var(--surface-2, var(--surface));
+  border-radius: 6px;
+  width: 26px;
+  height: 22px;
+  line-height: 1;
+  font-size: 0.7rem;
+  cursor: pointer;
+  color: var(--ink);
+  padding: 0;
+}
+.reorder-btn:hover { border-color: var(--rose-1); }
+.reorder-grip {
+  cursor: grab;
+  font-size: 0.95rem;
+  color: var(--muted-1);
+  padding: 0 2px;
+  user-select: none;
+}
+.card-draggable { cursor: grab; }
+.card-draggable.dragging { opacity: 0.5; outline: 2px dashed var(--rose-1); }
+
+/* Compact list view for My Collection (item 13): one dense row per item —
+   tiny thumbnail on the left, name + actions on the right, no meaning blurb. */
+.grid-compact {
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+.grid-compact .card {
+  display: grid;
+  grid-template-columns: 52px 1fr auto;
+  grid-template-rows: auto;
+  align-items: center;
+  border-radius: 12px;
+}
+.grid-compact .card:hover { transform: none; }
+.grid-compact .card-photo {
+  width: 52px;
+  height: 52px;
+  aspect-ratio: 1 / 1;
+}
+.grid-compact .card-body {
+  padding: 6px 12px;
+  gap: 2px;
+}
+.grid-compact .card-name {
+  font-size: 0.92rem;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+}
+.grid-compact .card-meaning,
+.grid-compact .card-meta { display: none; }
+.grid-compact .card-actions {
+  padding: 0 10px;
+  border-top: 0;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+.grid-compact .card-actions button {
+  font-size: 0.72rem;
+  padding: 6px 9px;
+}
+/* Outfitted entries: keep the dense row, let attached pieces wrap below. */
+.grid-compact .col-entry.outfitted { display: block; }
+.grid-compact .col-entry.outfitted .attached-wrap { padding: 2px 0 4px 52px; }
+
 .card-status {
   font-family: var(--sans);
   font-weight: 800;
@@ -1853,6 +1927,46 @@ main {
 }
 
 .trader-group, .my-items-section, .trades-section { margin-bottom: 28px; }
+
+/* Compact trade browse rows (item 19): small photo, bulleted facts, CTA. */
+.trade-offer-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.trade-offer-row {
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--hairline-3);
+  border-radius: 14px;
+  padding: 8px 12px 8px 8px;
+  box-shadow: var(--shadow-card-soft);
+}
+.trade-offer-photo {
+  width: 64px; height: 64px;
+  border-radius: 10px; overflow: hidden;
+  background: linear-gradient(160deg, var(--blush), var(--canvas));
+  display: flex; align-items: center; justify-content: center;
+}
+.trade-offer-photo img { width: 100%; height: 100%; object-fit: cover; cursor: zoom-in; }
+.trade-offer-photo .no-photo { font-size: 1.4rem; }
+.trade-offer-body { min-width: 0; }
+.trade-offer-name {
+  font-family: var(--sans); font-weight: 800; font-size: 0.96rem;
+  margin: 0 0 4px; color: var(--ink); line-height: 1.2;
+}
+.trade-offer-facts {
+  list-style: disc; margin: 0; padding-left: 18px;
+  font-size: 0.8rem; color: var(--muted-1); font-family: var(--sans);
+  display: flex; flex-direction: column; gap: 1px;
+}
+.trade-offer-facts li { line-height: 1.3; }
+.trade-offer-note { font-style: italic; }
+.trade-offer-cta { white-space: nowrap; align-self: center; }
+@media (max-width: 520px) {
+  .trade-offer-row { grid-template-columns: 56px 1fr; }
+  .trade-offer-photo { width: 56px; height: 56px; }
+  .trade-offer-cta { grid-column: 1 / -1; width: 100%; }
+}
 .trader-head {
   display: flex;
   justify-content: space-between;
@@ -1874,6 +1988,37 @@ main {
   font-family: var(--serif);
   font-size: 1rem;
   padding: 8px 0;
+}
+.subview-hint {
+  color: var(--muted-1);
+  font-size: 0.86rem;
+  margin: 0 0 12px;
+  text-align: center;
+}
+
+/* Structured shipping address (item 7) */
+.addr-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.addr-grid .addr-span-2 { grid-column: 1 / -1; }
+.addr-verified-badge {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--positive-text);
+  background: var(--positive-fill);
+  border: 1px solid var(--positive-edge);
+  border-radius: 999px;
+  padding: 2px 8px;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+.addr-error { color: var(--rose-2); font-style: normal; }
+@media (max-width: 520px) {
+  .addr-grid { grid-template-columns: 1fr; }
 }
 
 .card-small { font-size: 0.92rem; }
@@ -3304,8 +3449,9 @@ body.locked { overflow: hidden; }
 .soc-like.liked { color: var(--danger); }
 
 /* Comments */
-.soc-comments { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
-.soc-comment { font-size: 0.9rem; line-height: 1.45; display: flex; gap: 6px; align-items: baseline; }
+.soc-comments { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+.soc-comment { font-size: 0.9rem; line-height: 1.45; display: flex; flex-direction: column; gap: 2px; }
+.soc-comment-main { display: flex; gap: 6px; align-items: baseline; }
 .soc-comment .soc-userlink b { color: var(--ink); }
 .soc-comment-del { margin-left: auto; }
 .soc-more-comments { align-self: flex-start; font-size: 0.82rem; }
@@ -3314,6 +3460,32 @@ body.locked { overflow: hidden; }
   flex: 1; padding: 8px 12px; border-radius: 999px;
   border: 1px solid var(--border-rose-faint); background: var(--surface-2); font: inherit; color: var(--ink);
 }
+
+/* Comment reactions, replies & mentions (item 5) */
+.soc-comment-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-left: 2px; }
+.soc-react-btn, .soc-reply-btn { font-size: 0.76rem; }
+.soc-react-wrap { position: relative; display: inline-flex; }
+.soc-react-palette {
+  position: absolute; bottom: 100%; left: 0; margin-bottom: 4px; z-index: 5;
+  display: flex; gap: 2px; padding: 4px 6px;
+  background: var(--surface); border: 1px solid var(--hairline-3);
+  border-radius: 999px; box-shadow: var(--shadow-card-lift);
+}
+.soc-react-opt { border: none; background: none; cursor: pointer; font-size: 1.1rem; line-height: 1; padding: 2px; border-radius: 50%; }
+.soc-react-opt:hover { transform: scale(1.25); }
+.soc-react-chips { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.soc-react-chip {
+  border: 1px solid var(--hairline-3); background: var(--surface-2);
+  border-radius: 999px; padding: 1px 8px; font-size: 0.76rem; cursor: pointer; color: var(--ink);
+}
+.soc-react-chip.mine { border-color: var(--rose-1); background: var(--blush); color: var(--rose-2); font-weight: 700; }
+.soc-comment-replies { padding-left: 16px; border-left: 2px solid var(--hairline); margin-top: 4px; display: flex; flex-direction: column; gap: 8px; }
+.soc-reply-form { margin-top: 4px; }
+.soc-mention {
+  border: none; background: none; padding: 0; cursor: pointer;
+  color: var(--rose-1); font-weight: 700; font: inherit;
+}
+.soc-mention:hover { text-decoration: underline; }
 
 /* Friends */
 .soc-section { margin-bottom: 22px; }
@@ -3347,9 +3519,13 @@ body.locked { overflow: hidden; }
 
 /* Top 8 */
 .soc-top8-grid {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;
+  align-items: start;
 }
-.soc-top8-slot { position: relative; text-align: center; }
+/* min-width:0 is essential: without it each 1fr track keeps an `auto`
+   minimum equal to its (nowrap) name width, so longer-named slots balloon
+   while others shrink. Pinning it to 0 makes every slot the same size. */
+.soc-top8-slot { position: relative; text-align: center; min-width: 0; }
 .soc-top8-rank {
   position: absolute; top: 4px; left: 4px; z-index: 1;
   background: var(--gold); color: var(--text-on-gold);
@@ -3372,12 +3548,13 @@ body.locked { overflow: hidden; }
 /* Top 8 picker (modal) */
 .soc-help { color: var(--ink-mute); font-size: 0.86rem; margin: 0 0 12px; }
 .soc-pick-grid {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;
   max-height: 50vh; overflow-y: auto; margin-bottom: 14px;
 }
 .soc-pick {
   position: relative; background: var(--surface-2); cursor: pointer;
   border: 2px solid transparent; border-radius: 10px; padding: 6px; font: inherit; color: var(--ink);
+  min-width: 0; /* keep every pick tile the same width (see .soc-top8-slot) */
 }
 .soc-pick.picked { border-color: var(--gold); background: var(--gold-soft-bg); }
 .soc-pick-photo {
@@ -3394,8 +3571,8 @@ body.locked { overflow: hidden; }
 .soc-file-name { font-size: 0.8rem; color: var(--gold); }
 
 @media (max-width: 520px) {
-  .soc-top8-grid { grid-template-columns: repeat(4, 1fr); gap: 6px; }
-  .soc-pick-grid { grid-template-columns: repeat(3, 1fr); }
+  .soc-top8-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .soc-pick-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .soc-profile-head { gap: 12px; }
 }
 

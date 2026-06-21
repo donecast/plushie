@@ -207,6 +207,28 @@ const data = {
     if (error) throw error;
   },
 
+  // Per-item visibility (item 11). A dedicated column update so it never rides
+  // through _itemToRow — that keeps ordinary saves working even before the
+  // 0031 migration adds the column (this call just no-ops with a warning).
+  async setItemVisibility(itemId, visibility) {
+    const { error } = await sb
+      .from('plushies')
+      .update({ visibility })
+      .eq('id', itemId);
+    if (error) throw error;
+  },
+
+  // Persist a manual collection ordering (item 20). `orderedIds` is the full
+  // sequence; we write each row's sort_order = its index. One update per row
+  // keeps it RLS-safe. Tolerates the column not existing yet (pre-0029).
+  async saveCollectionOrder(orderedIds) {
+    const now = new Date().toISOString();
+    const results = await Promise.all(orderedIds.map((id, i) =>
+      sb.from('plushies').update({ sort_order: i, updated_at: now }).eq('id', id)));
+    const failed = results.find((r) => r.error);
+    if (failed) throw failed.error;
+  },
+
   // ─── Photos (R2 via Worker, with Supabase Storage fallback) ──────
   // Routing is controlled by window.R2_BASE in config.js:
   //   * empty / unset → legacy Supabase Storage 'photos' bucket
@@ -341,6 +363,8 @@ const data = {
         retired: r.retired,
         quantity: r.quantity ?? 1,
         wornBy: r.worn_by || null,
+        sortOrder: r.sort_order ?? null,
+        visibility: r.visibility || 'friends',
         // Set only on user-added off-catalog clothing ('full' | 'mini').
         // null for everything sourced from the catalog.
         clothingScale: r.clothing_scale || null,
@@ -993,6 +1017,79 @@ data.getMyAddress = async function () {
   return row?.address ?? '';
 };
 
+// Structured default shipping address (item 7). Falls back gracefully if the
+// 0028 migration hasn't been applied (the extra columns won't exist yet) by
+// returning just the legacy blob in `address`.
+data.getMyAddressFull = async function () {
+  const cols = 'recipient_name, line1, line2, city, region, postal, country, verified, verified_at, address';
+  let { data: row, error } = await sb
+    .from('user_addresses')
+    .select(cols)
+    .eq('user_id', window.currentUser.id)
+    .maybeSingle();
+  if (error) {
+    // Pre-0027 schema: retry with just the legacy blob.
+    const fallback = await sb
+      .from('user_addresses')
+      .select('address')
+      .eq('user_id', window.currentUser.id)
+      .maybeSingle();
+    row = fallback.data || null;
+  }
+  return {
+    recipientName: row?.recipient_name ?? '',
+    line1: row?.line1 ?? '',
+    line2: row?.line2 ?? '',
+    city: row?.city ?? '',
+    region: row?.region ?? '',
+    postal: row?.postal ?? '',
+    country: row?.country ?? '',
+    verified: !!row?.verified,
+    legacy: row?.address ?? '',
+  };
+};
+
+// Compose the structured fields into the legacy one-line(ish) blob used by the
+// trade address-exchange UI.
+data.composeAddress = function (a) {
+  return [
+    a.recipientName,
+    a.line1,
+    a.line2,
+    [a.city, a.region, a.postal].filter(Boolean).join(', '),
+    a.country,
+  ].map((s) => (s || '').trim()).filter(Boolean).join('\n');
+};
+
+data.setMyAddressFull = async function (a, { verified = false } = {}) {
+  const address = data.composeAddress(a);
+  const patch = {
+    user_id: window.currentUser.id,
+    recipient_name: a.recipientName || null,
+    line1: a.line1 || null,
+    line2: a.line2 || null,
+    city: a.city || null,
+    region: a.region || null,
+    postal: a.postal || null,
+    country: a.country || null,
+    verified,
+    verified_at: verified ? new Date().toISOString() : null,
+    address,
+    updated_at: new Date().toISOString(),
+  };
+  let { error } = await sb.from('user_addresses').upsert(patch);
+  if (error) {
+    // Pre-0027 schema: fall back to writing just the legacy blob so the user
+    // isn't blocked before the migration lands.
+    console.warn('setMyAddressFull (structured) failed, falling back to blob', error);
+    const fb = await sb.from('user_addresses').upsert({
+      user_id: window.currentUser.id, address, updated_at: new Date().toISOString(),
+    });
+    if (fb.error) throw fb.error;
+  }
+  return address;
+};
+
 data.setMyAddress = async function (address) {
   const { error } = await sb.from('user_addresses').upsert({
     user_id: window.currentUser.id,
@@ -1009,6 +1106,18 @@ data.updateUsername = async function (username) {
     .eq('id', window.currentUser.id);
   if (error) throw error;
   window.currentUser.username = username;
+};
+
+// When did the username last change? Used to show the 30-day cooldown hint
+// (item 8). Returns a Date or null. Tolerates the column not existing yet.
+data.getUsernameChangedAt = async function () {
+  const { data: row, error } = await sb
+    .from('profiles')
+    .select('username_updated_at')
+    .eq('id', window.currentUser.id)
+    .maybeSingle();
+  if (error) { console.warn('getUsernameChangedAt', error); return null; }
+  return row?.username_updated_at ? new Date(row.username_updated_at) : null;
 };
 
 data.updateEmail = async function (email) {
@@ -1730,7 +1839,7 @@ data.whoShipsFirst = function (myNet, theirNet) {
 };
 
 // ════════════════════════════════════════════════════════════════════
-// Social — friends (Coven), Inner Coffin, posts, likes, comments, Top 8.
+// Social — friends (Coven), Castle Crew, posts, likes, comments, Top 8.
 // Mirrors the trade layer's conventions: denormalized snapshots instead
 // of cross-user FKs, usernames resolved in a separate batch query, and
 // photos routed through the same storage helpers (here, the 'social'
@@ -1795,12 +1904,19 @@ data.listFriends = async function () {
   const otherIds = rows.map((r) => (r.requester_id === uid ? r.addressee_id : r.requester_id));
   const { data: inner } = await sb.from('inner_circle').select('member_id').eq('owner_id', uid);
   const innerSet = new Set((inner || []).map((r) => r.member_id));
+  // Coffin Buddies (item 10) — best-effort so older schemas don't break.
+  let coffinSet = new Set();
+  try {
+    const { data: coffin } = await sb.from('coffin_buddies').select('member_id').eq('owner_id', uid);
+    coffinSet = new Set((coffin || []).map((r) => r.member_id));
+  } catch (e) { console.warn('coffin_buddies load', e); }
   const profs = await data._resolveProfiles(otherIds);
   return otherIds.map((id) => ({
     userId: id,
     username: profs.get(id)?.username ?? 'unknown',
     avatarUrl: profs.get(id)?.avatarUrl ?? null,
-    isInner: innerSet.has(id),
+    isInner: innerSet.has(id) || coffinSet.has(id),
+    isCoffinBuddy: coffinSet.has(id),
   })).sort((a, b) => a.username.localeCompare(b.username));
 };
 
@@ -1872,7 +1988,7 @@ data.removeFriend = async function (otherId) {
     .delete()
     .or(`and(requester_id.eq.${uid},addressee_id.eq.${otherId}),and(requester_id.eq.${otherId},addressee_id.eq.${uid})`);
   if (error) throw error;
-  // Also drop them from my Inner Coffin if present (best-effort).
+  // Also drop them from my Castle Crew if present (best-effort).
   try { await sb.from('inner_circle').delete().eq('owner_id', uid).eq('member_id', otherId); }
   catch (e) { console.warn('inner cleanup', e); }
 };
@@ -1883,7 +1999,22 @@ data.setInner = async function (otherId, on) {
     const { error } = await sb.from('inner_circle').upsert({ owner_id: uid, member_id: otherId });
     if (error) throw error;
   } else {
+    // DB trigger cascades the matching coffin_buddies removal (Castle Crew is a
+    // prerequisite for Coffin Buddies).
     const { error } = await sb.from('inner_circle').delete().eq('owner_id', uid).eq('member_id', otherId);
+    if (error) throw error;
+  }
+};
+
+// Coffin Buddies (item 10). Adding implies Castle Crew (a DB trigger inserts
+// the inner_circle row); removing leaves Castle Crew intact.
+data.setCoffinBuddy = async function (otherId, on) {
+  const uid = window.currentUser.id;
+  if (on) {
+    const { error } = await sb.from('coffin_buddies').upsert({ owner_id: uid, member_id: otherId });
+    if (error) throw error;
+  } else {
+    const { error } = await sb.from('coffin_buddies').delete().eq('owner_id', uid).eq('member_id', otherId);
     if (error) throw error;
   }
 };
@@ -1971,7 +2102,9 @@ data._hydratePosts = async function (rows) {
 
   const [{ data: likes }, { data: comments }] = await Promise.all([
     sb.from('post_likes').select('post_id, user_id').in('post_id', postIds),
-    sb.from('post_comments').select('id, post_id, author_id, body, created_at').in('post_id', postIds).order('created_at', { ascending: true }),
+    // parent_comment_id may not exist pre-0032; select('*') so the query
+    // doesn't error on older schemas.
+    sb.from('post_comments').select('*').in('post_id', postIds).order('created_at', { ascending: true }),
   ]);
 
   const likeCount = new Map();
@@ -1986,10 +2119,57 @@ data._hydratePosts = async function (rows) {
     commentsByPost.get(c.post_id).push(c);
   }
 
+  // Comment reactions (item 5) — best-effort so a pre-0032 client still works.
+  const commentIds = (comments || []).map((c) => c.id);
+  const reactByComment = new Map();
+  if (commentIds.length) {
+    try {
+      const { data: reacts } = await sb.from('comment_reactions')
+        .select('comment_id, user_id, emoji').in('comment_id', commentIds);
+      for (const r of (reacts || [])) {
+        if (!reactByComment.has(r.comment_id)) reactByComment.set(r.comment_id, new Map());
+        const m = reactByComment.get(r.comment_id);
+        const cur = m.get(r.emoji) || { count: 0, mine: false };
+        cur.count++; if (r.user_id === uid) cur.mine = true;
+        m.set(r.emoji, cur);
+      }
+    } catch (e) { console.warn('comment_reactions load', e); }
+  }
+  const reactionsFor = (cid) => {
+    const m = reactByComment.get(cid);
+    return m ? [...m.entries()].map(([emoji, v]) => ({ emoji, count: v.count, mine: v.mine })) : [];
+  };
+
   // Resolve every author (posts + comment authors) in one batch.
   const ids = new Set(rows.map((r) => r.author_id));
   for (const c of (comments || [])) ids.add(c.author_id);
   const profs = await data._resolveProfiles([...ids]);
+
+  // Build a threaded comment tree (top-level + nested replies), preserving the
+  // chronological order the rows already arrived in.
+  const buildThread = (list, postAuthorId) => {
+    const toView = (c) => ({
+      id: c.id,
+      authorId: c.author_id,
+      authorName: profs.get(c.author_id)?.username ?? 'unknown',
+      body: c.body,
+      createdAt: c.created_at,
+      parentId: c.parent_comment_id || null,
+      mine: c.author_id === uid,
+      canDelete: c.author_id === uid || postAuthorId === uid,
+      reactions: reactionsFor(c.id),
+      replies: [],
+    });
+    const byId = new Map();
+    const tops = [];
+    for (const c of list) byId.set(c.id, toView(c));
+    for (const c of list) {
+      const v = byId.get(c.id);
+      if (v.parentId && byId.has(v.parentId)) byId.get(v.parentId).replies.push(v);
+      else tops.push(v);
+    }
+    return tops;
+  };
 
   return await Promise.all(rows.map(async (r) => ({
     id: r.id,
@@ -2008,15 +2188,8 @@ data._hydratePosts = async function (rows) {
     mine: r.author_id === uid,
     likeCount: likeCount.get(r.id) || 0,
     likedByMe: likedByMe.has(r.id),
-    comments: (commentsByPost.get(r.id) || []).map((c) => ({
-      id: c.id,
-      authorId: c.author_id,
-      authorName: profs.get(c.author_id)?.username ?? 'unknown',
-      body: c.body,
-      createdAt: c.created_at,
-      mine: c.author_id === uid,
-      canDelete: c.author_id === uid || r.author_id === uid,
-    })),
+    comments: buildThread(commentsByPost.get(r.id) || [], r.author_id),
+    commentCount: (commentsByPost.get(r.id) || []).length,
   })));
 };
 
@@ -2053,12 +2226,10 @@ data.toggleLike = async function (postId, on) {
   }
 };
 
-data.addComment = async function (postId, body) {
-  const { data: row, error } = await sb.from('post_comments').insert({
-    post_id: postId,
-    author_id: window.currentUser.id,
-    body,
-  }).select().single();
+data.addComment = async function (postId, body, parentCommentId = null) {
+  const insert = { post_id: postId, author_id: window.currentUser.id, body };
+  if (parentCommentId) insert.parent_comment_id = parentCommentId;
+  const { data: row, error } = await sb.from('post_comments').insert(insert).select().single();
   if (error) throw error;
   return row;
 };
@@ -2066,6 +2237,28 @@ data.addComment = async function (postId, body) {
 data.deleteComment = async function (commentId) {
   const { error } = await sb.from('post_comments').delete().eq('id', commentId);
   if (error) throw error;
+};
+
+// Toggle one of my emoji reactions on a comment (item 5).
+data.toggleCommentReaction = async function (commentId, emoji, on) {
+  const uid = window.currentUser.id;
+  if (on) {
+    const { error } = await sb.from('comment_reactions')
+      .upsert({ comment_id: commentId, user_id: uid, emoji });
+    if (error) throw error;
+  } else {
+    const { error } = await sb.from('comment_reactions')
+      .delete().eq('comment_id', commentId).eq('user_id', uid).eq('emoji', emoji);
+    if (error) throw error;
+  }
+};
+
+// Resolve a @username to a user id (for tapping an @mention). Case-insensitive.
+data.findUserIdByUsername = async function (username) {
+  const { data: row, error } = await sb.from('profiles')
+    .select('id').ilike('username', username).maybeSingle();
+  if (error) { console.warn('findUserIdByUsername', error); return null; }
+  return row?.id || null;
 };
 
 // ─── Top 8 ──────────────────────────────────────────────────────────

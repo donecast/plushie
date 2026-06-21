@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=77" />
+  <link rel="stylesheet" href="./styles.css?v=78" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -99,12 +99,17 @@
           </div>
         </details>
         <select id="col-sort" class="filter-select" aria-label="Sort collection">
+          <option value="manual">My order</option>
           <option value="acquired_desc">Newest acquired</option>
           <option value="acquired_asc">Oldest acquired</option>
           <option value="added_desc">Newest added</option>
           <option value="name_asc">Name A→Z</option>
           <option value="name_desc">Name Z→A</option>
           <option value="qty_desc">Most owned</option>
+        </select>
+        <select id="col-view" class="filter-select" aria-label="Collection layout">
+          <option value="cards">Card view</option>
+          <option value="compact">Compact list</option>
         </select>
         <button class="filter-clear" data-clear-tab="collection">Clear filters</button>
       </div>
@@ -258,6 +263,7 @@
 
       <div id="collection-sub-pens" class="subview hidden">
         <div id="pens-progress" class="pens-progress"></div>
+        <p class="subview-hint">🔍 Tap any pen's picture to see it larger.</p>
         <div id="pens-list" class="pens-list"></div>
       </div>
     </section>
@@ -327,6 +333,11 @@
         <label class="field" id="field-meaning">
           <span>Personal meaning</span>
           <textarea id="f-meaning" rows="3" maxlength="500" placeholder="What this one means to you…"></textarea>
+        </label>
+
+        <label class="field" id="field-visibility">
+          <span>Who can see this</span>
+          <select id="f-visibility"></select>
         </label>
 
         <label class="field" id="field-date">
@@ -922,6 +933,7 @@
           </label>
           <button class="btn-ghost" id="acct-save-username">Save</button>
         </div>
+        <p class="account-hint hidden" id="acct-username-cooldown"></p>
         <div class="account-row">
           <label class="field">
             <span>Email</span>
@@ -933,13 +945,61 @@
       </section>
 
       <section class="account-section">
-        <h3>Default shipping address</h3>
-        <p class="account-hint">Pre-fills your address on every trade so you don't have to type it each time. The other side only sees it once they've also entered theirs.</p>
+        <h3>Profile</h3>
+        <p class="account-hint">Your bio and avatar show on your public crypt profile.</p>
+        <div class="account-row">
+          <span class="soc-avatar soc-avatar-lg" id="acct-avatar-preview"></span>
+          <label class="field">
+            <span>Avatar</span>
+            <input type="file" id="acct-avatar" accept="image/*" />
+            <span id="acct-avatar-name" class="soc-file-name"></span>
+          </label>
+        </div>
         <label class="field">
-          <textarea id="acct-address" rows="4" placeholder="Name, street, city, state, postal code, country"></textarea>
+          <span>Bio</span>
+          <textarea id="acct-bio" rows="3" maxlength="280" placeholder="A line or two about you and your crypt…"></textarea>
         </label>
         <div class="account-row right">
-          <button class="btn-ghost" id="acct-save-address">Save address</button>
+          <button class="btn-ghost" id="acct-save-profile">Save profile</button>
+        </div>
+      </section>
+
+      <section class="account-section">
+        <h3>Default shipping address <span class="addr-verified-badge hidden" id="acct-addr-verified">✓ Verified</span></h3>
+        <p class="account-hint">Pre-fills your address on every trade so you don't have to type it each time. The other side only sees it once they've also entered theirs.</p>
+        <div class="addr-grid">
+          <label class="field addr-span-2">
+            <span>Recipient name</span>
+            <input type="text" id="acct-addr-name" autocomplete="name" maxlength="100" />
+          </label>
+          <label class="field addr-span-2">
+            <span>Address line 1</span>
+            <input type="text" id="acct-addr-line1" autocomplete="address-line1" maxlength="120" />
+          </label>
+          <label class="field addr-span-2">
+            <span>Address line 2 <span class="dim">(optional)</span></span>
+            <input type="text" id="acct-addr-line2" autocomplete="address-line2" maxlength="120" />
+          </label>
+          <label class="field">
+            <span>City</span>
+            <input type="text" id="acct-addr-city" autocomplete="address-level2" maxlength="80" />
+          </label>
+          <label class="field">
+            <span>State / region</span>
+            <input type="text" id="acct-addr-region" autocomplete="address-level1" maxlength="80" />
+          </label>
+          <label class="field">
+            <span>Postal code</span>
+            <input type="text" id="acct-addr-postal" autocomplete="postal-code" maxlength="16" />
+          </label>
+          <label class="field">
+            <span>Country</span>
+            <input type="text" id="acct-addr-country" autocomplete="country-name" maxlength="60" placeholder="United States" />
+          </label>
+        </div>
+        <p class="account-hint addr-error hidden" id="acct-addr-error"></p>
+        <div class="account-row right">
+          <button class="btn-ghost" id="acct-save-address">Verify &amp; save</button>
         </div>
       </section>
 
@@ -1026,7 +1086,7 @@
   <script src="./config.js?v=51"></script>
   <script src="./auth.js?v=55"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=59"></script>
-  <script src="./app.js?v=72"></script>
+  <script src="./data.js?v=60"></script>
+  <script src="./app.js?v=73"></script>
 </body>
 </html>

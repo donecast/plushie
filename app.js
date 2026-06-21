@@ -7,6 +7,7 @@ const state = {
   colDupes: false,            // collection: only quantity > 1
   colNoBag: false,            // collection: only missing bag
   colSort: 'acquired_desc',
+  colView: 'cards',           // collection layout: 'cards' (roomy) | 'compact' (dense list)
   wishCategory: 'all',
   wishInStock: false,
   wishSort: 'added_desc',
@@ -60,17 +61,25 @@ const state = {
   socSearchQuery: '',
   socProfile: null,           // { profile, posts, top8, friendship } when viewing someone
   socExpandedComments: new Set(), // postIds whose comment box/list is expanded
+  socReplyTo: null,               // comment id currently being replied to
   socComposeVis: 'friends',   // visibility selected in the composer
   socComposePhoto: null,      // pending compressed Blob for a new post
   socPendingCount: 0,         // incoming friend requests — drives the tab badge
 };
 
-// Themed visibility tiers. The DB enum is public|friends|inner; these
-// are the gothic-cute labels the UI shows. Rename here to re-theme.
+// Themed visibility tiers. The DB enum is public|friends|inner|coffin_buddies;
+// these are the gothic-cute labels the UI shows. Rename here to re-theme.
+// Nesting: Public ⊇ Coven ⊇ Castle Crew ('inner') ⊇ Coffin Buddies.
 const VIS_META = {
-  public:  { label: 'Public',       glyph: '🌍', hint: 'Anyone with an account' },
-  friends: { label: 'Coven',        glyph: '🦇', hint: 'Your accepted friends' },
-  inner:   { label: 'Inner Coffin', glyph: '🖤', hint: 'Friends you placed in your inner circle' },
+  public:         { label: 'Public',         glyph: '🌍', hint: 'Anyone with an account' },
+  friends:        { label: 'Coven',          glyph: '🦇', hint: 'Your accepted friends' },
+  inner:          { label: 'Castle Crew',    glyph: '🏰', hint: 'Friends in your Castle Crew' },
+  coffin_buddies: { label: 'Coffin Buddies', glyph: '⚰️', hint: 'Your innermost Coffin Buddies' },
+};
+// Per-item visibility (item 11): the post tiers plus a private "Only me".
+const ITEM_VIS_META = {
+  ...VIS_META,
+  private: { label: 'Only me', glyph: '🔒', hint: 'Just you' },
 };
 
 const PRODUCT_URL_BASE = 'https://plushiedreadfuls.com/products/';
@@ -290,6 +299,8 @@ function syncCollectionChips() {
   setMultiSummary(document.getElementById('col-extras'), labels);
   const sortEl = document.getElementById('col-sort');
   if (sortEl) sortEl.value = state.colSort;
+  const viewEl = document.getElementById('col-view');
+  if (viewEl) viewEl.value = state.colView;
 }
 
 function syncWishlistChips() {
@@ -360,6 +371,12 @@ function isPlushieCollectible(item) {
 }
 
 function isMiniPlushie(item) {
+  // A manual category override is authoritative — it must win over the
+  // tag/type heuristic everywhere, including the "Mini" badge. Otherwise an
+  // item like Tooth Scary (pinned to 'plush') would still flash a Mini badge
+  // because it's a keychain-typed plushie.
+  const ov = categoryOverride(item);
+  if (ov) return ov === 'mini';
   const tags = (item.tags || []).map((t) => t.toLowerCase());
   const name = item.name.toLowerCase();
   const type = (item.type || '').toLowerCase();
@@ -379,6 +396,10 @@ const CATEGORY_OVERRIDES = [
   // the regular size is charm-sized (a mini), the XL is full-size (a plush).
   { test: (it) => String(it.id) === '8991250350312', category: 'mini' },
   { test: (it) => String(it.id) === '9031367786728', category: 'plush' },
+  // Masks (gas mask, plague mask) are worn ON a plush — they're closet
+  // clothing, not standalone buns. Pin them to 'clothing' so they sort into
+  // the closet and get a "Worn by" assignment instead of a plush card.
+  { test: (it) => /\b(gas|plague)\s*-?\s*mask\b/i.test(it.name || ''), category: 'clothing' },
 ];
 function categoryOverride(item) {
   for (const o of CATEGORY_OVERRIDES) if (o.test(item)) return o.category;
@@ -1269,7 +1290,18 @@ function sortCollection(items, mode) {
   const cmpAcquired = (x, y) => (y.dateCollected || '').localeCompare(x.dateCollected || '');
   const cmpAdded = (x, y) => (y.addedAt || 0) - (x.addedAt || 0);
   const cmpQty = (x, y) => (y.quantity || 1) - (x.quantity || 1);
+  // Manual order: the user's hand-sorted sequence (item 20). Rows with a
+  // sort_order come first in that order; anything un-ordered falls back to
+  // newest-added so freshly-added items surface at the bottom.
+  const cmpManual = (x, y) => {
+    const xo = x.sortOrder, yo = y.sortOrder;
+    if (xo == null && yo == null) return cmpAdded(x, y);
+    if (xo == null) return 1;
+    if (yo == null) return -1;
+    return xo - yo;
+  };
   switch (mode) {
+    case 'manual':        a.sort(cmpManual); break;
     case 'acquired_asc':  a.sort((x, y) => -cmpAcquired(x, y)); break;
     case 'added_desc':    a.sort(cmpAdded); break;
     case 'name_asc':      a.sort(cmpName); break;
@@ -1279,6 +1311,61 @@ function sortCollection(items, mode) {
     default:              a.sort(cmpAcquired);
   }
   return a;
+}
+
+// ─── Manual collection ordering (item 20) ───────────────────────────
+// Stamp each collection item's sortOrder to match the given full-collection
+// id sequence, so the next render (in 'manual' mode) reflects the new order.
+function applyManualOrder(orderedIds) {
+  const pos = new Map(orderedIds.map((id, i) => [id, i]));
+  for (const it of state.collection) {
+    if (pos.has(it.id)) it.sortOrder = pos.get(it.id);
+  }
+}
+
+// The ids currently shown in the collection grid, in display order. Read from
+// the DOM so it always matches exactly what the user sees.
+function displayedCollectionIds() {
+  return [...document.querySelectorAll('#collection-grid [data-reorder-id]')]
+    .map((el) => el.dataset.reorderId);
+}
+
+async function persistManualOrder(orderedIds) {
+  applyManualOrder(orderedIds);
+  render();
+  try {
+    await data.saveCollectionOrder(orderedIds);
+  } catch (e) {
+    console.error('saveCollectionOrder', e);
+    toast(/sort_order/i.test(e?.message || '')
+      ? 'Run the latest migration (db/0029_collection_sort.sql) — the sort_order column is missing.'
+      : 'Could not save the new order.');
+  }
+}
+
+// Move an item one slot up/down within the displayed list, preserving the
+// positions of everything not currently shown (other sub-tabs, the closet).
+async function moveCollectionItem(id, dir) {
+  const displayed = displayedCollectionIds();
+  const di = displayed.indexOf(id);
+  if (di === -1) return;
+  const neighbor = dir === 'up' ? displayed[di - 1] : displayed[di + 1];
+  if (!neighbor) return; // already at the edge
+  const gIds = sortCollection(state.collection.slice(), 'manual').map((x) => x.id);
+  gIds.splice(gIds.indexOf(id), 1);
+  let at = gIds.indexOf(neighbor);
+  if (dir === 'down') at += 1;
+  gIds.splice(at, 0, id);
+  await persistManualOrder(gIds);
+}
+
+// Drag-drop: drop `dragId` onto `targetId`'s slot in the global order.
+async function dropReorder(dragId, targetId) {
+  if (!dragId || !targetId || dragId === targetId) return;
+  const gIds = sortCollection(state.collection.slice(), 'manual').map((x) => x.id);
+  gIds.splice(gIds.indexOf(dragId), 1);
+  gIds.splice(gIds.indexOf(targetId), 0, dragId);
+  await persistManualOrder(gIds);
 }
 
 function sortWishlist(items, mode) {
@@ -1476,6 +1563,9 @@ function catalogForItem(item) {
 // of the named clothing lines, or it's an accessory-typed product whose name
 // carries a clothing keyword.
 function catalogIsClothing(cat) {
+  // A manual 'clothing' override (e.g. gas/plague masks that Shopify types as
+  // plushes) forces wearable behaviour regardless of product_type.
+  if (categoryOverride(cat) === 'clothing') return true;
   const name = (cat?.name || '').toLowerCase();
   const type = (cat?.type || '').toLowerCase();
   if (PLUSH_CLOTHING_LINES.test(name)) return true;
@@ -1505,6 +1595,18 @@ function clothingIsMini(item) {
   const cat = catalogForItem(item);
   const name = `${cat?.name || ''} ${item.name || ''}`.toLowerCase();
   return /\bmini\b/.test(name);
+}
+
+// Is a (non-clothing) plush a mini? Resolves through the catalog category so
+// overrides win. Used to keep clothing on a same-scale plush.
+function plushIsMini(item) {
+  return itemCategory(item) === 'mini';
+}
+
+// Scale gate for attaching clothing to a plush: mini clothing only fits mini
+// plushes, full-size clothing only fits full-size plushes. Never the twain.
+function clothingFitsPlush(acc, plush) {
+  return clothingIsMini(acc) === plushIsMini(plush);
 }
 
 // Which collection sub-tab an item belongs to: 'plushes' | 'minis' |
@@ -1539,7 +1641,7 @@ function renderAttachedAccessory(a) {
       <div class="attached-acc-photo" data-action="open-detail" data-id="${a.id}" role="button" title="Edit / rename / reassign">${photo}</div>
       <div class="attached-acc-info">
         <span class="attached-acc-name" data-action="open-detail" data-id="${a.id}" role="button">${escapeHtml(a.nickname || stripOutfitWord(a.name))}</span>
-        <button class="attached-detach" data-action="detach-acc" data-id="${a.id}" title="Detach from this plush">✕ Detach</button>
+        <button class="attached-detach" data-action="detach-acc" data-id="${a.id}" title="Hang it back up in the closet">↩ Hang it back up</button>
       </div>
     </div>`;
 }
@@ -1611,8 +1713,22 @@ function renderCard(item, kind) {
     ? `<button data-action="assign-wearer" data-id="${item.id}" title="Attach this to the plush wearing it">🧥 Who's wearing this?</button>`
     : '';
 
+  // Manual reorder controls (item 20) — only in My-order mode, and only for
+  // items that live in the main collection grid (clothing sits in its own
+  // closet section, so it doesn't take part in manual ordering). A drag grip
+  // (desktop) plus up/down arrows (works everywhere, incl. touch).
+  const manualMode = kind === 'collection' && state.colSort === 'manual' && !isWearableItem(item);
+  const reorder = manualMode
+    ? `<div class="col-reorder" title="Drag the grip to reorder, or use the arrows">
+         <button class="reorder-btn" data-action="move-up" data-id="${item.id}" aria-label="Move up">▲</button>
+         <span class="reorder-grip" aria-hidden="true">☰</span>
+         <button class="reorder-btn" data-action="move-down" data-id="${item.id}" aria-label="Move down">▼</button>
+       </div>`
+    : '';
+
   const actions = kind === 'collection'
     ? `
+      ${reorder}
       ${qtyControl}
       ${wearerBtn}
       ${tradeBtn}
@@ -1649,9 +1765,15 @@ function renderCard(item, kind) {
     ? `<div class="card-body card-clickable" data-action="open-detail" data-id="${item.id}">`
     : `<div class="card-body">`;
 
+  // Tapping the photo opens the lightbox so collectors can see the bigger
+  // picture (item 14). Only when there's actually an image to enlarge.
+  const photoZoom = src
+    ? ` data-action="zoom-photo" data-id="${item.id}" role="button" tabindex="0" aria-label="View larger" title="Tap to see it bigger"`
+    : '';
+  const dragAttr = manualMode ? ` draggable="true" data-reorder-id="${item.id}"` : '';
   return `
-    <article class="card" data-id="${item.id}">
-      <div class="card-photo">
+    <article class="card${manualMode ? ' card-draggable' : ''}" data-id="${item.id}"${dragAttr}>
+      <div class="card-photo"${photoZoom}>
         ${photoHtml}
         ${badges.length ? `<div class="badge-stack">${badges.join('')}</div>` : ''}
       </div>
@@ -1743,7 +1865,12 @@ function render() {
       ? shown.filter((i) => isWearableItem(i) && collectionTabOf(i) === sub)
       : [];
 
-    document.getElementById('collection-grid').innerHTML = mainItems.map((i) => renderCollectionEntry(i)).join('');
+    // Layout: roomy cards (default) or a dense compact list (item 13).
+    const compact = state.colView === 'compact';
+    const colGrid = document.getElementById('collection-grid');
+    colGrid.classList.toggle('grid-compact', compact);
+    colGrid.classList.toggle('grid-list', !compact);
+    colGrid.innerHTML = mainItems.map((i) => renderCollectionEntry(i)).join('');
     const unwornSection = document.getElementById('unworn-clothing-section');
     if (unwornSection) {
       document.getElementById('unworn-clothing-grid').innerHTML = closetItems.map((i) => renderCard(i, 'collection')).join('');
@@ -1905,8 +2032,36 @@ function openModal(kind, item, { fresh = false } = {}) {
     : 'Edit Plushie';
   document.getElementById('modal-name').textContent = stripOutfitWord(item.name || '');
 
+  // Only true plushes & minis carry "lore"-flavoured fields (a personal name
+  // and a personal meaning). For everything else — clothing, accessories,
+  // other merch — the name field is just an "Alternate name?" and the meaning
+  // field is plain "Notes". For wearables we also float the "Worn by" picker
+  // to the very top of the form (it's the thing you actually want to set).
+  const editCat = itemCategory(item);
+  const loreLike = editCat === 'plush' || editCat === 'mini' || editCat === 'bundle';
+  const form = document.getElementById('plushie-form');
+  const nicknameField = document.getElementById('field-nickname');
+  const wornFieldEl = document.getElementById('field-worn-by');
+  document.querySelector('#field-nickname > span').textContent =
+    loreLike ? 'Your name for it (optional)' : 'Alternate name?';
+  document.querySelector('#field-meaning > span').textContent =
+    loreLike ? 'Personal meaning' : 'Notes';
+  if (!loreLike) {
+    // Move "Worn by" above the alternate-name field.
+    form.insertBefore(wornFieldEl, nicknameField);
+  } else {
+    // Restore canonical order: "Worn by" sits just before the action buttons.
+    form.insertBefore(wornFieldEl, form.querySelector('.form-actions'));
+  }
+
   document.getElementById('f-nickname').value = item.nickname ?? '';
   document.getElementById('f-meaning').value = item.meaning ?? '';
+
+  // Per-item visibility (item 11). Options broad → narrow, ending in "Only me".
+  const visSel = document.getElementById('f-visibility');
+  const curVis = item.visibility || 'friends';
+  visSel.innerHTML = Object.entries(ITEM_VIS_META).map(([k, m]) =>
+    `<option value="${k}" ${k === curVis ? 'selected' : ''}>${m.glyph} ${m.label} — ${m.hint}</option>`).join('');
   document.getElementById('f-date').value = item.dateCollected ?? '';
   document.getElementById('f-acquired').value = item.acquiredHow ?? '';
 
@@ -1957,7 +2112,7 @@ function openModal(kind, item, { fresh = false } = {}) {
   const wornField = document.getElementById('field-worn-by');
   const wornSel = document.getElementById('f-worn-by');
   if (wearable) {
-    const candidates = state.collection.filter((c) => c.id !== item.id && !isWearableItem(c));
+    const candidates = state.collection.filter((c) => c.id !== item.id && !isWearableItem(c) && clothingFitsPlush(item, c));
     let suggestedId = item.wornBy || null;
     if (!suggestedId) {
       const m = (item.nickname || item.name || '').match(/^([\p{L}\p{N}'’.\- ]+?)['’]s\b/u);
@@ -2006,7 +2161,7 @@ async function setWearer(accId, plushId) {
     if (it) it.wornBy = plushId;
     closeWearerModal();
     render();
-    toast(plushId ? 'Attached. 🧥' : 'Detached.');
+    toast(plushId ? 'Attached. 🧥' : 'Hung back up. 🧥');
   } catch (e) {
     console.error('setWornBy', e);
     toast(/column.*worn_by/i.test(e?.message || '')
@@ -2018,8 +2173,9 @@ async function setWearer(accId, plushId) {
 function openWearerPicker(accId) {
   const acc = state.collection.find((i) => i.id === accId);
   if (!acc) return;
-  // Candidates = your plushes (not other wearables, not this item).
-  const candidates = state.collection.filter((i) => i.id !== accId && !isWearableItem(i));
+  // Candidates = your plushes (not other wearables, not this item) that match
+  // the garment's scale — mini clothing on minis, full-size on full-size.
+  const candidates = state.collection.filter((i) => i.id !== accId && !isWearableItem(i) && clothingFitsPlush(acc, i));
   // Auto-suggest from a possessive name: "Ni'ni's Purple Overalls" → ni'ni.
   const m = (acc.nickname || acc.name || '').match(/^([\p{L}\p{N}'’.\- ]+?)['’]s\b/u);
   const hint = m ? m[1].trim().toLowerCase() : null;
@@ -2045,7 +2201,7 @@ function openWearerPicker(accId) {
     <p class="modal-name">${accName}</p>
     ${candidates.length
       ? `<div class="wearer-list">${rows}</div>`
-      : `<p class="empty-note">No plushes to attach to yet — add a plush to your collection first.</p>`}
+      : `<p class="empty-note">No ${clothingIsMini(acc) ? 'mini' : 'full-size'} plushes to dress yet — ${clothingIsMini(acc) ? 'mini' : 'full-size'} clothing only fits ${clothingIsMini(acc) ? 'mini' : 'full-size'} plushes.</p>`}
     <div class="form-actions">
       <button type="button" class="btn-ghost" data-close-wearer>Cancel</button>
     </div>`;
@@ -2157,6 +2313,7 @@ async function submitForm(e) {
     ...existing,
     nickname: document.getElementById('f-nickname').value.trim() || null,
     meaning: document.getElementById('f-meaning').value.trim() || null,
+    visibility: document.getElementById('f-visibility').value || 'friends',
     dateCollected: document.getElementById('f-date').value || null,
     acquiredHow: document.getElementById('f-acquired').value || null,
     missingAccessories,
@@ -2175,6 +2332,13 @@ async function submitForm(e) {
   }
 
   await data.put(kind, record);
+
+  // Persist per-item visibility separately (item 11) — best-effort so a
+  // pre-migration client still saves everything else cleanly.
+  if (record.visibility && record.visibility !== existing.visibility) {
+    try { await data.setItemVisibility(record.id, record.visibility); }
+    catch (err) { console.warn('setItemVisibility', err); }
+  }
 
   // Persist the "worn by" assignment when the field is shown (clothing
   // accessories). Dedicated update so it never rides through _itemToRow.
@@ -2223,6 +2387,14 @@ async function onCardClickInner(btn) {
   if (action === 'edit' || action === 'open-detail') {
     const item = state.collection.find((x) => x.id === id);
     if (item) openModal('collection', item);
+  } else if (action === 'zoom-photo') {
+    const item = state.collection.find((x) => x.id === id) || state.wishlist.find((x) => x.id === id);
+    const src = item && (photoSrc(item) || catalogImageFor(item.catalogId));
+    if (src) openLightbox(src, stripOutfitWord(item.nickname || item.name || ''));
+  } else if (action === 'move-up') {
+    await moveCollectionItem(id, 'up');
+  } else if (action === 'move-down') {
+    await moveCollectionItem(id, 'down');
   } else if (action === 'delete') {
     if (!confirm('Remove this plushie?')) return;
     const col = state.collection.find((x) => x.id === id);
@@ -2675,6 +2847,7 @@ function saveFilters() {
       colDupes: state.colDupes,
       colNoBag: state.colNoBag,
       colSort: state.colSort,
+      colView: state.colView,
       wishCategory: state.wishCategory,
       wishInStock: state.wishInStock,
       wishSort: state.wishSort,
@@ -2703,7 +2876,7 @@ function loadFilters() {
     // the Social tab (the default) when reopened. Filters/sub-tabs still
     // persist so each tab keeps its settings once you switch to it.
     const scalars = [
-      'colSubTab', 'filter', 'colCategory', 'colSort', 'wishCategory', 'wishSort',
+      'colSubTab', 'filter', 'colCategory', 'colSort', 'colView', 'wishCategory', 'wishSort',
       'catalogFilter', 'catalogTheme', 'catalogColor', 'catalogSort', 'query', 'tradeSubTab', 'tradeFilter',
     ];
     for (const k of scalars) if (k in s) state[k] = s[k];
@@ -2778,6 +2951,7 @@ function wireEvents() {
   };
   wireSelect('col-state', 'filter');
   wireSelect('col-sort', 'colSort');
+  wireSelect('col-view', 'colView');
   document.querySelectorAll('#col-extras input[data-col-toggle]').forEach((cb) => {
     cb.addEventListener('change', () => {
       if (cb.dataset.colToggle === 'dupes') state.colDupes = cb.checked;
@@ -2866,6 +3040,34 @@ function wireEvents() {
   });
 
   document.getElementById('collection-grid').addEventListener('click', onCardClick);
+  // Drag-and-drop manual reordering (item 20) — active only in 'My order' mode
+  // where cards carry data-reorder-id. Touch users use the ▲▼ arrows instead.
+  const colGrid = document.getElementById('collection-grid');
+  colGrid.addEventListener('dragstart', (e) => {
+    const card = e.target.closest('[data-reorder-id]');
+    if (!card) return;
+    state._dragId = card.dataset.reorderId;
+    card.classList.add('dragging');
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+  });
+  colGrid.addEventListener('dragover', (e) => {
+    if (state._dragId) e.preventDefault();
+  });
+  colGrid.addEventListener('dragend', () => {
+    colGrid.querySelectorAll('.dragging').forEach((el) => el.classList.remove('dragging'));
+    state._dragId = null;
+  });
+  colGrid.addEventListener('drop', async (e) => {
+    if (!state._dragId) return;
+    e.preventDefault();
+    const target = e.target.closest('[data-reorder-id]');
+    const dragId = state._dragId;
+    state._dragId = null;
+    colGrid.querySelectorAll('.dragging').forEach((el) => el.classList.remove('dragging'));
+    if (target && target.dataset.reorderId !== dragId) {
+      await dropReorder(dragId, target.dataset.reorderId);
+    }
+  });
   document.getElementById('unworn-clothing-grid').addEventListener('click', onCardClick);
   document.getElementById('wishlist-grid').addEventListener('click', onCardClick);
   document.getElementById('catalog-grid').addEventListener('click', onCardClick);
@@ -3004,6 +3206,16 @@ function wireEvents() {
   document.getElementById('acct-save-username').addEventListener('click', saveUsername);
   document.getElementById('acct-save-email').addEventListener('click', saveEmail);
   document.getElementById('acct-save-address').addEventListener('click', saveDefaultAddress);
+  document.getElementById('acct-save-profile').addEventListener('click', saveAccountProfile);
+  document.getElementById('acct-avatar').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) { state._acctAvatarBlob = null; syncAcctAvatarPreview(); return; }
+    try {
+      state._acctAvatarBlob = await compressImage(file);
+      document.getElementById('acct-avatar-name').textContent = '✓ ' + file.name;
+      syncAcctAvatarPreview();
+    } catch (err) { console.warn('compress', err); toast('Could not read that image.'); }
+  });
 
   document.getElementById('acct-theme').addEventListener('change', (e) => setTheme(e.target.value));
   document.getElementById('theme-btn').addEventListener('click', () => {
@@ -3361,18 +3573,43 @@ function renderBrowse() {
     if (!byOwner.has(it.ownerId)) byOwner.set(it.ownerId, { username: it.ownerUsername, items: [] });
     byOwner.get(it.ownerId).items.push(it);
   }
-  const groups = [...byOwner.entries()].map(([ownerId, g]) => `
+  const groups = [...byOwner.entries()].map(([ownerId, g]) => {
+    // Sort each trader's offerings by category, then alphabetically by name
+    // (item 19) — a tidy, scannable order within each crypt.
+    g.items.sort((a, b) =>
+      tradeCategoryRank(a) - tradeCategoryRank(b)
+      || (a.name || '').localeCompare(b.name || ''));
+    return `
     <section class="trader-group">
       <h2 class="trader-head">
         ${repBadge(ownerId, g.username, state.partnerFeedback.get(ownerId), { large: true })}
         <button class="btn-link" data-action="propose-trade" data-uid="${ownerId}">Propose a trade →</button>
       </h2>
-      <div class="grid grid-tight">
+      <ul class="trade-offer-list">
         ${g.items.map((it) => renderOfferingCard(it)).join('')}
-      </div>
+      </ul>
     </section>
-  `).join('');
+  `; }).join('');
   document.getElementById('subtab-browse').innerHTML = groups;
+}
+
+// Resolve a trade item's category (plush/mini/clothing/accessory/bundle/other)
+// via the catalog, with a name-based fallback for custom pieces.
+const TRADE_CAT_ORDER = ['plush', 'mini', 'clothing', 'accessory', 'bundle', 'other'];
+const TRADE_CAT_LABEL = {
+  plush: 'Plush', mini: 'Mini', clothing: 'Clothing',
+  accessory: 'Accessory', bundle: 'Bundle', other: 'Other',
+};
+function tradeItemCategory(it) {
+  if (it.catalogId) {
+    const cat = state.catalog.find((c) => c.id === it.catalogId);
+    if (cat) return catalogCategory(cat);
+  }
+  return CLOTHING_RE.test((it.name || '').toLowerCase()) ? 'clothing' : 'other';
+}
+function tradeCategoryRank(it) {
+  const i = TRADE_CAT_ORDER.indexOf(tradeItemCategory(it));
+  return i === -1 ? TRADE_CAT_ORDER.length : i;
 }
 
 function catalogImageFor(catalogId) {
@@ -3383,22 +3620,26 @@ function catalogImageFor(catalogId) {
 
 function renderOfferingCard(it) {
   const src = it.photo || catalogImageFor(it.catalogId);
-  const photo = src ? `<img src="${escapeHtml(src)}" loading="lazy" />` : `<span class="no-photo">🖤</span>`;
-  // Quick-trade button drops you straight into the offer builder with
-  // this one item pre-selected on their side — much faster than the
-  // owner-header "Propose a trade" path when you only want one thing.
+  const photo = src
+    ? `<img src="${escapeHtml(src)}" loading="lazy" data-action="zoom-trade" data-src="${escapeHtml(src)}" data-name="${escapeHtml(stripOutfitWord(it.name))}" />`
+    : `<span class="no-photo">🖤</span>`;
+  // Compact row (item 19): small picture on the left, bullet-pointed facts on
+  // the right, with a quick-trade CTA. Quick-trade drops you straight into the
+  // offer builder with this one item pre-selected on their side.
+  const facts = [
+    `<li>${TRADE_CAT_LABEL[tradeItemCategory(it)] || 'Other'}</li>`,
+    `<li>Available: ${it.available}</li>`,
+  ];
+  if (it.notes) facts.push(`<li class="trade-offer-note">${escapeHtml(it.notes)}</li>`);
   return `
-    <article class="card card-small">
-      <div class="card-photo">${photo}</div>
-      <div class="card-body">
-        <h3 class="card-name">${escapeHtml(stripOutfitWord(it.name))}</h3>
-        <div class="card-meta"><span>Available: ${it.available}</span></div>
-        ${it.notes ? `<p class="card-meaning">${escapeHtml(it.notes)}</p>` : ''}
+    <li class="trade-offer-row">
+      <div class="trade-offer-photo">${photo}</div>
+      <div class="trade-offer-body">
+        <h3 class="trade-offer-name">${escapeHtml(stripOutfitWord(it.name))}</h3>
+        <ul class="trade-offer-facts">${facts.join('')}</ul>
       </div>
-      <div class="card-actions">
-        <button class="btn-primary" data-action="quick-trade" data-uid="${it.ownerId}" data-item-id="${it.id}">I'll trade for this</button>
-      </div>
-    </article>
+      <button class="btn-primary trade-offer-cta" data-action="quick-trade" data-uid="${it.ownerId}" data-item-id="${it.id}">I'll trade for this</button>
+    </li>
   `;
 }
 
@@ -3705,7 +3946,8 @@ async function onTradeClick(e) {
   // silently doing nothing — that was the original "can't remove"
   // symptom.
   try {
-    if (action === 'propose-trade')         await openOfferModal(uid);
+    if (action === 'zoom-trade')            openLightbox(btn.dataset.src, btn.dataset.name);
+    else if (action === 'propose-trade')         await openOfferModal(uid);
     else if (action === 'quick-trade')      await openOfferModal(uid, null, btn.dataset.itemId);
     else if (action === 'trade-item-remove') await removeMyTradeItem(id);
     else if (action === 'trade-item-adjust') await adjustMyTradeItem(id);
@@ -4340,7 +4582,17 @@ function switchLegalTab(which) {
 async function openAccountModal() {
   document.getElementById('acct-username').value = window.currentUser?.username ?? '';
   document.getElementById('acct-email').value    = window.currentUser?.email ?? '';
-  document.getElementById('acct-address').value  = await data.getMyAddress();
+  await populateAddressFields();
+
+  // Profile (bio + avatar) lives here now (item 9) so it's not buried in the
+  // social tab. Populate from the My Crypt cache and reset the pending picker.
+  if (state._myBio === undefined) { try { await loadMyProfileCache(); } catch { /* non-fatal */ } }
+  state._acctAvatarBlob = null;
+  document.getElementById('acct-bio').value = state._myBio || '';
+  document.getElementById('acct-avatar').value = '';
+  document.getElementById('acct-avatar-name').textContent = '';
+  syncAcctAvatarPreview();
+  syncUsernameCooldownHint();
   const themeSel = document.getElementById('acct-theme');
   if (themeSel) themeSel.value = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
   // Admin tag in the modal header so it's obvious who you're signed in as.
@@ -4398,10 +4650,39 @@ async function saveUsername() {
     await data.updateUsername(u);
     document.querySelector('#user-badge .user-name').textContent = '@' + u;
     toast('Username updated.');
+    syncUsernameCooldownHint();
   } catch (err) {
     const msg = (err.message || '').toLowerCase();
-    if (msg.includes('duplicate') || msg.includes('unique')) toast('That username is taken.');
-    else toast('Could not update username.');
+    if (msg.includes('username_cooldown') || msg.includes('once every 30 days')) {
+      // Surface the next-allowed date the trigger reported, if present.
+      const m = (err.message || '').match(/(\d{4}-\d{2}-\d{2})/);
+      toast(m ? `You can change your username again on ${m[1]}.` : 'You can only change your username once every 30 days.');
+      syncUsernameCooldownHint();
+    } else if (msg.includes('duplicate') || msg.includes('unique')) {
+      toast('That username is taken.');
+    } else {
+      toast('Could not update username.');
+    }
+  }
+}
+
+// Show "next change allowed on …" under the username field when inside the
+// 30-day cooldown window, and disable the Save button until then.
+async function syncUsernameCooldownHint() {
+  const hint = document.getElementById('acct-username-cooldown');
+  const saveBtn = document.getElementById('acct-save-username');
+  if (!hint) return;
+  let changedAt = null;
+  try { changedAt = await data.getUsernameChangedAt(); } catch { /* non-fatal */ }
+  const next = changedAt ? new Date(changedAt.getTime() + 30 * 864e5) : null;
+  if (next && next > new Date()) {
+    hint.textContent = `You can change your username again on ${next.toISOString().slice(0, 10)}.`;
+    hint.classList.remove('hidden');
+    if (saveBtn) saveBtn.disabled = true;
+  } else {
+    hint.textContent = '';
+    hint.classList.add('hidden');
+    if (saveBtn) saveBtn.disabled = false;
   }
 }
 
@@ -4418,14 +4699,134 @@ async function saveEmail() {
   }
 }
 
+// ─── Default shipping address (structured + verified) ────────────────
+const ADDR_FIELDS = {
+  recipientName: 'acct-addr-name',
+  line1: 'acct-addr-line1',
+  line2: 'acct-addr-line2',
+  city: 'acct-addr-city',
+  region: 'acct-addr-region',
+  postal: 'acct-addr-postal',
+  country: 'acct-addr-country',
+};
+
+async function populateAddressFields() {
+  let a;
+  try { a = await data.getMyAddressFull(); }
+  catch (err) { console.warn('getMyAddressFull', err); a = {}; }
+  for (const [key, id] of Object.entries(ADDR_FIELDS)) {
+    const el = document.getElementById(id);
+    if (el) el.value = a[key] || '';
+  }
+  const badge = document.getElementById('acct-addr-verified');
+  if (badge) badge.classList.toggle('hidden', !a.verified);
+  const err = document.getElementById('acct-addr-error');
+  if (err) { err.textContent = ''; err.classList.add('hidden'); }
+}
+
+function readAddressFields() {
+  const out = {};
+  for (const [key, id] of Object.entries(ADDR_FIELDS)) {
+    out[key] = (document.getElementById(id)?.value || '').trim();
+  }
+  return out;
+}
+
+// Lightweight address verification. This is format-level validation +
+// normalization (required fields, postal-code shape per country) — a clean
+// seam where a real provider (USPS / Loqate / Google Address Validation)
+// can drop in later behind the same call. Returns { ok, errors, normalized }.
+function verifyAddress(a) {
+  const errors = [];
+  const norm = { ...a };
+  // Country normalization: accept common US aliases.
+  const c = (a.country || '').trim();
+  if (/^(us|usa|u\.s\.a?\.?|united states( of america)?)$/i.test(c)) norm.country = 'United States';
+  if (!norm.line1) errors.push('Street address (line 1) is required.');
+  if (!a.city) errors.push('City is required.');
+  if (!a.region) errors.push('State / region is required.');
+  if (!a.postal) errors.push('Postal code is required.');
+  if (!norm.country) errors.push('Country is required.');
+  // Postal-code shape check for the US (ZIP / ZIP+4); other countries: just
+  // require something alphanumeric so we don't reject valid foreign formats.
+  if (a.postal) {
+    if (norm.country === 'United States') {
+      if (!/^\d{5}(-\d{4})?$/.test(a.postal.trim())) errors.push('US ZIP must be 5 digits (or ZIP+4).');
+      norm.region = a.region.trim().toUpperCase().slice(0, 20);
+    } else if (!/[A-Za-z0-9]/.test(a.postal)) {
+      errors.push('Postal code looks invalid.');
+    }
+  }
+  return { ok: errors.length === 0, errors, normalized: norm };
+}
+
 async function saveDefaultAddress() {
-  const a = document.getElementById('acct-address').value.trim();
+  const raw = readAddressFields();
+  const errEl = document.getElementById('acct-addr-error');
+  const badge = document.getElementById('acct-addr-verified');
+  const empty = Object.values(raw).every((v) => !v);
+  if (empty) {
+    // Clearing the whole address out is allowed.
+    try {
+      await data.setMyAddressFull(raw, { verified: false });
+      if (badge) badge.classList.add('hidden');
+      if (errEl) { errEl.textContent = ''; errEl.classList.add('hidden'); }
+      toast('Default address cleared.');
+    } catch (err) { console.error(err); toast('Could not save address.'); }
+    return;
+  }
+  const { ok, errors, normalized } = verifyAddress(raw);
+  if (!ok) {
+    if (errEl) { errEl.textContent = errors.join(' '); errEl.classList.remove('hidden'); }
+    if (badge) badge.classList.add('hidden');
+    toast('Please fix the address fields.');
+    return;
+  }
   try {
-    await data.setMyAddress(a);
-    toast(a ? 'Default address saved.' : 'Default address cleared.');
+    await data.setMyAddressFull(normalized, { verified: true });
+    // Reflect normalization back into the fields.
+    for (const [key, id] of Object.entries(ADDR_FIELDS)) {
+      const el = document.getElementById(id);
+      if (el) el.value = normalized[key] || '';
+    }
+    if (errEl) { errEl.textContent = ''; errEl.classList.add('hidden'); }
+    if (badge) badge.classList.remove('hidden');
+    toast('Address verified & saved. ✓');
   } catch (err) {
     console.error(err);
     toast('Could not save address.');
+  }
+}
+
+// Refresh the little avatar preview in the account modal from whatever's
+// current — the just-picked blob if any, else the cached avatar URL.
+function syncAcctAvatarPreview() {
+  const el = document.getElementById('acct-avatar-preview');
+  if (!el) return;
+  const blobUrl = state._acctAvatarBlob ? URL.createObjectURL(state._acctAvatarBlob) : null;
+  const url = blobUrl || state._myAvatarUrl;
+  if (url) {
+    el.innerHTML = `<img src="${escapeHtml(url)}" alt="" />`;
+    el.classList.remove('soc-avatar-fallback');
+  } else {
+    el.textContent = (window.currentUser?.username || '?').slice(0, 1).toUpperCase();
+    el.classList.add('soc-avatar-fallback');
+  }
+}
+
+async function saveAccountProfile() {
+  const bio = document.getElementById('acct-bio').value.trim();
+  try {
+    await data.updateMyProfile({ bio, avatarBlob: state._acctAvatarBlob });
+    state._acctAvatarBlob = null;
+    document.getElementById('acct-avatar').value = '';
+    document.getElementById('acct-avatar-name').textContent = '';
+    await loadMyProfileCache();
+    syncAcctAvatarPreview();
+    toast('Profile updated.');
+  } catch (err) {
+    console.error('saveAccountProfile', err);
+    toast('Could not save profile.');
   }
 }
 
@@ -5522,8 +5923,12 @@ async function openCatalogDetailModal(cid) {
          <h3>Set includes</h3>
          <ul class="cd-list">${item.accessories.map((a) => `<li>${escapeHtml(a.name)}</li>`).join('')}</ul>
        </section>` : '';
+  // "Lore" is a plush/mini concept; on clothing, accessories & other merch the
+  // same free-text reads as plain "Notes".
+  const loreCat = catalogCategory(item);
+  const loreHeading = (loreCat === 'plush' || loreCat === 'mini' || loreCat === 'bundle') ? 'Lore' : 'Notes';
   const loreHtml = item.lore
-    ? `<section class="cd-section"><h3>Lore</h3>${item.lore.split(/\n{2,}/).map((p) => `<p>${escapeHtml(p)}</p>`).join('')}</section>`
+    ? `<section class="cd-section"><h3>${loreHeading}</h3>${item.lore.split(/\n{2,}/).map((p) => `<p>${escapeHtml(p)}</p>`).join('')}</section>`
     : '';
   // Symbolism: we keep some HTML from the parsed block (one image per
   // distinct src already deduped). Sanitized lightly — strip <script>
@@ -5923,7 +6328,7 @@ function registerSW() {
 
 // ─── Boot ────────────────────────────────────────────────────────────
 // ════════════════════════════════════════════════════════════════════
-// Social tab — friends (Coven), Inner Coffin, posts, likes, comments,
+// Social tab — friends (Coven), Castle Crew, posts, likes, comments,
 // Top 8, profiles. Early-Facebook-meets-MySpace, account required.
 // ════════════════════════════════════════════════════════════════════
 
@@ -6046,11 +6451,54 @@ function renderFeed() {
   el.innerHTML = composer + `<div class="soc-feed-list">${posts}</div>`;
 }
 
+// Quick-reaction palette for comments (item 5).
+const SOC_REACTIONS = ['🖤', '😂', '😮', '😢', '😡', '👏'];
+
+// Escape text, then linkify @username mentions into tappable chips (item 5).
+function linkifyMentions(text) {
+  return escapeHtml(text || '').replace(/@([a-zA-Z0-9_-]{3,20})/g,
+    (m, name) => `<button class="soc-mention" data-soc-action="view-mention" data-username="${escapeHtml(name)}">@${escapeHtml(name)}</button>`);
+}
+
+// One comment (and its nested replies). depth caps the visual indent.
+function renderComment(c, postId, depth = 0) {
+  const reactChips = (c.reactions || []).map((r) =>
+    `<button class="soc-react-chip ${r.mine ? 'mine' : ''}" data-soc-action="react-comment" data-comment-id="${c.id}" data-emoji="${r.emoji}">${r.emoji} ${r.count}</button>`).join('');
+  const palette = SOC_REACTIONS.map((e) =>
+    `<button class="soc-react-opt" data-soc-action="react-comment" data-comment-id="${c.id}" data-emoji="${e}">${e}</button>`).join('');
+  const replying = state.socReplyTo === c.id;
+  const replies = (c.replies || []).map((r) => renderComment(r, postId, Math.min(depth + 1, 1))).join('');
+  return `
+    <div class="soc-comment ${depth ? 'soc-comment-reply' : ''}">
+      <div class="soc-comment-main">
+        <button class="soc-userlink" data-soc-action="view-profile" data-uid="${c.authorId}"><b>@${escapeHtml(c.authorName)}</b></button>
+        <span>${linkifyMentions(c.body)}</span>
+        ${c.canDelete ? `<button class="soc-comment-del" data-soc-action="delete-comment" data-comment-id="${c.id}" title="Delete">×</button>` : ''}
+      </div>
+      <div class="soc-comment-tools">
+        <span class="soc-react-wrap">
+          <button class="linklike soc-react-btn" data-soc-action="toggle-react-palette" data-comment-id="${c.id}">React</button>
+          <span class="soc-react-palette hidden" data-react-palette="${c.id}">${palette}</span>
+        </span>
+        <button class="linklike soc-reply-btn" data-soc-action="reply-comment" data-comment-id="${c.id}" data-post-id="${postId}">Reply</button>
+        ${reactChips ? `<span class="soc-react-chips">${reactChips}</span>` : ''}
+      </div>
+      ${replying ? `
+        <form class="soc-comment-form soc-reply-form" data-soc-action="submit-comment" data-post-id="${postId}" data-parent-id="${c.id}">
+          <input type="text" class="soc-comment-input" maxlength="500" placeholder="Reply to @${escapeHtml(c.authorName)}…" />
+          <button class="btn-primary" type="submit">Reply</button>
+        </form>` : ''}
+      ${replies ? `<div class="soc-comment-replies">${replies}</div>` : ''}
+    </div>`;
+}
+
 function renderPostCard(p) {
   const img = p.photoUrl || catalogImageFor(p.catalogId);
   const expanded = state.socExpandedComments.has(p.id);
+  const commentCount = p.commentCount ?? p.comments.length;
+  // Collapsed: show the last 2 top-level threads; expanded: all.
   const shownComments = expanded ? p.comments : p.comments.slice(-2);
-  const moreCount = p.comments.length - shownComments.length;
+  const moreCount = commentCount - shownComments.reduce((n, c) => n + 1 + (c.replies ? c.replies.length : 0), 0);
 
   return `
   <article class="soc-post" data-post-id="${p.id}">
@@ -6064,27 +6512,22 @@ function renderPostCard(p) {
                   <button class="soc-post-del" data-soc-action="delete-post" data-post-id="${p.id}" title="Delete">🗑</button>` : ''}
     </header>
     ${p.plushName ? `<p class="soc-post-plush">🧸 ${escapeHtml(p.plushName)}</p>` : ''}
-    ${p.body ? `<p class="soc-post-body">${escapeHtml(p.body)}</p>` : ''}
+    ${p.body ? `<p class="soc-post-body">${linkifyMentions(p.body)}</p>` : ''}
     ${img ? `<div class="soc-post-photo"><img src="${escapeHtml(img)}" loading="lazy" alt="" /></div>` : ''}
     <div class="soc-post-actions">
       <button class="soc-like ${p.likedByMe ? 'liked' : ''}" data-soc-action="toggle-like" data-post-id="${p.id}">
         ${p.likedByMe ? '🖤' : '🤍'} <span>${p.likeCount || ''}</span>
       </button>
       <button class="soc-comment-btn" data-soc-action="toggle-comments" data-post-id="${p.id}">
-        💬 <span>${p.comments.length || ''}</span>
+        💬 <span>${commentCount || ''}</span>
       </button>
     </div>
     <div class="soc-comments">
       ${moreCount > 0 ? `<button class="linklike soc-more-comments" data-soc-action="toggle-comments" data-post-id="${p.id}">View ${moreCount} more comment${moreCount === 1 ? '' : 's'}</button>` : ''}
-      ${shownComments.map((c) => `
-        <div class="soc-comment">
-          <button class="soc-userlink" data-soc-action="view-profile" data-uid="${c.authorId}"><b>@${escapeHtml(c.authorName)}</b></button>
-          <span>${escapeHtml(c.body)}</span>
-          ${c.canDelete ? `<button class="soc-comment-del" data-soc-action="delete-comment" data-comment-id="${c.id}" title="Delete">×</button>` : ''}
-        </div>`).join('')}
+      ${shownComments.map((c) => renderComment(c, p.id)).join('')}
       ${expanded ? `
         <form class="soc-comment-form" data-soc-action="submit-comment" data-post-id="${p.id}">
-          <input type="text" class="soc-comment-input" maxlength="500" placeholder="Add a comment…" />
+          <input type="text" class="soc-comment-input" maxlength="500" placeholder="Add a comment… (@mention someone)" />
           <button class="btn-primary" type="submit">Post</button>
         </form>` : ''}
     </div>
@@ -6123,19 +6566,26 @@ function renderFriends() {
   const friends = state.socFriends.length ? `
     <section class="soc-section">
       <h2 class="soc-section-head">Your Coven · ${state.socFriends.length}</h2>
-      ${state.socFriends.map((f) => `
+      ${state.socFriends.map((f) => {
+        const tierTag = f.isCoffinBuddy
+          ? '<span class="soc-inner-tag">⚰️ Coffin Buddies</span>'
+          : (f.isInner ? '<span class="soc-inner-tag">🏰 Castle Crew</span>' : '');
+        return `
         <div class="soc-friend-row">
           <button class="soc-userlink" data-soc-action="view-profile" data-uid="${f.userId}">
             ${socAvatar(f.avatarUrl, f.username)}
-            <span>@${escapeHtml(f.username)} ${f.isInner ? '<span class="soc-inner-tag">🖤 Inner Coffin</span>' : ''}</span>
+            <span>@${escapeHtml(f.username)} ${tierTag}</span>
           </button>
           <span class="soc-friend-actions">
             <button class="btn-ghost" data-soc-action="toggle-inner" data-uid="${f.userId}" data-on="${f.isInner ? '0' : '1'}">
-              ${f.isInner ? 'Remove from Inner Coffin' : 'Add to Inner Coffin'}
+              ${f.isInner ? 'Remove from Castle Crew' : 'Add to Castle Crew'}
+            </button>
+            <button class="btn-ghost" data-soc-action="toggle-coffin" data-uid="${f.userId}" data-on="${f.isCoffinBuddy ? '0' : '1'}">
+              ${f.isCoffinBuddy ? 'Remove from Coffin Buddies' : 'Add to Coffin Buddies'}
             </button>
             <button class="btn-ghost" data-soc-action="remove-friend" data-uid="${f.userId}">Unfriend</button>
           </span>
-        </div>`).join('')}
+        </div>`; }).join('')}
     </section>` : `<p class="empty-note">No friends in your Coven yet — search for a collector above.</p>`;
 
   el.innerHTML = `
@@ -6602,7 +7052,7 @@ async function onSocialClick(e) {
     case 'go-friends': setSocSubTab('friends'); break;
     case 'view-profile': await openProfile(uid); break;
     case 'close-profile': state.socProfile = null; renderSocial(); break;
-    case 'edit-profile': openEditProfile(); break;
+    case 'edit-profile': closeSocialModal(); openAccountModal(); break;
     case 'edit-top8': openTop8Picker(); break;
 
     case 'toggle-like': await onToggleLike(postId, target); break;
@@ -6610,12 +7060,33 @@ async function onSocialClick(e) {
     case 'edit-post': openPostEditor(postId); break;
     case 'delete-post': await onDeletePost(postId); break;
     case 'delete-comment': await onDeleteComment(target.dataset.commentId); break;
+    case 'react-comment': await onReactComment(target.dataset.commentId, target.dataset.emoji); break;
+    case 'toggle-react-palette': {
+      const pal = document.querySelector(`[data-react-palette="${target.dataset.commentId}"]`);
+      if (pal) pal.classList.toggle('hidden');
+      break;
+    }
+    case 'reply-comment': {
+      const cid = target.dataset.commentId;
+      state.socReplyTo = (state.socReplyTo === cid) ? null : cid;
+      // Make sure the thread is expanded so the reply box is visible.
+      if (postId) state.socExpandedComments.add(postId);
+      rerenderSocialCurrent();
+      break;
+    }
+    case 'view-mention': {
+      const id = await data.findUserIdByUsername(target.dataset.username);
+      if (id) await openProfile(id);
+      else toast(`No collector named @${target.dataset.username}.`);
+      break;
+    }
 
     case 'add-friend':    await socFriendAction(() => data.sendFriendRequest(uid), 'Friend request sent.'); break;
     case 'accept-friend': await socFriendAction(() => data.acceptFriendRequest(uid), 'Friend added. 🦇'); break;
     case 'decline-friend':await socFriendAction(() => data.removeFriend(uid), 'Request declined.'); break;
     case 'remove-friend': await socFriendAction(() => data.removeFriend(uid), 'Removed.'); break;
-    case 'toggle-inner':  await socFriendAction(() => data.setInner(uid, target.dataset.on === '1'), 'Inner Coffin updated. 🖤'); break;
+    case 'toggle-inner':  await socFriendAction(() => data.setInner(uid, target.dataset.on === '1'), 'Castle Crew updated. 🏰'); break;
+    case 'toggle-coffin': await socFriendAction(() => data.setCoffinBuddy(uid, target.dataset.on === '1'), 'Coffin Buddies updated. ⚰️'); break;
   }
 }
 
@@ -6661,13 +7132,44 @@ async function submitCommentForm(form) {
   const body = input.value.trim();
   if (!body) return;
   const postId = form.dataset.postId;
+  const parentId = form.dataset.parentId || null;
   input.value = '';
   try {
-    await data.addComment(postId, body);
+    await data.addComment(postId, body, parentId);
+    state.socReplyTo = null;
     await loadSocialData();
     if (state.socProfile) await openProfile(state.socProfile.profile.id);
     else rerenderSocialCurrent();
   } catch (e) { console.error('comment', e); toast('Could not comment.'); }
+}
+
+// Toggle one of my emoji reactions on a comment, then refresh.
+async function onReactComment(commentId, emoji) {
+  const post = state.socFeed.find((p) => (p.comments || []).some((c) => commentHasId(c, commentId)))
+    || (state.socProfile?.posts || []).find((p) => (p.comments || []).some((c) => commentHasId(c, commentId)));
+  const c = post && findCommentById(post.comments, commentId);
+  const mine = c && (c.reactions || []).some((r) => r.emoji === emoji && r.mine);
+  try {
+    await data.toggleCommentReaction(commentId, emoji, !mine);
+    await loadSocialData();
+    if (state.socProfile) await openProfile(state.socProfile.profile.id);
+    else rerenderSocialCurrent();
+  } catch (e) {
+    console.error('react', e);
+    toast(/comment_reactions/i.test(e?.message || '')
+      ? 'Run the latest migration (db/0032_comment_social.sql).'
+      : 'Could not react.');
+  }
+}
+
+function commentHasId(c, id) { return findCommentById([c], id) != null; }
+function findCommentById(list, id) {
+  for (const c of (list || [])) {
+    if (c.id === id) return c;
+    const found = findCommentById(c.replies, id);
+    if (found) return found;
+  }
+  return null;
 }
 
 async function onDeletePost(postId) {
