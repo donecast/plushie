@@ -1,9 +1,9 @@
 // ─── State ────────────────────────────────────────────────────────────
 const state = {
   tab: 'social',              // landing tab — 'social' | 'catalog' | 'collection' | 'wishlist' | 'trade' | 'admin'
-  colSubTab: 'plushies',      // collection sub-tab: 'plushies' | 'pens' (Pens fold-in)
+  colSubTab: 'plushes',       // collection sub-tab: 'plushes' | 'minis' | 'accessories' | 'other' | 'pens'
   filter: 'all',              // collection: all | active | retired
-  colCategory: 'all',         // collection category chip
+  colCategory: 'all',         // legacy category chip (superseded by sub-tabs; kept inert)
   colDupes: false,            // collection: only quantity > 1
   colNoBag: false,            // collection: only missing bag
   colSort: 'acquired_desc',
@@ -114,10 +114,15 @@ function activePens() {
 // to every place a name is shown (catalog, collection, closet, attached
 // accessories, modals). Tidies up the spacing/dashes it leaves behind.
 function stripOutfitWord(name) {
-  let n = String(name || '').replace(/\bOutfits?\b/gi, ' ');
+  let n = String(name || '');
+  // Drop the "Mini Plush Outfit" / "Plush Outfit" product-line wording (often
+  // followed by a dash): "Mini Plush Outfit - Big Blue Bow" → "Big Blue Bow".
+  n = n.replace(/\b(mini\s+)?plush\s+outfit\b\s*[-–—:]?\s*/gi, ' ');
+  // Drop any remaining standalone "Outfit" / "Outfits".
+  n = n.replace(/\bOutfits?\b/gi, ' ');
   n = n.replace(/\s{2,}/g, ' ').trim();
   n = n.replace(/\s+([-–—])\s+/g, ' $1 ');     // normalise spacing around dashes
-  n = n.replace(/^[\s-–—]+|[\s-–—]+$/g, '').trim();   // drop dangling dashes
+  n = n.replace(/^[\s-–—:]+|[\s-–—:]+$/g, '').trim();   // drop dangling dashes
   return n || String(name || '').trim();
 }
 
@@ -364,7 +369,21 @@ function isMiniPlushie(item) {
   return false;
 }
 
+// Manual category overrides. Plushie Dreadfuls regularly mislabels products
+// in Shopify (wrong product_type), so a handful need pinning by hand. Checked
+// before any type/tag heuristic so the override always wins.
+const CATEGORY_OVERRIDES = [
+  // "Tooth Scary" is labeled a Keychain but it's a full-size plush.
+  { test: (it) => /\btooth scary\b/i.test(it.name || ''), category: 'plush' },
+];
+function categoryOverride(item) {
+  for (const o of CATEGORY_OVERRIDES) if (o.test(item)) return o.category;
+  return null;
+}
+
 function catalogCategory(item) {
+  const ov = categoryOverride(item);
+  if (ov) return ov;
   const t = (item.type || '').toLowerCase();
   if (NON_PLUSHIE_NAME.test(item.name || '')) return 'other';     // standees, etc. tagged as 'plush'
   if (OTHER_CATEGORY_TYPES.has(t)) return 'other';                // store merch
@@ -373,6 +392,10 @@ function catalogCategory(item) {
   // the component picker rather than dropping a 'bundle' row in
   // the user's collection.
   if (item.isBundle) return 'bundle';
+  // Clothing is its own category — worn garments are pulled out of the
+  // generic 'accessory' bucket so a Clothing filter can show them and an
+  // Accessories filter can exclude them.
+  if (catalogIsClothing(item)) return 'clothing';
   if (isMiniPlushie(item)) return 'mini';
   if (t === 'plush' || t === 'toy' || t === 'stuffed toy') return 'plush';
   if (t === 'accessory' || t === 'plush accessory' || t === 'hair clip'
@@ -910,19 +933,59 @@ function formatDate(iso) {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+// Parse a search string into positive / negative terms. Supports:
+//   foo bar      → must contain "foo" AND "bar"
+//   "foo bar"    → must contain the exact phrase "foo bar"
+//   -foo         → must NOT contain "foo"
+//   -"foo bar"   → must NOT contain the phrase "foo bar"
+// Expects a lowercased query (callers already lowercase). Cached per string
+// since the same query is parsed once per item across a render pass.
+let _queryCache = { src: null, terms: [] };
+function parseQuery(q) {
+  if (_queryCache.src === q) return _queryCache.terms;
+  const terms = [];
+  const re = /(-)?"([^"]*)"|(\S+)/g;
+  let m;
+  while ((m = re.exec(q)) !== null) {
+    if (m[2] !== undefined) {                 // quoted phrase
+      const text = m[2].trim();
+      if (text) terms.push({ neg: m[1] === '-', text });
+    } else {                                   // bare token
+      let tok = m[3];
+      let neg = false;
+      if (tok.startsWith('-') && tok.length > 1) { neg = true; tok = tok.slice(1); }
+      if (tok && tok !== '-') terms.push({ neg, text: tok });
+    }
+  }
+  _queryCache = { src: q, terms };
+  return terms;
+}
+
+// Test a haystack string against a parsed query. Every positive term must be
+// present and no negative term may be.
+function queryMatches(hay, q) {
+  if (!q) return true;
+  const h = hay.toLowerCase();
+  for (const t of parseQuery(q)) {
+    const present = h.includes(t.text);
+    if (t.neg ? present : !present) return false;
+  }
+  return true;
+}
+
 function matchesQuery(item, q) {
   if (!q) return true;
   const hay = [item.name, item.nickname, item.meaning, item.acquiredHow]
-    .filter(Boolean).join(' ').toLowerCase();
-  return hay.includes(q);
+    .filter(Boolean).join(' ');
+  return queryMatches(hay, q);
 }
 
 // Look up a collection/wishlist item's category by joining to the catalog
 // on catalog_id. Items without a catalog_id fall through to 'other'.
 function itemCategory(item) {
-  if (!item.catalogId) return 'other';
+  if (!item.catalogId) return isWearableItem(item) ? 'clothing' : 'other';
   const cat = state.catalog.find((c) => c.id === item.catalogId);
-  return cat ? catalogCategory(cat) : 'other';
+  return cat ? catalogCategory(cat) : (isWearableItem(item) ? 'clothing' : 'other');
 }
 
 function filteredCollection() {
@@ -995,7 +1058,7 @@ function catalogIdMap() {
   return { owned, wished };
 }
 
-const CATALOG_CATEGORIES = new Set(['all', 'plush', 'mini', 'accessory', 'bundle', 'other']);
+const CATALOG_CATEGORIES = new Set(['all', 'plush', 'mini', 'clothing', 'accessory', 'bundle', 'other']);
 
 function filteredCatalog() {
   const q = state.query.trim().toLowerCase();
@@ -1027,10 +1090,10 @@ function filteredCatalog() {
       if (!tags.some((t) => t.includes(state.catalogColor))) return false;
     }
     if (!q) return true;
-    return (
-      it.name.toLowerCase().includes(q) ||
-      (it.tags || []).some((t) => t.toLowerCase().includes(q))
-    );
+    // Name + tags form one haystack so a term can match either, while
+    // negative/phrase operators (-foo, "foo bar") still apply across both.
+    const hay = `${it.name} ${(it.tags || []).join(' ')}`;
+    return queryMatches(hay, q);
   });
   return sortCatalog(items, state.catalogSort);
 }
@@ -1156,22 +1219,54 @@ function photoSrc(item) {
 // Outfit" / "Dreadful Disguises" lines (all catalog type 'accessory'),
 // plus anything with a clothing keyword on an accessory-typed item.
 const PLUSH_CLOTHING_LINES = /plush outfit|dreadful disguises/i;
-const CLOTHING_RE = /\b(outfit|hoodie|sweater|sweatshirt|cardigan|jacket|coat|dress|gown|skirt|overalls|romper|onesie|jumpsuit|jumper|pinafore|pajamas?|robe|vest|tunic|kimono|poncho|cape|capelet|cloak|costume|wings|tutu|scarf|shawl|beanie|bonnet)\b/i;
+// NB: "mask" is here on purpose — a plush gas mask / face mask is worn ON a
+// plush, so it's closet clothing, not a generic accessory.
+const CLOTHING_RE = /\b(outfit|hoodie|sweater|sweatshirt|cardigan|jacket|coat|dress|gown|skirt|overalls|romper|onesie|jumpsuit|jumper|pinafore|pajamas?|robe|vest|tunic|kimono|poncho|cape|capelet|cloak|costume|wings|tutu|scarf|shawl|beanie|bonnet|mask)\b/i;
 
 function catalogForItem(item) {
   return item.catalogId ? state.catalog.find((c) => c.id === item.catalogId) : null;
 }
 
+// Does a catalog entry describe wearable plush clothing? Either it's on one
+// of the named clothing lines, or it's an accessory-typed product whose name
+// carries a clothing keyword.
+function catalogIsClothing(cat) {
+  const name = (cat?.name || '').toLowerCase();
+  const type = (cat?.type || '').toLowerCase();
+  if (PLUSH_CLOTHING_LINES.test(name)) return true;
+  if (type === 'accessory' && CLOTHING_RE.test(name)) return true;
+  return false;
+}
+
 function isWearableItem(item) {
   const cat = catalogForItem(item);
-  const catName = (cat?.name || '').toLowerCase();
-  const type = (cat?.type || '').toLowerCase();
-  if (PLUSH_CLOTHING_LINES.test(catName)) return true;
-  if (type === 'accessory' && CLOTHING_RE.test(catName)) return true;
+  if (cat) return catalogIsClothing(cat);
   // Pre-catalog / custom items: fall back to the user's own name, which
   // is often possessive ("Ni'ni's Purple Overalls").
-  if (!cat && CLOTHING_RE.test((item.name || '').toLowerCase())) return true;
-  return false;
+  return CLOTHING_RE.test((item.name || '').toLowerCase());
+}
+
+// Mini clothing vs. full-size clothing. Plushie Dreadfuls names every
+// mini-scale garment "Mini Plush Outfit …", so the word "mini" on a
+// wearable is the tell. We check the *catalog* name (the user-facing name is
+// stripped of the "Mini Plush Outfit" wording) and fall back to the item's
+// own name for custom pieces.
+function clothingIsMini(item) {
+  const cat = catalogForItem(item);
+  const name = `${cat?.name || ''} ${item.name || ''}`.toLowerCase();
+  return /\bmini\b/.test(name);
+}
+
+// Which collection sub-tab an item belongs to: 'plushes' | 'minis' |
+// 'accessories' | 'other'. Clothing is special-cased — it lives in the
+// Plushes or Minis closet, by scale — so it never lands under Accessories.
+function collectionTabOf(item) {
+  if (isWearableItem(item)) return clothingIsMini(item) ? 'minis' : 'plushes';
+  const c = itemCategory(item);            // catalog category: plush|mini|accessory|bundle|other
+  if (c === 'mini') return 'minis';
+  if (c === 'accessory') return 'accessories';
+  if (c === 'plush' || c === 'bundle') return 'plushes';
+  return 'other';
 }
 
 // A collection entry = a plush card, plus any accessories attached to it
@@ -1351,7 +1446,7 @@ function render() {
     document.querySelectorAll('#collection-subtabs .subtab').forEach((s) =>
       s.classList.toggle('active', s.dataset.colSubtab === state.colSubTab)
     );
-    document.getElementById('collection-sub-plushies').classList.toggle('hidden', state.colSubTab !== 'plushies');
+    document.getElementById('collection-sub-items').classList.toggle('hidden', state.colSubTab === 'pens');
     document.getElementById('collection-sub-pens').classList.toggle('hidden', state.colSubTab !== 'pens');
   }
 
@@ -1373,7 +1468,6 @@ function render() {
   );
 
   if (tab === 'collection') {
-    // Plushies sub-tab — the original list view.
     syncCollectionChips();
     // Map every attached accessory to the plush wearing it (computed from
     // the whole collection so attachments survive search/filters), then
@@ -1385,31 +1479,46 @@ function render() {
       attByPlush.get(it.wornBy).push(it);
     }
     state._attByPlush = attByPlush;
+
+    // The active category sub-tab ('plushes' | 'minis' | 'accessories' |
+    // 'other'); Pens is handled separately below.
+    const sub = state.colSubTab === 'pens' ? 'plushes' : state.colSubTab;
     const shown = filteredCollection().filter((i) => !i.wornBy);
-    // Split: unworn clothing (wearables with no wearer) gets its own
-    // section; everything else (plushes + non-clothing accessories) stays
-    // in the main grid, plushes carrying their attached clothing.
-    const mainItems = shown.filter((i) => !isWearableItem(i));
-    const unworn = shown.filter((i) => isWearableItem(i));
+    // Items that live in this sub-tab's main grid: matching category, minus
+    // clothing (clothing lives in the closet, by scale).
+    const mainItems = shown.filter((i) => !isWearableItem(i) && collectionTabOf(i) === sub);
+    // Only Plushes and Minis have a closet. Plushes → full-size clothing,
+    // Minis → mini-scale clothing.
+    const closetItems = (sub === 'plushes' || sub === 'minis')
+      ? shown.filter((i) => isWearableItem(i) && collectionTabOf(i) === sub)
+      : [];
+
     document.getElementById('collection-grid').innerHTML = mainItems.map((i) => renderCollectionEntry(i)).join('');
     const unwornSection = document.getElementById('unworn-clothing-section');
     if (unwornSection) {
-      document.getElementById('unworn-clothing-grid').innerHTML = unworn.map((i) => renderCard(i, 'collection')).join('');
-      unwornSection.classList.toggle('hidden', unworn.length === 0);
+      document.getElementById('unworn-clothing-grid').innerHTML = closetItems.map((i) => renderCard(i, 'collection')).join('');
+      unwornSection.classList.toggle('hidden', closetItems.length === 0);
       const cnt = document.getElementById('unworn-clothing-count');
-      if (cnt) cnt.textContent = unworn.length ? `· ${unworn.length}` : '';
+      if (cnt) cnt.textContent = closetItems.length ? `· ${closetItems.length}` : '';
     }
-    document.getElementById('collection-empty').classList.toggle('hidden', shown.length > 0);
+    const tabTotal = mainItems.length + closetItems.length;
+    document.getElementById('collection-empty').classList.toggle('hidden', tabTotal > 0);
     document.getElementById('count-label').textContent =
-      `${shown.length} of ${state.collection.length} item${state.collection.length === 1 ? '' : 's'}`;
-    // Pens sub-tab — always re-render so the counts stay current even
-    // when the user is on Plushies (the sub-tab badge totals show
-    // through). renderPens() updates #pens-progress + #pens-list.
+      `${tabTotal} of ${state.collection.length} item${state.collection.length === 1 ? '' : 's'}`;
+
+    // Per-tab badge counts, computed over the whole collection (unfiltered)
+    // so the tab chips show stable totals regardless of search/filters.
+    const tabCounts = { plushes: 0, minis: 0, accessories: 0, other: 0 };
+    for (const it of state.collection) tabCounts[collectionTabOf(it)]++;
+    for (const k of Object.keys(tabCounts)) {
+      const el = document.getElementById(`col-subtab-count-${k}`);
+      if (el) el.textContent = `· ${tabCounts[k]}`;
+    }
+
+    // Pens sub-tab — always re-render so the counts stay current even when
+    // another sub-tab is showing. renderPens() updates #pens-progress + #pens-list.
     renderPens();
-    const unique = state.pensOwned.size;
-    const total = [...state.pensOwned.values()].reduce((a, b) => a + b, 0);
-    const pensBadge = `${unique}/${activePens().length}`;
-    document.getElementById('col-subtab-count-plushies').textContent = `· ${state.collection.length}`;
+    const pensBadge = `${state.pensOwned.size}/${activePens().length}`;
     document.getElementById('col-subtab-count-pens').textContent = `· ${pensBadge}`;
     // When Pens sub-tab is showing, the count-label is hidden (handled
     // above via the onPens flag); no need to set it here.
@@ -2239,6 +2348,13 @@ function loadFilters() {
     // it saved should land on Collection → Pens sub-tab instead so they
     // don't see an empty / non-existent tab.
     if (state.tab === 'pens') { state.tab = 'collection'; state.colSubTab = 'pens'; }
+    // The collection sub-tabs were split from 'plushies'/'pens' into
+    // plushes/minis/accessories/other/pens. Map the old plushies value and
+    // guard against any unknown stored value.
+    if (state.colSubTab === 'plushies') state.colSubTab = 'plushes';
+    if (!['plushes', 'minis', 'accessories', 'other', 'pens'].includes(state.colSubTab)) {
+      state.colSubTab = 'plushes';
+    }
     // Sync the search input value so the visible UI matches the restored state.
     const searchEl = document.getElementById('search');
     if (searchEl && state.query) searchEl.value = state.query;
@@ -2295,7 +2411,6 @@ function wireEvents() {
     if (el) el.addEventListener('change', () => { state[target] = el.value; render(); });
   };
   wireSelect('col-state', 'filter');
-  wireSelect('col-cat', 'colCategory');
   wireSelect('col-sort', 'colSort');
   document.querySelectorAll('#col-extras input[data-col-toggle]').forEach((cb) => {
     cb.addEventListener('change', () => {
