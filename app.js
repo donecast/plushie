@@ -1025,7 +1025,7 @@ function extractSetIncludes(blocks, startIdx, endIdx, title = '') {
   // re-words their Set Includes line.
   return filtered.map((it) => {
     const display = canonicalizeAccessoryName(it.name);
-    return { name: display, key: display.toLowerCase() };
+    return { name: display, key: accessoryKey(display) };
   });
 }
 
@@ -1063,14 +1063,20 @@ function extractSpecTail(blocks, title = '') {
   }
   return out.map((it) => {
     const display = canonicalizeAccessoryName(it.name);
-    return { name: display, key: display.toLowerCase() };
+    return { name: display, key: accessoryKey(display) };
   });
 }
 
 function canonicalizeAccessoryName(raw) {
+  // Preserve a hard quantity of 2+ ('2x Baby Opossums') as a normalized
+  // 'N× ' display prefix; a bare 1x / single is noise and is dropped. The
+  // prefix is stripped back off when we derive the match key (accessoryKey),
+  // so it never affects accessory identity / missing-list matching.
+  const qm = String(raw || '').match(/^\s*(\d+)\s*[x×]\s+/i);
+  const qty = qm && parseInt(qm[1], 10) >= 2 ? `${parseInt(qm[1], 10)}× ` : '';
   const out = (raw || '')
-    // Drop the 'Nx ' or 'N× ' quantity prefix.
-    .replace(/^\d+\s*[x×]\s+/i, '')
+    // Drop the 'Nx ' or 'N× ' quantity prefix (re-added as `qty` below).
+    .replace(/^\s*\d+\s*[x×]\s+/i, '')
     // Drop a leading 'Comes with a/the …' prose lead-in ('Comes with a tote
     // bag …' → 'tote bag …'); the item name is what follows.
     .replace(/^\s*comes with\s+(?:a|an|the|one|two|your)?\s*/i, '')
@@ -1102,7 +1108,15 @@ function canonicalizeAccessoryName(raw) {
     // Trailing sentence punctuation left after a clause trim ('… canvas bag.').
     .replace(/\s*[.,;:]+\s*$/, '')
     .trim();
-  return stripOutfitWord(out);
+  return qty + stripOutfitWord(out);
+}
+
+// The match key for an accessory: the canonical display name with any
+// quantity prefix ('2× ') stripped and lowercased. Keys are what get stored
+// in a collection row's missing_accessories, so they must stay quantity-free
+// and stable even as the display name gains/loses a count.
+function accessoryKey(name) {
+  return String(name || '').replace(/^\s*\d+\s*[x×]\s+/i, '').toLowerCase();
 }
 
 // ─── Accessory list hygiene ──────────────────────────────────────────
@@ -1163,7 +1177,7 @@ function normalizeAccessories(list) {
       return small.length >= 2 && small.every((t) => big.includes(t));
     });
     if (dup) continue;
-    kept.push({ name, key: name.toLowerCase(), dk });
+    kept.push({ name, key: accessoryKey(name), dk });
   }
   return kept.map(({ name, key }) => ({ name, key }));
 }
@@ -5704,7 +5718,7 @@ async function submitCatalogItemForm(e) {
     .split('\n')
     .map((s) => canonicalizeAccessoryName(s))
     .filter(Boolean)
-    .map((name) => ({ name, key: name.toLowerCase() }));
+    .map((name) => ({ name, key: accessoryKey(name) }));
   const photoFile = document.getElementById('ci-photo').files[0] || null;
   const mode = state.catalogItemModalMode || 'admin';
   const isEdit = mode === 'edit';
