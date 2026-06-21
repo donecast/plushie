@@ -736,6 +736,50 @@ main {
   gap: 12px;
 }
 
+/* Compact list view for My Collection (item 13): one dense row per item —
+   tiny thumbnail on the left, name + actions on the right, no meaning blurb. */
+.grid-compact {
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+.grid-compact .card {
+  display: grid;
+  grid-template-columns: 52px 1fr auto;
+  grid-template-rows: auto;
+  align-items: center;
+  border-radius: 12px;
+}
+.grid-compact .card:hover { transform: none; }
+.grid-compact .card-photo {
+  width: 52px;
+  height: 52px;
+  aspect-ratio: 1 / 1;
+}
+.grid-compact .card-body {
+  padding: 6px 12px;
+  gap: 2px;
+}
+.grid-compact .card-name {
+  font-size: 0.92rem;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+}
+.grid-compact .card-meaning,
+.grid-compact .card-meta { display: none; }
+.grid-compact .card-actions {
+  padding: 0 10px;
+  border-top: 0;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+.grid-compact .card-actions button {
+  font-size: 0.72rem;
+  padding: 6px 9px;
+}
+/* Outfitted entries: keep the dense row, let attached pieces wrap below. */
+.grid-compact .col-entry.outfitted { display: block; }
+.grid-compact .col-entry.outfitted .attached-wrap { padding: 2px 0 4px 52px; }
+
 .card-status {
   font-family: var(--sans);
   font-weight: 800;
@@ -1874,6 +1918,12 @@ main {
   font-family: var(--serif);
   font-size: 1rem;
   padding: 8px 0;
+}
+.subview-hint {
+  color: var(--muted-1);
+  font-size: 0.86rem;
+  margin: 0 0 12px;
+  text-align: center;
 }
 
 .card-small { font-size: 0.92rem; }

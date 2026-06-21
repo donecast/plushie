@@ -7,6 +7,7 @@ const state = {
   colDupes: false,            // collection: only quantity > 1
   colNoBag: false,            // collection: only missing bag
   colSort: 'acquired_desc',
+  colView: 'cards',           // collection layout: 'cards' (roomy) | 'compact' (dense list)
   wishCategory: 'all',
   wishInStock: false,
   wishSort: 'added_desc',
@@ -290,6 +291,8 @@ function syncCollectionChips() {
   setMultiSummary(document.getElementById('col-extras'), labels);
   const sortEl = document.getElementById('col-sort');
   if (sortEl) sortEl.value = state.colSort;
+  const viewEl = document.getElementById('col-view');
+  if (viewEl) viewEl.value = state.colView;
 }
 
 function syncWishlistChips() {
@@ -1095,7 +1098,18 @@ function sortCollection(items, mode) {
   const cmpAcquired = (x, y) => (y.dateCollected || '').localeCompare(x.dateCollected || '');
   const cmpAdded = (x, y) => (y.addedAt || 0) - (x.addedAt || 0);
   const cmpQty = (x, y) => (y.quantity || 1) - (x.quantity || 1);
+  // Manual order: the user's hand-sorted sequence (item 20). Rows with a
+  // sort_order come first in that order; anything un-ordered falls back to
+  // newest-added so freshly-added items surface at the bottom.
+  const cmpManual = (x, y) => {
+    const xo = x.sortOrder, yo = y.sortOrder;
+    if (xo == null && yo == null) return cmpAdded(x, y);
+    if (xo == null) return 1;
+    if (yo == null) return -1;
+    return xo - yo;
+  };
   switch (mode) {
+    case 'manual':        a.sort(cmpManual); break;
     case 'acquired_asc':  a.sort((x, y) => -cmpAcquired(x, y)); break;
     case 'added_desc':    a.sort(cmpAdded); break;
     case 'name_asc':      a.sort(cmpName); break;
@@ -1485,9 +1499,14 @@ function renderCard(item, kind) {
     ? `<div class="card-body card-clickable" data-action="open-detail" data-id="${item.id}">`
     : `<div class="card-body">`;
 
+  // Tapping the photo opens the lightbox so collectors can see the bigger
+  // picture (item 14). Only when there's actually an image to enlarge.
+  const photoZoom = src
+    ? ` data-action="zoom-photo" data-id="${item.id}" role="button" tabindex="0" aria-label="View larger" title="Tap to see it bigger"`
+    : '';
   return `
     <article class="card" data-id="${item.id}">
-      <div class="card-photo">
+      <div class="card-photo"${photoZoom}>
         ${photoHtml}
         ${badges.length ? `<div class="badge-stack">${badges.join('')}</div>` : ''}
       </div>
@@ -1579,7 +1598,12 @@ function render() {
       ? shown.filter((i) => isWearableItem(i) && collectionTabOf(i) === sub)
       : [];
 
-    document.getElementById('collection-grid').innerHTML = mainItems.map((i) => renderCollectionEntry(i)).join('');
+    // Layout: roomy cards (default) or a dense compact list (item 13).
+    const compact = state.colView === 'compact';
+    const colGrid = document.getElementById('collection-grid');
+    colGrid.classList.toggle('grid-compact', compact);
+    colGrid.classList.toggle('grid-list', !compact);
+    colGrid.innerHTML = mainItems.map((i) => renderCollectionEntry(i)).join('');
     const unwornSection = document.getElementById('unworn-clothing-section');
     if (unwornSection) {
       document.getElementById('unworn-clothing-grid').innerHTML = closetItems.map((i) => renderCard(i, 'collection')).join('');
@@ -1983,6 +2007,10 @@ async function onCardClickInner(btn) {
   if (action === 'edit' || action === 'open-detail') {
     const item = state.collection.find((x) => x.id === id);
     if (item) openModal('collection', item);
+  } else if (action === 'zoom-photo') {
+    const item = state.collection.find((x) => x.id === id) || state.wishlist.find((x) => x.id === id);
+    const src = item && (photoSrc(item) || catalogImageFor(item.catalogId));
+    if (src) openLightbox(src, stripOutfitWord(item.nickname || item.name || ''));
   } else if (action === 'delete') {
     if (!confirm('Remove this plushie?')) return;
     const col = state.collection.find((x) => x.id === id);
@@ -2435,6 +2463,7 @@ function saveFilters() {
       colDupes: state.colDupes,
       colNoBag: state.colNoBag,
       colSort: state.colSort,
+      colView: state.colView,
       wishCategory: state.wishCategory,
       wishInStock: state.wishInStock,
       wishSort: state.wishSort,
@@ -2463,7 +2492,7 @@ function loadFilters() {
     // the Social tab (the default) when reopened. Filters/sub-tabs still
     // persist so each tab keeps its settings once you switch to it.
     const scalars = [
-      'colSubTab', 'filter', 'colCategory', 'colSort', 'wishCategory', 'wishSort',
+      'colSubTab', 'filter', 'colCategory', 'colSort', 'colView', 'wishCategory', 'wishSort',
       'catalogFilter', 'catalogTheme', 'catalogColor', 'catalogSort', 'query', 'tradeSubTab', 'tradeFilter',
     ];
     for (const k of scalars) if (k in s) state[k] = s[k];
@@ -2538,6 +2567,7 @@ function wireEvents() {
   };
   wireSelect('col-state', 'filter');
   wireSelect('col-sort', 'colSort');
+  wireSelect('col-view', 'colView');
   document.querySelectorAll('#col-extras input[data-col-toggle]').forEach((cb) => {
     cb.addEventListener('change', () => {
       if (cb.dataset.colToggle === 'dupes') state.colDupes = cb.checked;

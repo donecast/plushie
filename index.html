@@ -99,12 +99,17 @@
           </div>
         </details>
         <select id="col-sort" class="filter-select" aria-label="Sort collection">
+          <option value="manual">My order</option>
           <option value="acquired_desc">Newest acquired</option>
           <option value="acquired_asc">Oldest acquired</option>
           <option value="added_desc">Newest added</option>
           <option value="name_asc">Name A→Z</option>
           <option value="name_desc">Name Z→A</option>
           <option value="qty_desc">Most owned</option>
+        </select>
+        <select id="col-view" class="filter-select" aria-label="Collection layout">
+          <option value="cards">Card view</option>
+          <option value="compact">Compact list</option>
         </select>
         <button class="filter-clear" data-clear-tab="collection">Clear filters</button>
       </div>
@@ -254,6 +259,7 @@
 
       <div id="collection-sub-pens" class="subview hidden">
         <div id="pens-progress" class="pens-progress"></div>
+        <p class="subview-hint">🔍 Tap any pen's picture to see it larger.</p>
         <div id="pens-list" class="pens-list"></div>
       </div>
     </section>
