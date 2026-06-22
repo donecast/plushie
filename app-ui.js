@@ -290,7 +290,8 @@ async function toggleNotifications() {
     await idb.setMeta('notify_enabled', !wasOn);
     updateNotifyButton();
     toast(wasOn ? 'Reminders off.' : 'Reminders on.');
-    if (!wasOn) scheduleReminderCheck();
+    if (!wasOn) { scheduleReminderCheck(); ensurePushSubscription(); }
+    else disablePushSubscription();
   } else if (Notification.permission === 'denied') {
     toast('Notifications blocked in browser settings.');
   } else {
@@ -300,6 +301,7 @@ async function toggleNotifications() {
       updateNotifyButton();
       toast('Reminders on.');
       scheduleReminderCheck();
+      ensurePushSubscription();
     }
   }
 }
@@ -386,6 +388,102 @@ async function fireLocalNotification(title, body, tag) {
     console.warn('notification failed', e);
   }
 }
+
+// ─── Web Push subscription ───────────────────────────────────────────
+// Real push (reaches a closed app) layered on top of the local
+// fire-while-open notifications above. Subscribing is best-effort and
+// always degrades gracefully: if the browser can't do push (no
+// PushManager, iOS Safari outside an installed PWA, VAPID key unset, or
+// the table/edge function not deployed yet), we just keep the local
+// notifications and move on. The eventual Capacitor wrap swaps the
+// transport (APNs/FCM device token) but reuses the same push_subscriptions
+// table and send-push function.
+
+function urlBase64ToUint8Array(base64) {
+  const padding = '='.repeat((4 - (base64.length % 4)) % 4);
+  const b64 = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(b64);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+function pushSupported() {
+  return 'serviceWorker' in navigator &&
+    'PushManager' in window &&
+    'Notification' in window &&
+    !!window.VAPID_PUBLIC_KEY;
+}
+
+// Ensure this device has a push subscription stored server-side. Idempotent:
+// reuses any existing browser subscription, upserts the row keyed on
+// (user, endpoint). Returns true if a subscription is registered.
+async function ensurePushSubscription() {
+  if (!pushSupported()) return false;
+  if (Notification.permission !== 'granted') return false;
+  const uid = window.currentUser?.id;
+  if (!uid || !window.sb) return false;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(window.VAPID_PUBLIC_KEY),
+      });
+    }
+    const json = sub.toJSON();
+    const { error } = await window.sb.from('push_subscriptions').upsert({
+      user_id: uid,
+      platform: 'web',
+      endpoint: sub.endpoint,
+      p256dh: json.keys?.p256dh || null,
+      auth: json.keys?.auth || null,
+      user_agent: navigator.userAgent,
+      last_seen_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,endpoint' });
+    if (error) { console.warn('push subscribe upsert failed', error.message); return false; }
+    return true;
+  } catch (e) {
+    console.warn('push subscribe failed', e);
+    return false;
+  }
+}
+
+// Tear down this device's subscription when the user turns reminders off.
+async function disablePushSubscription() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) return;
+    const endpoint = sub.endpoint;
+    await sub.unsubscribe().catch(() => {});
+    if (window.sb && window.currentUser?.id) {
+      await window.sb.from('push_subscriptions')
+        .delete()
+        .eq('user_id', window.currentUser.id)
+        .eq('endpoint', endpoint)
+        .then(undefined, () => {});
+    }
+  } catch (e) {
+    console.warn('push unsubscribe failed', e);
+  }
+}
+
+// Verification helper: ask the edge function to push a test to THIS user's
+// own devices. Exposed on window so it can be triggered from the console
+// (or an admin button later) before any automated trigger exists.
+async function sendSelfTestPush() {
+  if (!window.sb) { toast('Not signed in.'); return; }
+  const { data, error } = await window.sb.functions.invoke('send-push', {
+    body: { title: '🦇 The Plush Crypt', body: 'Push is wired up. 🎉', tag: 'self-test' },
+  });
+  if (error) { console.warn('send-push failed', error); toast('Test push failed — see console.'); return; }
+  console.log('send-push result', data);
+  toast('Test push sent.');
+}
+window.sendSelfTestPush = sendSelfTestPush;
 
 // Local notification when a new incoming friend request appears. Same
 // model as trades/reminders: fires while the app is open or loading (no
