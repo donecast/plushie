@@ -2,8 +2,13 @@
 
 A gothic-cute PWA for tracking a Plushie Dreadfuls collection, wish list,
 trading, and a social layer. Vanilla JS (no build step / framework):
-`index.html` + `app.js` + `data.js` + `styles.css`, a service worker
-(`sw.js`), and IndexedDB. Backend is **Supabase** (auth via email magic
+`index.html` + the `app-*.js` parts + `data.js` + `styles.css`, a service
+worker (`sw.js`), and IndexedDB. The UI code lives in nine ordered,
+global-scope scripts — `app-core`, `app-catalog`, `app-collection`,
+`app-ui`, `app-trade`, `app-account`, `app-admin`, `app-admin-catalog`,
+`app-social` (the old single `app.js` split for navigability; they share
+one global scope and have no import/export, so load order in `index.html`
+is load-bearing — `app-social.js` boots the app and must stay last). Backend is **Supabase** (auth via email magic
 links, Postgres with RLS, Storage). Photos route through **Cloudflare
 R2/Workers**; hosting is Cloudflare Pages + GitHub Pages from `main`
 (custom domain `plushcrypt.com`; GitHub repo is **`donecast/Plush-Crypt`** —
@@ -48,9 +53,10 @@ eventual wrap is painless:
 - OTA live-updates: optional/paid if managed (Appflow), free if DIY (CI).
 
 ## Dev conventions
-- Bump cache-buster query versions (`app.js?v=N`, `styles.css?v=N`,
+- Bump cache-buster query versions (`app-*.js?v=N`, `styles.css?v=N`,
   `data.js?v=N`) in `index.html` **and** the `CACHE` const in `sw.js`
-  whenever those files change, so clients pick up new code.
+  whenever those files change, so clients pick up new code. Keep the
+  `app-*.js` parts on a shared version number so they update as a set.
 - Schema changes ship as a new `db/00NN_*.sql` the user applies in Supabase.
 - **Update the public Change Log** when a change is user-facing. It lives
   in `index.html` under `data-legal-section="changelog"` (footer → Change
