@@ -52,6 +52,16 @@ eventual wrap is painless:
   `data.js?v=N`) in `index.html` **and** the `CACHE` const in `sw.js`
   whenever those files change, so clients pick up new code.
 - Schema changes ship as a new `db/00NN_*.sql` the user applies in Supabase.
+- **Update the public Change Log** when a change is user-facing. It lives
+  in `index.html` under `data-legal-section="changelog"` (footer → Change
+  Log), newest day first. Add today's date as a new `.changelog-day` if it
+  isn't there yet, bullet the new feature(s) in plain, non-internal
+  language, and end the day with a `.changelog-fixes` line ("Misc bug
+  fixes." — or "Fixed N…" only if we actually track a count). For a
+  feature that's gated/not yet public, mark its `<li class="changelog-gated">`
+  so it stays insider-only (blue, visible just to admins + the
+  `ALWAYS_GRANTED_USERNAMES` allowlist). Pure refactors / infra / docs
+  don't need an entry.
 
 ## Branch & PR workflow
 - **One task = one branch**, cut fresh from the latest `origin/main`
