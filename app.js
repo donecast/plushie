@@ -94,13 +94,13 @@ const PRODUCT_URL_BASE = 'https://plushiedreadfuls.com/products/';
 // we derive the full profile URL. Order here = display order. `url(handle)`
 // builds the link from a sanitized handle (leading @ already stripped).
 const SOCIAL_PLATFORMS = [
-  { key: 'instagram', label: 'Instagram', glyph: '📷', url: (h) => `https://instagram.com/${h}` },
-  { key: 'tiktok',    label: 'TikTok',    glyph: '🎵', url: (h) => `https://www.tiktok.com/@${h}` },
-  { key: 'x',         label: 'X',         glyph: '✖️', url: (h) => `https://x.com/${h}` },
-  { key: 'bluesky',   label: 'BlueSky',   glyph: '🦋', url: (h) => `https://bsky.app/profile/${h}` },
-  { key: 'youtube',   label: 'YouTube',   glyph: '▶️', url: (h) => `https://www.youtube.com/@${h}` },
-  { key: 'facebook',  label: 'Facebook',  glyph: '📘', url: (h) => `https://facebook.com/${h}` },
-  { key: 'linkedin',  label: 'LinkedIn',  glyph: '💼', url: (h) => `https://www.linkedin.com/in/${h}` },
+  { key: 'instagram', label: 'Instagram', glyph: '📷', eg: 'spookyplush',              url: (h) => `https://instagram.com/${h}` },
+  { key: 'tiktok',    label: 'TikTok',    glyph: '🎵', eg: 'spookyplush',              url: (h) => `https://www.tiktok.com/@${h}` },
+  { key: 'x',         label: 'X',         glyph: '✖️', eg: 'spookyplush',              url: (h) => `https://x.com/${h}` },
+  { key: 'bluesky',   label: 'BlueSky',   glyph: '🦋', eg: 'spookyplush.bsky.social',  url: (h) => `https://bsky.app/profile/${h}` },
+  { key: 'youtube',   label: 'YouTube',   glyph: '▶️', eg: 'spookyplush',              url: (h) => `https://www.youtube.com/@${h}` },
+  { key: 'facebook',  label: 'Facebook',  glyph: '📘', eg: 'spooky.plush',             url: (h) => `https://facebook.com/${h}` },
+  { key: 'linkedin',  label: 'LinkedIn',  glyph: '💼', eg: 'spooky-plush',             url: (h) => `https://www.linkedin.com/in/${h}` },
 ];
 
 // Normalize whatever the user typed into a bare handle: trim, drop a leading
@@ -4986,7 +4986,7 @@ function renderSocialLinkFields(links) {
       <span class="social-link-label" title="${escapeHtml(p.label)}">${p.glyph} ${escapeHtml(p.label)}</span>
       <input type="text" class="social-link-input" data-social-key="${p.key}"
              autocomplete="off" autocapitalize="none" spellcheck="false"
-             placeholder="username" value="${escapeHtml(links?.[p.key] || '')}" />
+             placeholder="e.g. ${escapeHtml(p.eg)}" value="${escapeHtml(links?.[p.key] || '')}" />
     </label>`).join('');
 }
 
