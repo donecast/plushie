@@ -160,18 +160,33 @@ async function runAuthGate(onReady) {
         show('consent'); return;
       }
 
+      // Demo mode (a per-device recording aid, see data.isDemoMode) makes
+      // an insider account present as an ordinary collector: admin powers
+      // and gated grants are suppressed in the UI so screen recordings only
+      // show publicly-available features. This is client-side presentation
+      // only — the server still enforces the real RLS — and it touches no
+      // stored state, so flipping it off restores everything on next boot.
+      const realIsAdmin = !!profile.is_admin;
+      const uname = (profile.username || '').toLowerCase();
+      const realInsider = realIsAdmin ||
+        (window.data?.ALWAYS_GRANTED_USERNAMES || []).includes(uname);
+      const demo = window.data?.isDemoMode?.() === true;
+
       window.currentUser = {
         id: session.user.id,
         email: session.user.email,
         username: profile.username,
-        isAdmin: !!profile.is_admin,
+        isAdmin: demo ? false : realIsAdmin,
         // Pictures off by default: a user is "cleared for images" only
         // when photo_uploads_enabled is explicitly true. Admins get
         // access via the override in data.featureEnabled().
-        photoUploadsEnabled: profile.photo_uploads_enabled === true,
+        photoUploadsEnabled: demo ? false : (profile.photo_uploads_enabled === true),
         // Off by default; admins + a small allowlist override in
         // data.featureEnabled(). Gates the "add your own clothing" closet.
-        customClothingEnabled: profile.custom_clothing_enabled === true,
+        customClothingEnabled: demo ? false : (profile.custom_clothing_enabled === true),
+        // Real insider status, kept regardless of demo mode so the demo
+        // toggle in Settings stays visible (and can be switched back off).
+        demoEligible: realInsider,
       };
       updateUserBadge();
       hide();

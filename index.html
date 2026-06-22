@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=90" />
+  <link rel="stylesheet" href="./styles.css?v=91" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -912,6 +912,7 @@
               <li class="changelog-gated">Admin: you can now hand-edit a catalog item's <strong>Lore</strong>, <strong>Symbolism</strong>, and <strong>Set Includes</strong> even on store-fed plushes — handy when the shop's description misses something that only shows in the photos (like a tote bag). Edits overlay the live catalog; clear a field to let it update from the store again.</li>
               <li class="changelog-gated">Custom clothing can now be renamed right from its edit view.</li>
               <li class="changelog-gated">Groundwork for real push: reminders can now reach you even when the crypt is closed (web push), laying the track for drop &amp; restock alerts and the native apps.</li>
+              <li class="changelog-gated">New <strong>demo mode</strong> toggle at the bottom of Settings (insiders only): turn it on to hide every non-public feature — gated perks, admin tools, and these blue notes — so screen recordings show only what ordinary collectors see. It's per-device, changes nothing for anyone else, and switching it off restores everything.</li>
             </ul>
             <p class="changelog-fixes">Misc bug fixes.</p>
           </div>
@@ -1192,6 +1193,17 @@
         </div>
       </section>
 
+      <section class="account-section hidden" id="acct-demo-section">
+        <h3>Demo mode</h3>
+        <label class="account-row demo-mode-row" for="acct-demo-mode">
+          <input type="checkbox" id="acct-demo-mode" />
+          <span class="demo-mode-copy">
+            <strong>Record-friendly demo mode</strong>
+            <span class="account-hint">Hides everything that isn't publicly available — gated perks, admin tools, and insider change-log notes — so screen recordings show only what ordinary collectors see. This device only: it changes nothing for anyone else, and switching it off restores everything.</span>
+          </span>
+        </label>
+      </section>
+
       <section class="account-section">
         <div class="account-row right">
           <button class="btn-danger" id="acct-signout">Sign out</button>
@@ -1247,20 +1259,20 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./config.js?v=52"></script>
-  <script src="./auth.js?v=55"></script>
+  <script src="./auth.js?v=56"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=67"></script>
+  <script src="./data.js?v=68"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=92"></script>
-  <script src="./app-catalog.js?v=92"></script>
-  <script src="./app-collection.js?v=92"></script>
-  <script src="./app-ui.js?v=92"></script>
-  <script src="./app-trade.js?v=92"></script>
-  <script src="./app-account.js?v=92"></script>
-  <script src="./app-admin.js?v=92"></script>
-  <script src="./app-admin-catalog.js?v=92"></script>
-  <script src="./app-social.js?v=92"></script>
+  <script src="./app-core.js?v=93"></script>
+  <script src="./app-catalog.js?v=93"></script>
+  <script src="./app-collection.js?v=93"></script>
+  <script src="./app-ui.js?v=93"></script>
+  <script src="./app-trade.js?v=93"></script>
+  <script src="./app-account.js?v=93"></script>
+  <script src="./app-admin.js?v=93"></script>
+  <script src="./app-admin-catalog.js?v=93"></script>
+  <script src="./app-social.js?v=93"></script>
 </body>
 </html>

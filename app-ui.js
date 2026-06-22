@@ -1015,6 +1015,13 @@ function wireEvents() {
     closeAccountModal();
     handleSignOut();
   });
+  // Demo mode: a per-device recording aid that hides everything non-public.
+  // Reload so auth re-derives identity and every gate re-evaluates cleanly
+  // (no half-applied UI). Writes nothing server-side; fully reversible.
+  document.getElementById('acct-demo-mode')?.addEventListener('change', (e) => {
+    data.setDemoMode(e.target.checked);
+    window.location.reload();
+  });
   document.getElementById('acct-collections').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-switch-cid]');
     if (btn) {

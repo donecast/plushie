@@ -154,7 +154,7 @@ function openLegalModal(which) {
   // each open so it reflects the signed-in user even if they signed in after a
   // previous open (the modal is reachable pre-auth from the footer).
   const u = window.currentUser;
-  const insider = !!u && (
+  const insider = !!u && !data.isDemoMode() && (
     u.isAdmin ||
     (data.ALWAYS_GRANTED_USERNAMES || []).includes((u.username || '').toLowerCase())
   );
@@ -224,6 +224,17 @@ async function openAccountModal() {
       </li>
     `;
   }).join('');
+
+  // Demo mode toggle — only shown to insiders (admins + the allowlist),
+  // who are the only accounts with anything non-public to hide. Visibility
+  // keys off the real insider status (demoEligible) so the toggle stays
+  // reachable even while demo mode is on (which suppresses isAdmin).
+  const demoSection = document.getElementById('acct-demo-section');
+  if (demoSection) {
+    demoSection.classList.toggle('hidden', !window.currentUser?.demoEligible);
+    const demoChk = document.getElementById('acct-demo-mode');
+    if (demoChk) demoChk.checked = data.isDemoMode();
+  }
 
   document.getElementById('account-modal').classList.remove('hidden');
 }
