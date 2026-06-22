@@ -1,5 +1,5 @@
 // Plushie Dreadfuls service worker — offline app shell.
-const CACHE = 'plushie-dreadful-v106';
+const CACHE = 'plushie-dreadful-v107';
 // Only precache the root + static assets that don't carry cache-buster query
 // strings. Versioned files (app.js?v=N, styles.css?v=N, catalog.json?v=N)
 // get fetched and cached on demand by the fetch handler — listing them here
@@ -58,14 +58,37 @@ self.addEventListener('fetch', (e) => {
   }
 });
 
+// Real Web Push: a payload from the send-push edge function arrives even
+// when the app is closed. Shape: { title, body, url, tag, icon }. We keep
+// the rendering identical to the in-app fireLocalNotification helper so a
+// Capacitor Push plugin can later deliver the same payload shape natively.
+self.addEventListener('push', (e) => {
+  let data = {};
+  try {
+    data = e.data ? e.data.json() : {};
+  } catch (_) {
+    data = { body: e.data ? e.data.text() : '' };
+  }
+  const title = data.title || '🦇 The Plush Crypt';
+  const opts = {
+    body: data.body || '',
+    icon: data.icon || './icon-192.png',
+    badge: './icon-192.png',
+    tag: data.tag || 'plush-push',
+    data: { url: data.url || './' },
+  };
+  e.waitUntil(self.registration.showNotification(title, opts));
+});
+
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
+  const target = (e.notification.data && e.notification.data.url) || './';
   e.waitUntil(
-    self.clients.matchAll({ type: 'window' }).then((cs) => {
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((cs) => {
       for (const c of cs) {
         if ('focus' in c) return c.focus();
       }
-      if (self.clients.openWindow) return self.clients.openWindow('./');
+      if (self.clients.openWindow) return self.clients.openWindow(target);
     })
   );
 });

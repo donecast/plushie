@@ -876,6 +876,7 @@
               <li>Photos in the feed now show in full instead of being cropped.</li>
               <li>Catalog search now looks at what each plush <em>comes with</em>, not just its name and tags — so searching something like "bees" finds every plush that includes them. We also got better at reading bundled extras when the maker lists them as a sentence instead of a neat "1x" line.</li>
               <li class="changelog-gated">Custom clothing can now be renamed right from its edit view.</li>
+              <li class="changelog-gated">Groundwork for real push: reminders can now reach you even when the crypt is closed (web push), laying the track for drop &amp; restock alerts and the native apps.</li>
             </ul>
             <p class="changelog-fixes">Misc bug fixes.</p>
           </div>
@@ -1205,21 +1206,21 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="./config.js?v=51"></script>
+  <script src="./config.js?v=52"></script>
   <script src="./auth.js?v=55"></script>
   <script src="./db.js?v=51"></script>
   <script src="./data.js?v=64"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=88"></script>
-  <script src="./app-catalog.js?v=88"></script>
-  <script src="./app-collection.js?v=88"></script>
-  <script src="./app-ui.js?v=88"></script>
-  <script src="./app-trade.js?v=88"></script>
-  <script src="./app-account.js?v=88"></script>
-  <script src="./app-admin.js?v=88"></script>
-  <script src="./app-admin-catalog.js?v=88"></script>
-  <script src="./app-social.js?v=88"></script>
+  <script src="./app-core.js?v=89"></script>
+  <script src="./app-catalog.js?v=89"></script>
+  <script src="./app-collection.js?v=89"></script>
+  <script src="./app-ui.js?v=89"></script>
+  <script src="./app-trade.js?v=89"></script>
+  <script src="./app-account.js?v=89"></script>
+  <script src="./app-admin.js?v=89"></script>
+  <script src="./app-admin-catalog.js?v=89"></script>
+  <script src="./app-social.js?v=89"></script>
 </body>
 </html>

@@ -23,4 +23,11 @@ window.IMG_PROXY_BASE = 'https://plush-crypt-img-proxy.scott-e08.workers.dev/';
 // slash. e.g. 'https://plush-crypt-r2.scott-e08.workers.dev'.
 window.R2_BASE = '';
 
+// VAPID public key for Web Push. The browser uses this as the
+// applicationServerKey when subscribing; the matching PRIVATE key lives
+// ONLY as a Supabase secret (VAPID_PRIVATE_KEY) used by the send-push
+// edge function — never commit it. The public half is safe to ship.
+// Empty string disables push subscribing (the app falls back to the
+// fire-while-open local notifications).
+window.VAPID_PUBLIC_KEY = 'BCHygdz0fJc1DLK872uF1PC_O430V9Tdm-maRD-gkppyffVIZcsY6C8mLwLz6XAq1tvKswC0XI6kI9jNF_6SjKI';
 

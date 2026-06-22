@@ -1257,7 +1257,7 @@ async function boot() {
   scheduleSocialCheck();  // keep polling for new requests while the app is open
   updateNotifyButton();
   registerSW();
-  if (await idb.getMeta('notify_enabled')) scheduleReminderCheck();
+  if (await idb.getMeta('notify_enabled')) { scheduleReminderCheck(); ensurePushSubscription(); }
   // Catalog: ship the baked copy immediately, then try to refresh from live
   // Shopify in the background. Falls back silently if CORS or network blocks it.
   loadCatalog().then(() => {
