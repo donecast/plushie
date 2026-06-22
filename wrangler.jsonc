@@ -14,6 +14,10 @@
     {
       "binding": "CATALOG",
       "bucket_name": "plush-crypt-catalog"
+    },
+    {
+      "binding": "SOCIAL",
+      "bucket_name": "plush-crypt-social"
     }
   ]
 }
