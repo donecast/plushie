@@ -84,7 +84,7 @@
 
   <main>
     <div class="toolbar">
-      <input type="search" id="search" placeholder="Search the crypt…  (-exclude, &quot;exact phrase&quot;)" aria-label="Search" title="Search supports -exclusions and &quot;exact phrases&quot;" />
+      <input type="search" id="search" placeholder="Search the crypt…  (-exclude, &quot;exact phrase&quot;, a , b for either)" aria-label="Search" title="Search supports -exclusions, &quot;exact phrases&quot;, & for AND, and , for OR (e.g. -tote &amp; -bag, or tote, bag)" />
       <div id="collection-filters" class="filters">
         <select id="col-state" class="filter-select" aria-label="Active or retired">
           <option value="all">All states</option>
@@ -875,6 +875,7 @@
               <li>The Closet reads cleaner: dropped the redundant "worn" tag, and the put-it-back control is now a tidy ↩ in the compact list.</li>
               <li>Photos in the feed now show in full instead of being cropped.</li>
               <li>Catalog search now looks at what each plush <em>comes with</em>, not just its name and tags — so searching something like "bees" finds every plush that includes them. We also got better at reading bundled extras when the maker lists them as a sentence instead of a neat "1x" line.</li>
+              <li>Search now does <strong>AND</strong> and <strong>OR</strong>: use <code>&amp;</code> to require both (e.g. <code>-tote &amp; -bag</code> for plushes missing both), and a comma to match either (e.g. <code>tote, bag</code>).</li>
               <li class="changelog-gated">Custom clothing can now be renamed right from its edit view.</li>
               <li class="changelog-gated">Groundwork for real push: reminders can now reach you even when the crypt is closed (web push), laying the track for drop &amp; restock alerts and the native apps.</li>
             </ul>
@@ -1213,14 +1214,14 @@
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=89"></script>
-  <script src="./app-catalog.js?v=89"></script>
-  <script src="./app-collection.js?v=89"></script>
-  <script src="./app-ui.js?v=89"></script>
-  <script src="./app-trade.js?v=89"></script>
-  <script src="./app-account.js?v=89"></script>
-  <script src="./app-admin.js?v=89"></script>
-  <script src="./app-admin-catalog.js?v=89"></script>
-  <script src="./app-social.js?v=89"></script>
+  <script src="./app-core.js?v=90"></script>
+  <script src="./app-catalog.js?v=90"></script>
+  <script src="./app-collection.js?v=90"></script>
+  <script src="./app-ui.js?v=90"></script>
+  <script src="./app-trade.js?v=90"></script>
+  <script src="./app-account.js?v=90"></script>
+  <script src="./app-admin.js?v=90"></script>
+  <script src="./app-admin-catalog.js?v=90"></script>
+  <script src="./app-social.js?v=90"></script>
 </body>
 </html>
