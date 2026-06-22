@@ -1481,6 +1481,42 @@ data.adminUpdateCatalogItem = async function (id, patch) {
   return row;
 };
 
+// ─── Catalog overrides (hand-edited fields on Shopify-fed items) ──
+// Read every override row. The catalog merge lays these on top of the
+// live-parsed Shopify data, keyed by handle. Returns [] on any error so
+// a missing table / RLS hiccup never blanks the catalog.
+data.listCatalogOverrides = async function () {
+  const { data: rows, error } = await sb
+    .from('catalog_overrides')
+    .select('handle, lore, symbolism, accessories');
+  if (error) { console.warn('catalog overrides load skipped', error); return []; }
+  return rows || [];
+};
+
+// Admin upsert. patch carries { lore, symbolism, accessories } — any
+// field null/omitted means "no override, inherit live". When all three
+// are empty the row is deleted instead so the table stays tidy and the
+// item reverts cleanly to the live feed.
+data.adminUpsertCatalogOverride = async function (handle, patch) {
+  const lore = patch.lore || null;
+  const symbolism = patch.symbolism || null;
+  const accessories = (Array.isArray(patch.accessories) && patch.accessories.length)
+    ? patch.accessories : null;
+  if (lore === null && symbolism === null && accessories === null) {
+    const { error } = await sb.from('catalog_overrides').delete().eq('handle', handle);
+    if (error) throw error;
+    return null;
+  }
+  const row = { handle, lore, symbolism, accessories, updated_by: window.currentUser.id };
+  const { data: saved, error } = await sb
+    .from('catalog_overrides')
+    .upsert(row, { onConflict: 'handle' })
+    .select()
+    .single();
+  if (error) throw error;
+  return saved;
+};
+
 // True when the current user has at least one approved catalog_items
 // submission. Trusted users' future submissions skip the queue (still
 // flagged for retroactive admin review via review_seen = false).

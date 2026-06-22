@@ -586,12 +586,46 @@ async function loadCatalog() {
 // image, available, retired, tags) so renderCatalogCard doesn't care
 // where each row came from. Custom items keep the form_label on the
 // row for grouped display.
+// Lay admin overrides on top of the live-parsed Shopify rows, keyed by
+// handle. Each override field is optional: a value replaces what the
+// body_html parse produced for that one field; null/empty leaves the
+// live value untouched (non-destructive). Custom catalog_items rows are
+// never targeted — overrides are for upstream Shopify products only.
+// Mutates the passed rows in place.
+function applyCatalogOverrides(shopifyProducts, overrides) {
+  if (!Array.isArray(overrides) || overrides.length === 0) return;
+  const byHandle = new Map(overrides.map((o) => [o.handle, o]));
+  for (const item of shopifyProducts) {
+    const ov = byHandle.get(item.handle);
+    if (!ov) continue;
+    if (ov.lore) item.lore = ov.lore;
+    if (ov.symbolism) {
+      // Plain-text override wins over the (now stale) parsed HTML block,
+      // so the detail modal renders the edited text, not the old images.
+      item.symbolism = ov.symbolism;
+      item.symbolismHtml = null;
+    }
+    if (Array.isArray(ov.accessories) && ov.accessories.length) {
+      item.accessories = categoryHasAccessories(item) ? normalizeAccessories(ov.accessories) : [];
+    }
+    item.hasOverride = true;
+  }
+}
+
 async function mergeCustomCatalog(shopifyProducts) {
   try {
+    // Lay any admin overrides on top of the live-parsed Shopify rows
+    // first, then merge in the custom catalog_items. Both reads run in
+    // parallel; overrides fall back to [] so the catalog still renders.
+    const [customsRaw, overrides] = await Promise.all([
+      data.listApprovedCatalogItems(),
+      data.listCatalogOverrides().catch(() => []),
+    ]);
+    applyCatalogOverrides(shopifyProducts, overrides);
     // Hidden items (e.g. the Tom mascot) exist as catalog_items rows but
     // are kept out of the client catalog entirely — no grid, search, or
     // Own/Want. `hidden` is undefined on older rows → treated as visible.
-    const customs = (await data.listApprovedCatalogItems()).filter((c) => !c.hidden);
+    const customs = customsRaw.filter((c) => !c.hidden);
     const normalised = customs.map((c) => {
       const item = {
         id: c.id,                       // UUID — collectors' plushies.catalog_id will hold this
