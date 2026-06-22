@@ -252,6 +252,96 @@ async function submitCatalogItemForm(e) {
   }
 }
 
+// ─── Shopify catalog overrides (admin hand-edits) ────────────────
+// Shopify-fed items derive their lore / symbolism / Set Includes from
+// the upstream body_html every load — there's no row to edit and no
+// "Edit entry" button. This modal saves a thin overlay (catalog_overrides,
+// keyed by handle) so an admin can fix what the feed gets wrong (e.g.
+// Vertigo Rabbit's tote bag, which only shows in the photos). Custom
+// items keep using openCatalogItemModal('edit', …) — this is only for
+// upstream Shopify products.
+function openCatalogOverrideModal(cid) {
+  if (!window.currentUser?.isAdmin) return;
+  const raw = state.catalog.find((c) => c.id === cid);
+  if (!raw) { toast('That item is no longer in the catalog.'); return; }
+  const item = resolveCatalogItem(raw);
+  if (item.isCustom) {
+    // Custom rows have their own full editor; don't route them here.
+    openCatalogItemModal('edit', cid);
+    return;
+  }
+  if (!item.handle) { toast("This item has no handle to attach an edit to."); return; }
+  state.catalogOverride = { handle: item.handle, cid };
+
+  document.getElementById('catalog-override-form').reset();
+  document.getElementById('co-error').classList.add('hidden');
+  document.getElementById('co-subtitle').textContent = cleanCatalogName(item.name);
+
+  // "Lore" on plush/mini/bundle reads as "Notes" on merch — match the
+  // detail modal's heading so the field label isn't jarring.
+  const loreCat = catalogCategory(item);
+  const loreHeading = (loreCat === 'plush' || loreCat === 'mini' || loreCat === 'bundle') ? 'Lore' : 'Notes';
+  document.getElementById('co-lore-label').textContent = loreHeading;
+  document.getElementById('co-lore').value = item.lore || '';
+
+  // Prefill symbolism as plain text — from the plain field if present,
+  // otherwise flattened from the parsed HTML block so the admin starts
+  // from what's actually showing rather than a blank box.
+  const symText = item.symbolism
+    || (item.symbolismHtml ? stripTagsKeepNewlines(item.symbolismHtml) : '');
+  document.getElementById('co-symbolism').value = symText;
+
+  // Set Includes only applies to categories that carry a checklist.
+  const accField = document.getElementById('co-accessories-field');
+  const hasAcc = categoryHasAccessories(item);
+  accField.classList.toggle('hidden', !hasAcc);
+  document.getElementById('co-accessories').value = hasAcc
+    ? (item.accessories || []).map((a) => a.name || a).join('\n')
+    : '';
+
+  document.getElementById('catalog-override-modal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('co-lore').focus(), 50);
+}
+
+async function submitCatalogOverrideForm(e) {
+  e.preventDefault();
+  const ctx = state.catalogOverride;
+  if (!ctx) return;
+  const errEl = document.getElementById('co-error');
+  errEl.classList.add('hidden');
+  const lore = document.getElementById('co-lore').value.trim() || null;
+  const symbolism = document.getElementById('co-symbolism').value.trim() || null;
+  // Same per-line parse as the custom-item form: canonicalised display
+  // name + lowercase key, so the checklist treats overrides identically.
+  const accessories = (document.getElementById('co-accessories').value || '')
+    .split('\n')
+    .map((s) => canonicalizeAccessoryName(s))
+    .filter(Boolean)
+    .map((name) => ({ name, key: accessoryKey(name) }));
+
+  const submit = document.getElementById('co-submit');
+  submit.disabled = true;
+  submit.textContent = 'Saving…';
+  try {
+    await data.adminUpsertCatalogOverride(ctx.handle, { lore, symbolism, accessories });
+    toast('Catalog details saved.');
+    document.getElementById('catalog-override-modal').classList.add('hidden');
+    await loadCatalog();
+    if (state.tab === 'catalog') render();
+    // Repaint the detail modal if it's still open behind this one.
+    const detail = document.getElementById('catalog-detail-modal');
+    if (detail && !detail.classList.contains('hidden')) openCatalogDetailModal(ctx.cid);
+    state.catalogOverride = null;
+  } catch (err) {
+    console.error(err);
+    errEl.textContent = err.message || 'Could not save.';
+    errEl.classList.remove('hidden');
+  } finally {
+    submit.disabled = false;
+    submit.textContent = 'Save';
+  }
+}
+
 // "Do you have this picture?" — opens for catalog cards that have no
 // image. We carry the target's id + kind on the button dataset so the
 // row we insert points to the right place.
@@ -519,7 +609,11 @@ async function openCatalogDetailModal(cid) {
           ${status !== 'coming_soon' && status !== 'fyc' ? `<button class="btn-have" data-action="cat-have" data-cid="${item.id}">🖤 Have</button>` : ''}
           ${!isWished ? `<button class="btn-want" data-action="cat-want" data-cid="${item.id}">🕯 Want</button>` : ''}
           ${productUrl ? `<a class="btn-buy" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener">Buy ↗</a>` : ''}
-          ${window.currentUser?.isAdmin && item.isCustom ? `<button class="btn-ghost" data-action="cat-admin-edit" data-cid="${item.id}">✎ Edit entry</button>` : ''}
+          ${window.currentUser?.isAdmin
+            ? (item.isCustom
+                ? `<button class="btn-ghost" data-action="cat-admin-edit" data-cid="${item.id}">✎ Edit entry</button>`
+                : `<button class="btn-ghost" data-action="cat-admin-override" data-cid="${item.id}">✎ Edit details</button>`)
+            : ''}
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
--- 0038_orphaned_photo_paths.sql
+-- 0039_orphaned_photo_paths.sql
 --
 -- Clean up photo_path values that point at objects which no longer exist
 -- in the Supabase Storage `photos` bucket. These are the source of the

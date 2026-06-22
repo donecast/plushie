@@ -101,6 +101,8 @@ async function onCardClickInner(btn) {
     if (owned) openModal('collection', owned);
   } else if (action === 'cat-admin-edit') {
     if (window.currentUser?.isAdmin) openCatalogItemModal('edit', cid);
+  } else if (action === 'cat-admin-override') {
+    if (window.currentUser?.isAdmin) openCatalogOverrideModal(cid);
   } else if (action === 'offer-trade') {
     const item = state.collection.find((x) => x.id === id);
     if (item) await markForTrade(item, 'offering');
@@ -935,6 +937,11 @@ function wireEvents() {
   });
   document.getElementById('cm-submit').addEventListener('click', submitCatalogMerge);
   document.getElementById('catalog-item-form').addEventListener('submit', submitCatalogItemForm);
+  // Shopify catalog overrides (admin lore / symbolism / Set Includes edits).
+  document.querySelectorAll('[data-close-catalog-override]').forEach((el) =>
+    el.addEventListener('click', () => document.getElementById('catalog-override-modal').classList.add('hidden'))
+  );
+  document.getElementById('catalog-override-form').addEventListener('submit', submitCatalogOverrideForm);
   // Public 'Suggest a plushie' button on the catalog toolbar.
   document.getElementById('suggest-plushie-btn')?.addEventListener('click', () => openCatalogItemModal('user'));
   // Photo source tabs (admin-only) + user picker autocomplete + plushie thumb click.

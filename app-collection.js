@@ -23,13 +23,16 @@ function formatDate(iso) {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-// Parse a search string into positive / negative terms. Supports:
+// Parse one AND-group of a search string into positive / negative terms.
+// Supports:
 //   foo bar      → must contain "foo" AND "bar"
+//   foo & bar    → same; "&" is an explicit AND separator (like a space)
 //   "foo bar"    → must contain the exact phrase "foo bar"
 //   -foo         → must NOT contain "foo"
 //   -"foo bar"   → must NOT contain the phrase "foo bar"
+// (OR is handled one level up by splitOrGroups / parseSearch, on commas.)
 // Expects a lowercased query (callers already lowercase). Cached per string
-// since the same query is parsed once per item across a render pass.
+// since the same group is parsed once per item across a render pass.
 let _queryCache = { src: null, terms: [] };
 function parseQuery(q) {
   if (_queryCache.src === q) return _queryCache.terms;
@@ -42,6 +45,7 @@ function parseQuery(q) {
       if (text) terms.push({ neg: m[1] === '-', text });
     } else {                                   // bare token
       let tok = m[3];
+      if (tok === '&') continue;               // bare AND separator — skip
       let neg = false;
       if (tok.startsWith('-') && tok.length > 1) { neg = true; tok = tok.slice(1); }
       if (tok && tok !== '-') terms.push({ neg, text: tok });
@@ -51,16 +55,51 @@ function parseQuery(q) {
   return terms;
 }
 
-// Test a haystack string against a parsed query. Every positive term must be
-// present and no negative term may be.
+// Split a search string into OR-groups on top-level commas, leaving commas
+// inside "quoted phrases" untouched. Each non-empty group is an AND-query
+// (see parseQuery). So  tote, bag  → "tote" OR "bag", while
+// -tote & -bag  → a single group requiring neither.
+function splitOrGroups(q) {
+  const groups = [];
+  let buf = '';
+  let inQuote = false;
+  for (let i = 0; i < q.length; i++) {
+    const c = q[i];
+    if (c === '"') { inQuote = !inQuote; buf += c; }
+    else if (c === ',' && !inQuote) { groups.push(buf); buf = ''; }
+    else buf += c;
+  }
+  groups.push(buf);
+  return groups.map((s) => s.trim()).filter(Boolean);
+}
+
+// Parse a full search string into OR-groups of parsed AND-terms. Cached per
+// string so a multi-group query is split/parsed once per render pass.
+let _searchCache = { src: null, groups: [] };
+function parseSearch(q) {
+  if (_searchCache.src === q) return _searchCache.groups;
+  const groups = splitOrGroups(q).map((g) => parseQuery(g)).filter((t) => t.length);
+  _searchCache = { src: q, groups };
+  return groups;
+}
+
+// Test a haystack string against a parsed query. A haystack matches if it
+// satisfies ANY OR-group; a group is satisfied when every positive term is
+// present and no negative term is.
 function queryMatches(hay, q) {
   if (!q) return true;
+  const groups = parseSearch(q);
+  if (!groups.length) return true;
   const h = hay.toLowerCase();
-  for (const t of parseQuery(q)) {
-    const present = h.includes(t.text);
-    if (t.neg ? present : !present) return false;
+  for (const group of groups) {
+    let ok = true;
+    for (const t of group) {
+      const present = h.includes(t.text);
+      if (t.neg ? present : !present) { ok = false; break; }
+    }
+    if (ok) return true;
   }
-  return true;
+  return false;
 }
 
 function matchesQuery(item, q) {
@@ -342,9 +381,13 @@ function renderCatalogCard(rawItem, owned, wished) {
   const suggestBtn = (!thumb && canSuggestPhotos)
     ? `<button class="btn-suggest" data-action="cat-suggest-photo" data-cid="${item.id}" data-target-kind="${item.isCustom ? 'custom' : 'shopify'}">🤍 Suggest a photo</button>`
     : '';
-  // Admins can edit any custom catalog item (Shopify rows are upstream — out of scope).
-  const adminEditBtn = (window.currentUser?.isAdmin && item.isCustom)
-    ? `<button class="btn-icon" data-action="cat-admin-edit" data-cid="${item.id}" title="Edit catalog entry">✎</button>`
+  // Admins can edit any catalog item. Custom rows get the full editor;
+  // Shopify rows get the lighter overrides editor (lore / symbolism /
+  // Set Includes overlay) since the rest is owned by the upstream feed.
+  const adminEditBtn = window.currentUser?.isAdmin
+    ? (item.isCustom
+        ? `<button class="btn-icon" data-action="cat-admin-edit" data-cid="${item.id}" title="Edit catalog entry">✎</button>`
+        : `<button class="btn-icon" data-action="cat-admin-override" data-cid="${item.id}" title="Edit catalog details">✎</button>`)
     : '';
   const actions = isOwned
     ? `<button data-action="cat-edit" data-cid="${item.id}">Edit</button> ${haveBtn} ${linkBtn} ${adminEditBtn}`

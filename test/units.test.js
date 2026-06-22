@@ -93,6 +93,17 @@ test('parseQuery splits positive/negative bare tokens and quoted phrases', () =>
     { neg: false, text: 'cat' },
   ]);
   assert.deepEqual(call('parseQuery', '-"coming soon"'), [{ neg: true, text: 'coming soon' }]);
+  assert.deepEqual(call('parseQuery', 'foo & bar'), [           // '&' is an AND separator
+    { neg: false, text: 'foo' },
+    { neg: false, text: 'bar' },
+  ]);
+});
+
+test('splitOrGroups splits on top-level commas but not inside quotes', () => {
+  assert.deepEqual(call('splitOrGroups', 'tote, bag'), ['tote', 'bag']);
+  assert.deepEqual(call('splitOrGroups', '-tote & -bag'), ['-tote & -bag']);  // no comma → one group
+  assert.deepEqual(call('splitOrGroups', '"a, b", c'), ['"a, b"', 'c']);      // comma in phrase kept
+  assert.deepEqual(call('splitOrGroups', 'a, , b'), ['a', 'b']);              // empty groups dropped
 });
 
 test('matchesQuery requires every positive term and excludes negatives', () => {
@@ -102,6 +113,18 @@ test('matchesQuery requires every positive term and excludes negatives', () => {
   assert.equal(call('matchesQuery', item, '-cat'), false);          // negative excludes
   assert.equal(call('matchesQuery', item, 'dragon'), false);        // missing positive
   assert.equal(call('matchesQuery', item, ''), true);               // empty query matches all
+});
+
+test('matchesQuery supports & (AND) and , (OR) operators', () => {
+  const item = { name: 'Cheshire Cat', nickname: 'Boo', meaning: 'mischief' };
+  assert.equal(call('matchesQuery', item, 'cat & boo'), true);      // both present
+  assert.equal(call('matchesQuery', item, 'cat & dragon'), false);  // one missing → AND fails
+  assert.equal(call('matchesQuery', item, 'dragon, cat'), true);    // OR: second group matches
+  assert.equal(call('matchesQuery', item, 'dragon, wolf'), false);  // neither group matches
+  assert.equal(call('matchesQuery', item, '-cat, boo'), true);      // OR: second group matches
+  // A plush missing both a tote and a bag — the user's example, via either form.
+  const noBag = { name: 'Sad Ghost', nickname: '', meaning: 'comes with nothing' };
+  assert.equal(call('matchesQuery', noBag, '-tote & -bag'), true);
 });
 
 test('canonicalizeAccessoryName trims prose, clauses and size tails, keeps real counts', () => {
