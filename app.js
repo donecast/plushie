@@ -7,6 +7,9 @@ const state = {
   colDupes: false,            // collection: only quantity > 1
   colNoBag: false,            // collection: only missing bag
   colSort: 'acquired_desc',
+  arranging: false,           // actively in drag-to-reorder mode (the ↕ Arrange toggle).
+                              // Separate from colSort==='manual': the custom order can be
+                              // *shown* without the drag grips being live.
   colView: 'cards',           // collection layout: 'cards' (roomy) | 'compact' (dense list)
   wishCategory: 'all',
   wishInStock: false,
@@ -228,6 +231,7 @@ function clearTabFilters(tab) {
     state.colDupes = false;
     state.colNoBag = false;
     state.colSort = 'acquired_desc';
+    state.arranging = false;
     syncCollectionChips();
   } else if (tab === 'wishlist') {
     state.wishCategory = 'all';
@@ -302,11 +306,10 @@ function syncCollectionChips() {
   if (sortEl) sortEl.value = state.colSort;
   const viewEl = document.getElementById('col-view');
   if (viewEl) viewEl.value = state.colView;
-  // The Arrange toggle mirrors the 'manual' sort so it's the obvious way in
-  // and out of drag-to-reorder mode (item 20).
+  // The Arrange toggle lights up only while you're actively arranging (item 20).
   const arrangeBtn = document.getElementById('col-arrange');
   if (arrangeBtn) {
-    const on = state.colSort === 'manual';
+    const on = state.arranging;
     arrangeBtn.classList.toggle('active', on);
     arrangeBtn.textContent = on ? '✓ Done arranging' : '↕ Arrange';
   }
@@ -1761,11 +1764,13 @@ function renderCard(item, kind) {
     ? `<button data-action="assign-wearer" data-id="${item.id}" title="Attach this to the plush wearing it">🧥 Who's wearing this?</button>`
     : '';
 
-  // Manual reorder controls (item 20) — only in My-order mode, and only for
-  // items that live in the main collection grid (clothing sits in its own
-  // closet section, so it doesn't take part in manual ordering). A drag grip
-  // (desktop) plus up/down arrows (works everywhere, incl. touch).
-  const manualMode = kind === 'collection' && state.colSort === 'manual' && !isWearableItem(item);
+  // Manual reorder controls (item 20) — only while actively arranging (the ↕
+  // Arrange toggle), and only for items that live in the main collection grid
+  // (clothing sits in its own closet section, so it doesn't take part in
+  // manual ordering). A drag grip (desktop) plus up/down arrows (touch). Note
+  // this is gated on `arranging`, NOT the sort: viewing the saved custom order
+  // ("My order" in the sort menu) shows it without the live drag handles.
+  const manualMode = kind === 'collection' && state.arranging && !isWearableItem(item);
   const reorder = manualMode
     ? `<div class="col-reorder" title="Drag the grip to reorder, or use the arrows">
          <button class="reorder-btn" data-action="move-up" data-id="${item.id}" aria-label="Move up">▲</button>
@@ -1918,8 +1923,8 @@ function render() {
     const colGrid = document.getElementById('collection-grid');
     colGrid.classList.toggle('grid-compact', compact);
     colGrid.classList.toggle('grid-list', !compact);
-    // In manual sort, surface a hint so the drag/▲▼ affordance is discoverable.
-    const manualHint = state.colSort === 'manual' && mainItems.length > 1
+    // While arranging, surface a hint so the drag/▲▼ affordance is discoverable.
+    const manualHint = state.arranging && mainItems.length > 1
       ? '<p class="subview-hint">↕ Drag the ☰ grip or use ▲▼ to arrange your collection exactly how you want.</p>'
       : '';
     colGrid.innerHTML = manualHint + mainItems.map((i) => renderCollectionEntry(i)).join('');
@@ -3030,13 +3035,27 @@ function wireEvents() {
     if (el) el.addEventListener('change', () => { state[target] = el.value; render(); });
   };
   wireSelect('col-state', 'filter');
-  wireSelect('col-sort', 'colSort');
   wireSelect('col-view', 'colView');
-  // Arrange button: one tap into (and back out of) drag-to-reorder mode.
+  // Sort menu: switching to any sort other than "My order" leaves arrange mode
+  // (you can't drag a date/name-sorted list into a custom order).
+  const sortSel = document.getElementById('col-sort');
+  if (sortSel) sortSel.addEventListener('change', () => {
+    state.colSort = sortSel.value;
+    if (state.colSort !== 'manual') state.arranging = false;
+    render();
+  });
+  // Arrange button: tap to start arranging (which switches the view to the
+  // saved "My order" so you're dragging the real order), tap again when done.
+  // Finishing leaves the collection *showing* My order — it just turns off the
+  // live drag handles — so the order you set sticks (item 20).
   const arrangeBtn = document.getElementById('col-arrange');
   if (arrangeBtn) arrangeBtn.addEventListener('click', () => {
-    if (state.colSort === 'manual') state.colSort = state._prevColSort || 'acquired_desc';
-    else { state._prevColSort = state.colSort; state.colSort = 'manual'; }
+    if (state.arranging) {
+      state.arranging = false;          // done — keep colSort on 'manual' so the order shows
+    } else {
+      state.arranging = true;
+      state.colSort = 'manual';
+    }
     render();
   });
   document.querySelectorAll('#col-extras input[data-col-toggle]').forEach((cb) => {
