@@ -2038,22 +2038,44 @@ data.searchUsers = async function (prefix, limit = 12) {
 
 // ─── Profile ────────────────────────────────────────────────────────
 data.getSocialProfile = async function (userId) {
-  const { data: row, error } = await sb
+  // social_links may not exist pre-0035; fall back to the base columns so an
+  // un-migrated client still loads profiles.
+  let row, error;
+  ({ data: row, error } = await sb
     .from('profiles')
-    .select('id, username, bio, avatar_path')
+    .select('id, username, bio, avatar_path, social_links')
     .eq('id', userId)
-    .maybeSingle();
+    .maybeSingle());
+  if (error && /social_links/.test(error.message || '')) {
+    ({ data: row, error } = await sb
+      .from('profiles')
+      .select('id, username, bio, avatar_path')
+      .eq('id', userId)
+      .maybeSingle());
+  }
   if (error) throw error;
   if (!row) return null;
-  return { ...row, avatarUrl: row.avatar_path ? await data.socialPhotoUrl(row.avatar_path) : null };
+  return {
+    ...row,
+    socialLinks: row.social_links || {},
+    avatarUrl: row.avatar_path ? await data.socialPhotoUrl(row.avatar_path) : null,
+  };
 };
 
-data.updateMyProfile = async function ({ bio, avatarBlob }) {
+data.updateMyProfile = async function ({ bio, avatarBlob, socialLinks }) {
   const patch = {};
   if (bio !== undefined) patch.bio = bio;
+  if (socialLinks !== undefined) patch.social_links = socialLinks;
   if (avatarBlob instanceof Blob) patch.avatar_path = await data.uploadSocialPhoto(avatarBlob);
   if (Object.keys(patch).length === 0) return;
-  const { error } = await sb.from('profiles').update(patch).eq('id', window.currentUser.id);
+  let { error } = await sb.from('profiles').update(patch).eq('id', window.currentUser.id);
+  // social_links may not exist pre-0035 — retry without it so bio/avatar still
+  // save, rather than failing the whole update.
+  if (error && /social_links/.test(error.message || '') && 'social_links' in patch) {
+    delete patch.social_links;
+    if (Object.keys(patch).length === 0) return;
+    ({ error } = await sb.from('profiles').update(patch).eq('id', window.currentUser.id));
+  }
   if (error) throw error;
 };
 
