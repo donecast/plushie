@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=85" />
+  <link rel="stylesheet" href="./styles.css?v=86" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -1064,6 +1064,10 @@
           <span>Bio</span>
           <textarea id="acct-bio" rows="3" maxlength="280" placeholder="A line or two about you and your crypt…"></textarea>
         </label>
+        <div class="field">
+          <span>Social links <span class="dim">(just your username — we'll build the link)</span></span>
+          <div id="acct-social-links" class="social-link-fields"></div>
+        </div>
         <div class="account-row right">
           <button class="btn-ghost" id="acct-save-profile">Save profile</button>
         </div>
@@ -1191,7 +1195,7 @@
   <script src="./config.js?v=51"></script>
   <script src="./auth.js?v=55"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=62"></script>
-  <script src="./app.js?v=81"></script>
+  <script src="./data.js?v=63"></script>
+  <script src="./app.js?v=82"></script>
 </body>
 </html>

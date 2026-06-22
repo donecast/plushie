@@ -90,6 +90,33 @@ const ITEM_VIS_META = {
 
 const PRODUCT_URL_BASE = 'https://plushiedreadfuls.com/products/';
 
+// Social links (item 1): collectors enter just a username/handle per network;
+// we derive the full profile URL. Order here = display order. `url(handle)`
+// builds the link from a sanitized handle (leading @ already stripped).
+const SOCIAL_PLATFORMS = [
+  { key: 'instagram', label: 'Instagram', glyph: '📷', url: (h) => `https://instagram.com/${h}` },
+  { key: 'tiktok',    label: 'TikTok',    glyph: '🎵', url: (h) => `https://www.tiktok.com/@${h}` },
+  { key: 'x',         label: 'X',         glyph: '✖️', url: (h) => `https://x.com/${h}` },
+  { key: 'bluesky',   label: 'BlueSky',   glyph: '🦋', url: (h) => `https://bsky.app/profile/${h}` },
+  { key: 'youtube',   label: 'YouTube',   glyph: '▶️', url: (h) => `https://www.youtube.com/@${h}` },
+  { key: 'facebook',  label: 'Facebook',  glyph: '📘', url: (h) => `https://facebook.com/${h}` },
+  { key: 'linkedin',  label: 'LinkedIn',  glyph: '💼', url: (h) => `https://www.linkedin.com/in/${h}` },
+];
+
+// Normalize whatever the user typed into a bare handle: trim, drop a leading
+// '@', and if they pasted a full URL keep just the last meaningful path piece.
+function sanitizeSocialHandle(raw) {
+  let h = (raw || '').trim();
+  if (!h) return '';
+  if (/^https?:\/\//i.test(h)) {
+    try {
+      const parts = new URL(h).pathname.split('/').filter(Boolean);
+      h = parts.length ? parts[parts.length - 1] : '';
+    } catch { /* fall through with the raw string */ }
+  }
+  return h.replace(/^@+/, '').trim();
+}
+
 // Hardcoded fallback list. Renders if state.pensMeta hasn't loaded
 // yet (offline launch, slow network); otherwise the DB-backed
 // state.pensMeta wins via the activePens() getter below — which
@@ -1685,11 +1712,9 @@ function renderAttachedAccessory(a) {
     : '<span class="no-photo">🧥</span>';
   return `
     <div class="attached-acc" data-acc-id="${a.id}">
+      <span class="attached-acc-name" data-action="open-detail" data-id="${a.id}" role="button">${escapeHtml(a.nickname || stripOutfitWord(a.name))}</span>
       <div class="attached-acc-photo" data-action="zoom-photo" data-id="${a.id}" role="button" title="Tap to see it bigger">${photo}</div>
-      <div class="attached-acc-info">
-        <span class="attached-acc-name" data-action="open-detail" data-id="${a.id}" role="button">${escapeHtml(a.nickname || stripOutfitWord(a.name))}</span>
-        <button class="attached-detach" data-action="detach-acc" data-id="${a.id}" title="Hang it back up in the closet">↩ Hang it back up</button>
-      </div>
+      <button class="attached-detach" data-action="detach-acc" data-id="${a.id}" title="Hang it back up in the closet">↩ Hang it back up</button>
     </div>`;
 }
 
@@ -1734,7 +1759,7 @@ function renderCard(item, kind) {
   // clearly as "not a Plushie Dreadfuls item." First in the stack → it
   // sits in the upper-left corner of the card.
   if (kind === 'collection' && item.clothingScale) {
-    badges.push(`<span class="badge badge-custom" title="Custom — not a Plushie Dreadfuls item">✨ Custom</span>`);
+    badges.push(`<span class="badge badge-custom" title="Custom — not a Plushie Dreadfuls item">✨</span>`);
   }
   if (kind === 'collection' && item.retired) badges.push(`<span class="badge badge-retired">Retired</span>`);
   if (kind === 'wishlist' && item.outOfStock) badges.push(`<span class="badge badge-oos">Out of Stock</span>`);
@@ -2113,6 +2138,9 @@ function openModal(kind, item, { fresh = false } = {}) {
   const form = document.getElementById('plushie-form');
   const nicknameField = document.getElementById('field-nickname');
   const wornFieldEl = document.getElementById('field-worn-by');
+  // Custom clothing already carries the name the user typed when adding it,
+  // so an "Alternate name?" field is redundant — hide it (item 4).
+  nicknameField.classList.toggle('hidden', !!item.clothingScale);
   document.querySelector('#field-nickname > span').textContent =
     loreLike ? 'Your name for it (optional)' : 'Alternate name?';
   document.querySelector('#field-meaning > span').textContent =
@@ -4716,6 +4744,7 @@ async function openAccountModal() {
   if (state._myBio === undefined) { try { await loadMyProfileCache(); } catch { /* non-fatal */ } }
   state._acctAvatarBlob = null;
   document.getElementById('acct-bio').value = state._myBio || '';
+  renderSocialLinkFields(state._mySocialLinks || {});
   document.getElementById('acct-avatar').value = '';
   document.getElementById('acct-avatar-name').textContent = '';
   syncAcctAvatarPreview();
@@ -4947,10 +4976,36 @@ function syncAcctAvatarPreview() {
   }
 }
 
+// Render one labelled username box per social network in the account modal,
+// pre-filled from the saved handles.
+function renderSocialLinkFields(links) {
+  const wrap = document.getElementById('acct-social-links');
+  if (!wrap) return;
+  wrap.innerHTML = SOCIAL_PLATFORMS.map((p) => `
+    <label class="social-link-row">
+      <span class="social-link-label" title="${escapeHtml(p.label)}">${p.glyph} ${escapeHtml(p.label)}</span>
+      <input type="text" class="social-link-input" data-social-key="${p.key}"
+             autocomplete="off" autocapitalize="none" spellcheck="false"
+             placeholder="username" value="${escapeHtml(links?.[p.key] || '')}" />
+    </label>`).join('');
+}
+
+// Read the social-link inputs back into a clean { platform: handle } map,
+// dropping blanks and sanitizing whatever the user typed (handles or URLs).
+function collectSocialLinks() {
+  const out = {};
+  document.querySelectorAll('#acct-social-links .social-link-input').forEach((inp) => {
+    const handle = sanitizeSocialHandle(inp.value);
+    if (handle) out[inp.dataset.socialKey] = handle;
+  });
+  return out;
+}
+
 async function saveAccountProfile() {
   const bio = document.getElementById('acct-bio').value.trim();
+  const socialLinks = collectSocialLinks();
   try {
-    await data.updateMyProfile({ bio, avatarBlob: state._acctAvatarBlob });
+    await data.updateMyProfile({ bio, socialLinks, avatarBlob: state._acctAvatarBlob });
     state._acctAvatarBlob = null;
     document.getElementById('acct-avatar').value = '';
     document.getElementById('acct-avatar-name').textContent = '';
@@ -6647,6 +6702,22 @@ function visBadge(vis) {
   return `<span class="soc-vis-badge" title="${escapeHtml(m.hint)}">${m.glyph} ${escapeHtml(m.label)}</span>`;
 }
 
+// Render a profile's linked social accounts as tappable chips. Handles are
+// stored bare; we derive the full URL per platform here (item 1).
+function renderSocialLinks(links) {
+  if (!links || typeof links !== 'object') return '';
+  const chips = SOCIAL_PLATFORMS
+    .filter((p) => links[p.key])
+    .map((p) => {
+      const handle = links[p.key];
+      return `<a class="soc-link-chip" href="${escapeHtml(p.url(encodeURIComponent(handle)))}"
+                 target="_blank" rel="noopener noreferrer nofollow" title="${escapeHtml(p.label)}: ${escapeHtml(handle)}">
+                <span class="soc-link-glyph">${p.glyph}</span><span class="soc-link-handle">${escapeHtml(p.label)}</span>
+              </a>`;
+    });
+  return chips.length ? `<div class="soc-links">${chips.join('')}</div>` : '';
+}
+
 // ─── Top-level social render dispatch ───────────────────────────────
 // A profile overlay (state.socProfile) takes over the feed subview; the
 // sub-tabs otherwise map 1:1 to the three subviews. All visibility is
@@ -6842,10 +6913,21 @@ function renderFriends() {
         </div>`; }).join('')}
     </section>` : `<p class="empty-note">No friends in your Coven yet — search for a collector above.</p>`;
 
+  const tierHelp = `
+    <details class="soc-tier-help">
+      <summary>What do the three friend levels mean? 🦇🏰⚰️</summary>
+      <ul class="soc-tier-list">
+        <li><span class="soc-tier-name">🦇 Your Coven</span> are people you know casually. Think of it like “Friends” on Facebook.</li>
+        <li><span class="soc-tier-name">🏰 Your Castle Crew</span> are people you are close with. Think of it like “Close Friends” on Facebook.</li>
+        <li><span class="soc-tier-name">⚰️ Your Coffin Buddies</span> are who you are REALLY close with. Think significant others, child/parent, maybe siblings. We won't tell you how many people you can cap this at, but more than likely, if you have more than 1 or 2 people in there (more if children) then they should probably be Castle Crew due to some upcoming functionality. This will become clearer over time.</li>
+      </ul>
+    </details>`;
+
   el.innerHTML = `
     <div class="soc-search">
       <input type="search" id="soc-search-input" placeholder="Find collectors by @username…" value="${escapeHtml(state.socSearchQuery)}" />
     </div>
+    ${tierHelp}
     ${results}
     ${requests}
     ${friends}`;
@@ -6856,7 +6938,7 @@ function renderMyProfileTab() {
   // Reuse the profile renderer pointed at myself, but with edit affordances.
   const el = document.getElementById('soc-me');
   renderProfileInto(el, {
-    profile: { id: window.currentUser.id, username: window.currentUser.username, bio: state._myBio, avatarUrl: state._myAvatarUrl },
+    profile: { id: window.currentUser.id, username: window.currentUser.username, bio: state._myBio, avatarUrl: state._myAvatarUrl, socialLinks: state._mySocialLinks },
     posts: state._myPosts || [],
     top8: state._myTop8 || [],
     isMe: true,
@@ -6954,6 +7036,7 @@ function renderProfileInto(el, { profile, posts, top8, friendship, isMe, withBac
       <div class="soc-profile-id">
         <h2>@${escapeHtml(profile.username)}</h2>
         ${profile.bio ? `<p class="soc-bio">${linkifyMentions(profile.bio)}</p>` : (isMe ? `<p class="soc-bio soc-bio-empty">Add a bio to tell the crypt about yourself…</p>` : '')}
+        ${renderSocialLinks(profile.socialLinks)}
         <div class="soc-profile-actions">${relBtns}</div>
       </div>
     </header>
@@ -7252,7 +7335,102 @@ async function saveTop8() {
 }
 
 // ─── Social event wiring ────────────────────────────────────────────
+// ─── @mention typeahead ─────────────────────────────────────────────
+// Lightweight autocomplete for @username mentions in comment boxes, the
+// post composer, and bios. Once there's at least one letter after the '@'
+// we surface matching collectors in a dropdown you can click instead of
+// typing the whole handle (item 6).
+const MENTION_FIELD_SEL = '.soc-comment-input, #soc-compose-body, #soc-edit-body, #soc-bio, #acct-bio';
+let mentionState = { field: null, start: 0, end: 0, token: 0 };
+
+function getMentionDropdown() {
+  let el = document.getElementById('mention-suggest');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'mention-suggest';
+    el.className = 'mention-suggest hidden';
+    document.body.appendChild(el);
+    // mousedown fires before the field blurs, so the insertion still has a
+    // live target field to write into.
+    el.addEventListener('mousedown', (e) => {
+      const row = e.target.closest('[data-mention-username]');
+      if (!row) return;
+      e.preventDefault();
+      insertMention(row.dataset.mentionUsername);
+    });
+  }
+  return el;
+}
+
+function hideMentionDropdown() {
+  const el = document.getElementById('mention-suggest');
+  if (el) el.classList.add('hidden');
+  mentionState.field = null;
+}
+
+function positionMentionDropdown(field) {
+  const el = getMentionDropdown();
+  const r = field.getBoundingClientRect();
+  el.style.left = `${Math.round(r.left)}px`;
+  el.style.top = `${Math.round(r.bottom + 4)}px`;
+  el.style.minWidth = `${Math.round(Math.min(Math.max(r.width, 160), 280))}px`;
+}
+
+async function onMentionInput(field) {
+  const pos = field.selectionStart ?? field.value.length;
+  const before = field.value.slice(0, pos);
+  // Active mention = an '@' followed by 1–20 handle chars, right at the caret.
+  const m = before.match(/(?:^|[^\w@])@([a-zA-Z0-9_-]{1,20})$/);
+  if (!m) { hideMentionDropdown(); return; }
+  const prefix = m[1];
+  const token = ++mentionState.token;
+  mentionState = { field, start: pos - prefix.length, end: pos, token };
+  let users = [];
+  try { users = await data.searchUsers(prefix, 6); } catch { users = []; }
+  // Bail if the user kept typing / moved on while we were awaiting.
+  if (mentionState.token !== token || mentionState.field !== field) return;
+  const el = getMentionDropdown();
+  if (!users.length) { hideMentionDropdown(); return; }
+  el.innerHTML = users.map((u) =>
+    `<button type="button" class="mention-row" data-mention-username="${escapeHtml(u.username)}">
+       ${socAvatar(u.avatarUrl, u.username, 'mention-avatar')}<span>@${escapeHtml(u.username)}</span>
+     </button>`).join('');
+  positionMentionDropdown(field);
+  el.classList.remove('hidden');
+}
+
+function insertMention(username) {
+  const { field, start, end } = mentionState;
+  if (!field) return;
+  const v = field.value;
+  field.value = v.slice(0, start) + username + ' ' + v.slice(end);
+  const caret = start + username.length + 1;
+  field.focus();
+  try { field.setSelectionRange(caret, caret); } catch { /* not all inputs support it */ }
+  hideMentionDropdown();
+  // Let any maxlength/validation listeners react to the programmatic change.
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function wireMentionAutocomplete() {
+  document.addEventListener('input', (e) => {
+    if (e.target.matches?.(MENTION_FIELD_SEL)) onMentionInput(e.target);
+  });
+  // Dismiss when focus/click leaves the field and the dropdown.
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('#mention-suggest')) return;
+    if (e.target.matches?.(MENTION_FIELD_SEL)) return;
+    hideMentionDropdown();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hideMentionDropdown();
+  });
+  // Reposition isn't worth tracking on scroll — just hide so it can't drift.
+  window.addEventListener('scroll', hideMentionDropdown, true);
+}
+
 function wireSocialEvents() {
+  wireMentionAutocomplete();
   // Sub-tabs.
   document.querySelectorAll('#social-view .subtab').forEach((s) => {
     s.addEventListener('click', async () => {
@@ -7330,6 +7508,7 @@ async function loadMyProfileCache() {
     ]);
     state._myBio = profile?.bio || '';
     state._myAvatarUrl = profile?.avatarUrl || null;
+    state._mySocialLinks = profile?.socialLinks || {};
     state._myPosts = posts;
     state._myTop8 = top8;
   } catch (e) { console.warn('loadMyProfileCache', e); }
