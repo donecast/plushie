@@ -3668,7 +3668,10 @@ body.locked { overflow: hidden; }
 .soc-post-plush { margin: 8px 0 2px; font-weight: 700; color: var(--gold); }
 .soc-post-body { margin: 8px 0; white-space: pre-wrap; line-height: 1.5; }
 .soc-post-photo { margin: 10px -14px -4px; }
-.soc-post-photo img { width: 100%; max-height: 460px; object-fit: cover; display: block; }
+/* Show the whole photo at its natural aspect ratio — there's no tap-to-open
+   original on the feed, so cropping (object-fit: cover + a height cap) would
+   permanently hide part of the picture. */
+.soc-post-photo img { width: 100%; height: auto; display: block; }
 .soc-post-actions { display: flex; gap: 14px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--hairline); }
 .soc-like, .soc-comment-btn {
   background: none; border: none; cursor: pointer; font: inherit; color: var(--ink-mute);
