@@ -3668,10 +3668,14 @@ body.locked { overflow: hidden; }
 .soc-post-plush { margin: 8px 0 2px; font-weight: 700; color: var(--gold); }
 .soc-post-body { margin: 8px 0; white-space: pre-wrap; line-height: 1.5; }
 .soc-post-photo { margin: 10px -14px -4px; }
-/* Show the whole photo at its natural aspect ratio — there's no tap-to-open
-   original on the feed, so cropping (object-fit: cover + a height cap) would
-   permanently hide part of the picture. */
-.soc-post-photo img { width: 100%; height: auto; display: block; }
+/* Show the whole photo (no crop — there's no tap-to-open original on the feed),
+   but cap it at ~70% of the viewport height so a tall portrait doesn't swallow
+   the screen. width/height auto + both max-* keeps the aspect ratio intact;
+   margin auto centers a portrait that ends up narrower than the column. */
+.soc-post-photo img {
+  display: block; margin: 0 auto;
+  max-width: 100%; max-height: 70vh; width: auto; height: auto;
+}
 .soc-post-actions { display: flex; gap: 14px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--hairline); }
 .soc-like, .soc-comment-btn {
   background: none; border: none; cursor: pointer; font: inherit; color: var(--ink-mute);
