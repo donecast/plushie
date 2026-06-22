@@ -1710,11 +1710,15 @@ function renderAttachedAccessory(a) {
   const photo = src
     ? `<img src="${escapeHtml(src)}" loading="lazy" alt="" />`
     : '<span class="no-photo">🧥</span>';
+  // Compact view is starved for space: drop the button label down to the bare
+  // ↩ arrow (the title/aria-label still carries the meaning).
+  const compact = state.colView === 'compact';
+  const detachLabel = compact ? '↩' : '↩ Hang it back up';
   return `
     <div class="attached-acc" data-acc-id="${a.id}">
       <span class="attached-acc-name" data-action="open-detail" data-id="${a.id}" role="button">${escapeHtml(a.nickname || stripOutfitWord(a.name))}</span>
       <div class="attached-acc-photo" data-action="zoom-photo" data-id="${a.id}" role="button" title="Tap to see it bigger">${photo}</div>
-      <button class="attached-detach" data-action="detach-acc" data-id="${a.id}" title="Hang it back up in the closet">↩ Hang it back up</button>
+      <button class="attached-detach" data-action="detach-acc" data-id="${a.id}" title="Hang it back up in the closet" aria-label="Hang it back up in the closet">${detachLabel}</button>
     </div>`;
 }
 
@@ -2139,8 +2143,15 @@ function openModal(kind, item, { fresh = false } = {}) {
   const nicknameField = document.getElementById('field-nickname');
   const wornFieldEl = document.getElementById('field-worn-by');
   // Custom clothing already carries the name the user typed when adding it,
-  // so an "Alternate name?" field is redundant — hide it (item 4).
-  nicknameField.classList.toggle('hidden', !!item.clothingScale);
+  // so an "Alternate name?" field is redundant — hide it (item 4). Instead we
+  // let them edit that main name directly, and hide the static name label so it
+  // isn't shown twice. Catalog items keep the fixed, catalog-sourced name.
+  const isCustom = !!item.clothingScale;
+  nicknameField.classList.toggle('hidden', isCustom);
+  const nameField = document.getElementById('field-name');
+  nameField.classList.toggle('hidden', !isCustom);
+  document.getElementById('modal-name').classList.toggle('hidden', isCustom);
+  if (isCustom) document.getElementById('f-name').value = item.name ?? '';
   document.querySelector('#field-nickname > span').textContent =
     loreLike ? 'Your name for it (optional)' : 'Alternate name?';
   document.querySelector('#field-meaning > span').textContent =
@@ -2444,6 +2455,12 @@ async function submitForm(e) {
     hasBag: !missingAccessories.some((a) => /\bbag\b/i.test(a)),
     updatedAt: Date.now(),
   };
+  // Custom clothing can rename itself — the name field is only shown then.
+  // Fall back to the existing name so an accidentally-cleared field can't blank it.
+  const nameField = document.getElementById('field-name');
+  if (nameField && !nameField.classList.contains('hidden')) {
+    record.name = document.getElementById('f-name').value.trim() || existing.name;
+  }
   const kind = 'collection';
 
   // New photo (only when the uploads flag is on). Compress, then hand the

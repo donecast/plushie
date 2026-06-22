@@ -873,7 +873,6 @@ main {
   flex-direction: row; align-items: center; gap: 8px;
   padding: 4px 8px 4px 4px; border-radius: 10px;
 }
-.grid-compact .attached-acc::before { display: none; }   /* drop the floating 'worn' tag in the strip */
 .grid-compact .attached-acc-photo {
   order: 0; width: 44px; height: 44px; min-height: 0; aspect-ratio: 1;
   border-radius: 8px; flex: none;
@@ -3897,18 +3896,13 @@ body.locked { overflow: hidden; }
   border-radius: 14px; box-shadow: var(--shadow-card);
   display: flex; flex-direction: column; overflow: hidden;
 }
-.attached-acc::before {
-  content: '👕 worn'; position: absolute; top: 6px; left: 6px; z-index: 1;
-  font-size: 0.66rem; padding: 1px 7px; border-radius: 999px;
-  background: var(--gold); color: var(--text-on-gold); font-weight: 800;
-}
 /* Title centered at the top, photo filling the middle as large as the card
    will allow, and the "Hang it back up" button anchored to the bottom (item 5).
    The card stretches to the height of the plush it sits beside, so the photo
    grows to fill whatever room is left between the title and the button. */
 .attached-acc-name {
   order: 0; font-weight: 700; font-size: 0.82rem; line-height: 1.2;
-  text-align: center; padding: 22px 8px 6px;
+  text-align: center; padding: 10px 8px 6px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .attached-acc-photo {
