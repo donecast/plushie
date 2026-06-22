@@ -825,7 +825,13 @@ main {
   border-top: 0;
   gap: 4px;
   flex-wrap: nowrap;
-  align-items: center;   /* vertically centre the row of buttons (item 30) */
+  align-items: center;   /* centre the buttons within the actions box */
+  /* The base .card-actions has margin-top:auto (pins actions to the bottom of
+     a tall card). In the compact grid row that fights the grid's
+     align-items:center and drops the buttons to the row's bottom edge — reset
+     it so they sit centred against the photo/text (item 30). */
+  margin-top: 0;
+  align-self: center;
 }
 .grid-compact .card-actions button {
   font-size: 0.72rem;
