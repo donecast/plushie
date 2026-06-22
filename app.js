@@ -7144,7 +7144,7 @@ function renderProfileInto(el, { profile, posts, top8, friendship, isMe, withBac
     else if (friendship === 'incoming') relBtns = `<button class="btn-primary" data-soc-action="accept-friend" data-uid="${profile.id}">Accept request</button>`;
     else relBtns = `<button class="btn-primary" data-soc-action="add-friend" data-uid="${profile.id}">Add friend</button>`;
     // Block/unblock + report, available on anyone else's profile. Admins +
-    // the redrambler moderator can't be blocked (DB-enforced in db/0035);
+    // the redrambler moderator can't be blocked (DB-enforced in db/0036);
     // hide the affordance for them rather than offer an action that errors.
     const uname = escapeHtml(profile.username);
     const unblockable = data.isUnblockable({ username: profile.username, is_admin: profile.is_admin });
