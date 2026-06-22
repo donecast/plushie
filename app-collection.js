@@ -381,9 +381,13 @@ function renderCatalogCard(rawItem, owned, wished) {
   const suggestBtn = (!thumb && canSuggestPhotos)
     ? `<button class="btn-suggest" data-action="cat-suggest-photo" data-cid="${item.id}" data-target-kind="${item.isCustom ? 'custom' : 'shopify'}">🤍 Suggest a photo</button>`
     : '';
-  // Admins can edit any custom catalog item (Shopify rows are upstream — out of scope).
-  const adminEditBtn = (window.currentUser?.isAdmin && item.isCustom)
-    ? `<button class="btn-icon" data-action="cat-admin-edit" data-cid="${item.id}" title="Edit catalog entry">✎</button>`
+  // Admins can edit any catalog item. Custom rows get the full editor;
+  // Shopify rows get the lighter overrides editor (lore / symbolism /
+  // Set Includes overlay) since the rest is owned by the upstream feed.
+  const adminEditBtn = window.currentUser?.isAdmin
+    ? (item.isCustom
+        ? `<button class="btn-icon" data-action="cat-admin-edit" data-cid="${item.id}" title="Edit catalog entry">✎</button>`
+        : `<button class="btn-icon" data-action="cat-admin-override" data-cid="${item.id}" title="Edit catalog details">✎</button>`)
     : '';
   const actions = isOwned
     ? `<button data-action="cat-edit" data-cid="${item.id}">Edit</button> ${haveBtn} ${linkBtn} ${adminEditBtn}`
