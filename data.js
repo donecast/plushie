@@ -322,7 +322,17 @@ const data = {
       const { data: signed, error } = await sb
         .storage.from(bucket)
         .createSignedUrl(path, 604800);
-      if (error) { console.warn('signed url failed', path, error); return null; }
+      if (error) {
+        // A genuinely missing object is permanent — cache the miss so we
+        // don't re-sign (and re-fire a 400 + console noise) on every
+        // render. Transient failures (auth not ready yet, network blip)
+        // stay uncached so a later render can retry and recover.
+        const missing = error.status === 400 || error.status === 404 ||
+          /not.?found/i.test(error.message || '');
+        if (missing) { data._photoUrlCache.set(`${bucket}:${path}`, null); }
+        else { console.warn('signed url failed', path, error); }
+        return null;
+      }
       url = signed.signedUrl;
     }
     data._photoUrlCache.set(`${bucket}:${path}`, url);
