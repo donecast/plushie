@@ -1,0 +1,974 @@
+// ════════════════════════════════════════════════════════════════════
+// app-ui.js — part 4 of 9 of the former monolithic app.js.
+//
+// These parts are plain (non-module) scripts that SHARE ONE GLOBAL SCOPE,
+// exactly as the single file did. They are split only for navigability and
+// smaller merge surface — there is no import/export between them. Load order
+// is fixed in index.html; the final part (app-social.js) boots the app.
+//
+// This part: Card actions, restocks, notifications, toasts, filters, event wiring.
+// ════════════════════════════════════════════════════════════════════
+
+// ─── Card actions ────────────────────────────────────────────────────
+async function onCardClick(e) {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  // Capture scroll up front so any re-render triggered by the action
+  // doesn't snap the user to the top. Actions that intentionally change
+  // tabs (currently none — we removed the auto-jumps) would override
+  // this by scrolling explicitly.
+  try {
+    await keepScroll(() => onCardClickInner(btn));
+  } catch (err) {
+    console.error('card action failed', err);
+    const msg = err?.message || '';
+    if (/column.*quantity/i.test(msg)) {
+      toast('Run the latest SQL migration (db/0003_quantity.sql) — the quantity column is missing.');
+    } else if (msg) {
+      toast('Error: ' + msg);
+    } else {
+      toast('Something went wrong. See console.');
+    }
+  }
+}
+
+async function onCardClickInner(btn) {
+  const { action, id, cid } = btn.dataset;
+
+  if (action === 'edit' || action === 'open-detail') {
+    const item = state.collection.find((x) => x.id === id);
+    if (item) openModal('collection', item);
+  } else if (action === 'zoom-photo') {
+    const item = state.collection.find((x) => x.id === id) || state.wishlist.find((x) => x.id === id);
+    const src = item && (photoSrc(item) || catalogImageFor(item.catalogId));
+    if (src) openLightbox(src, stripOutfitWord(item.nickname || item.name || ''));
+  } else if (action === 'move-up') {
+    await moveCollectionItem(id, 'up');
+  } else if (action === 'move-down') {
+    await moveCollectionItem(id, 'down');
+  } else if (action === 'delete') {
+    await removeCollectionItem(id);
+  } else if (action === 'got') {
+    const item = state.wishlist.find((x) => x.id === id);
+    if (!item) return;
+    const collected = {
+      id: crypto.randomUUID(),
+      name: item.name,
+      photo: item.photo || null,
+      catalogId: item.catalogId || null,
+      meaning: null,
+      dateCollected: new Date().toISOString().slice(0, 10),
+      acquiredHow: null,
+      hasBag: true,
+      missingAccessories: [],
+      retired: !!item.retired,
+      addedAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    try {
+      // Reuse the wishlist photo path so we don't re-upload — it's already in storage.
+      // Pass keepPhoto:true so delete() doesn't sweep the file (collection still references it).
+      collected.photoPath = item.photoPath || null;
+      await data.put('collection', collected);
+      await data.delete('wishlist', id, { keepPhoto: true });
+      await loadAll();
+      // Stay on Wish List — the user is probably marking multiple items
+      // as 'got it' in a row. They can switch to Collection themselves
+      // when they're done. Preserves their scroll position too.
+      render();
+      toast(`Moved “${item.name}” to collection. 🖤`);
+    } catch (err) {
+      console.error('Got It! failed', err);
+      toast('Could not move to collection.');
+    }
+  } else if (action === 'cat-have') {
+    // Bundles open a 'which of these do you own?' picker instead of
+    // dropping a single bundle row into the collection.
+    const raw = state.catalog.find((c) => c.id === cid);
+    const it = raw ? resolveCatalogItem(raw) : null;
+    if (it && it.isBundle) openBundlePickerModal(cid);
+    else await addFromCatalog(cid, 'collection', { customize: true });
+  } else if (action === 'cat-want') {
+    await addFromCatalog(cid, 'wishlist');
+  } else if (action === 'cat-detail') {
+    openCatalogDetailModal(cid);
+  } else if (action === 'cat-suggest-photo') {
+    const targetKind = btn.dataset.targetKind || 'shopify';
+    const target = state.catalog.find((c) => c.id === cid);
+    openSuggestPhotoModal(cid, targetKind, target ? cleanCatalogName(target.name) : '');
+  } else if (action === 'cat-edit') {
+    const owned = state.collection.find((x) => x.catalogId === cid);
+    if (owned) openModal('collection', owned);
+  } else if (action === 'cat-admin-edit') {
+    if (window.currentUser?.isAdmin) openCatalogItemModal('edit', cid);
+  } else if (action === 'offer-trade') {
+    const item = state.collection.find((x) => x.id === id);
+    if (item) await markForTrade(item, 'offering');
+  } else if (action === 'seek-trade') {
+    const item = state.wishlist.find((x) => x.id === id);
+    if (item) await markForTrade(item, 'seeking');
+  } else if (action === 'assign-wearer') {
+    openWearerPicker(id);
+  } else if (action === 'detach-acc') {
+    await setWearer(id, null);
+  } else if (action === 'col-inc') {
+    if (Date.now() - _lastQtyTap < 150) return;
+    _lastQtyTap = Date.now();
+    const item = state.collection.find((x) => x.id === id);
+    if (!item) return;
+    const next = (item.quantity || 1) + 1;
+    item.quantity = next;
+    render();   // optimistic
+    await data.put('collection', { ...item, updatedAt: Date.now() });
+    await loadAll();
+    render();
+  } else if (action === 'col-dec') {
+    if (Date.now() - _lastQtyTap < 150) return;
+    _lastQtyTap = Date.now();
+    const item = state.collection.find((x) => x.id === id);
+    if (!item) return;
+    const next = (item.quantity || 1) - 1;
+    if (next <= 0) {
+      if (!confirm(`Remove “${item.name}” from your collection?`)) return;
+      if (item.catalogId) {
+        const ok = await syncOfferingToOwned(item.catalogId, 0);
+        if (!ok) return;
+      }
+      await data.delete('collection', id);
+    } else {
+      // Trim a matching offering down to match (and bail if that would
+      // orphan a reservation).
+      if (item.catalogId) {
+        const ok = await syncOfferingToOwned(item.catalogId, next);
+        if (!ok) return;
+      }
+      item.quantity = next;
+      render();   // optimistic
+      await data.put('collection', { ...item, updatedAt: Date.now() });
+    }
+    await loadAll();
+    render();
+  }
+}
+
+// One-tap add from a catalog card. No modal; commits a record with
+// catalog-sourced fields and sensible defaults. If the user already owns
+// this catalog id (collection only), bumps quantity on the existing row
+// instead of creating a duplicate — duplicates are how trades happen.
+async function addFromCatalog(catalogId, kind, { customize = false } = {}) {
+  const cat = state.catalog.find((c) => c.id === catalogId);
+  if (!cat) return;
+
+  if (kind === 'collection') {
+    const existing = state.collection.find((x) => x.catalogId === cat.id);
+    if (existing) {
+      const next = (existing.quantity || 1) + 1;
+      await data.put('collection', { ...existing, quantity: next, updatedAt: Date.now() });
+      await loadAll();
+      // Stay on whatever tab the user is on — don't jump to Collection.
+      render();
+      toast(`Now you have ${next} of “${cleanCatalogName(cat.name)}”. 🖤`);
+      return;
+    }
+  } else {
+    // Same idea on wishlist — don't duplicate, and don't jump tabs.
+    const existing = state.wishlist.find((x) => x.catalogId === cat.id);
+    if (existing) {
+      render();
+      toast(`Already on your wish list.`);
+      return;
+    }
+  }
+
+  // Snapshot the product photo so the card stays good even if upstream
+  // rotates the URL (the Overthinking Bunny problem — same SKU, new
+  // image). Routes through the img-proxy Worker for CORS + Shopify
+  // ?width= resizing; on any failure, falls back to direct fetch, then
+  // to storing the URL as a hot link.
+  // Don't run the Shopify _NNNx URL mangler on non-Shopify images;
+  // signed Supabase Storage URLs end with .jpg?token=… and the regex
+  // would corrupt the token. Custom catalog items just use the URL
+  // we already have.
+  const isShopify = !!(cat.image && /^https:\/\/cdn\.shopify\.com\//.test(cat.image));
+  const originalUrl = cat.image ? (isShopify ? shopifyImageVariant(cat.image, 800) : cat.image) : null;
+  let photo = originalUrl;
+  if (originalUrl) {
+    const sources = [
+      proxyImageUrl(originalUrl, 800),     // CORS-friendly via Worker
+      originalUrl,                         // last-ditch direct (legacy)
+    ].filter((u, i, a) => u && a.indexOf(u) === i); // dedupe if proxy not configured
+    for (const src of sources) {
+      try {
+        const resp = await fetch(src, { mode: 'cors' });
+        if (resp.ok) {
+          const blob = await resp.blob();
+          // Client-side downscale + JPEG re-encode; caps at ~800px /
+          // ~80% quality so a 2 MB upstream becomes ~60-200 KB before
+          // it ever touches Supabase Storage.
+          photo = await compressImage(blob).catch(() => blob);
+          break;
+        }
+      } catch { /* try next source */ }
+    }
+  }
+
+  const base = {
+    id: crypto.randomUUID(),
+    name: cleanCatalogName(cat.name),
+    photo,
+    catalogId: cat.id,
+    catalogHandle: cat.handle,
+    addedAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  let record;
+  if (kind === 'collection') {
+    record = {
+      ...base,
+      meaning: null,
+      dateCollected: new Date().toISOString().slice(0, 10),
+      acquiredHow: null,
+      hasBag: true,
+      missingAccessories: [],
+      retired: !!cat.retired,
+      quantity: 1,
+    };
+  } else {
+    record = {
+      ...base,
+      url: PRODUCT_URL_BASE + cat.handle,
+      outOfStock: !cat.available,
+      retired: !!cat.retired,
+    };
+  }
+
+  await data.put(kind, record);
+  await loadAll();
+  // Stay on Catalog when adding from there — keeps the user's place in
+  // the grid so they can keep marking items. Just confirm with a toast.
+  render();
+  if (kind === 'collection') {
+    toast(`Added “${cleanCatalogName(cat.name)}” to your collection. 🖤`);
+    // Pop the customize modal so people discover they can rename it, add
+    // meaning/date, mark missing accessories — and, for plush clothing,
+    // say which plush is wearing it. Only on the single Have add, not
+    // bulk/bundle/quantity paths.
+    if (customize) {
+      // If the Have came from the catalog detail modal, close it so the
+      // customize modal isn't stacked on top.
+      document.getElementById('catalog-detail-modal')?.classList.add('hidden');
+      const justAdded = state.collection.find((x) => x.id === record.id);
+      if (justAdded) openModal('collection', justAdded, { fresh: true });
+    }
+  } else {
+    toast('Added to wish list. 🕯');
+  }
+}
+
+// ─── Restocks ────────────────────────────────────────────────────────
+function checkAllRestocks() {
+  const urls = state.wishlist.map((w) => w.url).filter(Boolean);
+  if (urls.length === 0) {
+    toast('No saved URLs to check.');
+    return;
+  }
+  if (urls.length > 6 && !confirm(`Open ${urls.length} tabs?`)) return;
+  for (const url of urls) {
+    window.open(url, '_blank', 'noopener');
+  }
+}
+
+// ─── Notifications ───────────────────────────────────────────────────
+async function toggleNotifications() {
+  if (!('Notification' in window)) {
+    toast('Notifications not supported on this device.');
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    const wasOn = await idb.getMeta('notify_enabled');
+    await idb.setMeta('notify_enabled', !wasOn);
+    updateNotifyButton();
+    toast(wasOn ? 'Reminders off.' : 'Reminders on.');
+    if (!wasOn) scheduleReminderCheck();
+  } else if (Notification.permission === 'denied') {
+    toast('Notifications blocked in browser settings.');
+  } else {
+    const perm = await Notification.requestPermission();
+    if (perm === 'granted') {
+      await idb.setMeta('notify_enabled', true);
+      updateNotifyButton();
+      toast('Reminders on.');
+      scheduleReminderCheck();
+    }
+  }
+}
+
+async function updateNotifyButton() {
+  const btn = document.getElementById('notify-btn');
+  const enabled = await idb.getMeta('notify_enabled');
+  const granted = 'Notification' in window && Notification.permission === 'granted';
+  btn.classList.toggle('active', !!(enabled && granted));
+  btn.title = (enabled && granted) ? 'Reminders on — click to turn off' : 'Enable reminders';
+}
+
+async function scheduleReminderCheck() {
+  // Check now and every hour while page is open
+  await maybeFireReminder();
+  if (window._reminderTimer) clearInterval(window._reminderTimer);
+  window._reminderTimer = setInterval(maybeFireReminder, 60 * 60 * 1000);
+}
+
+// Compares each open trade's "needs my action" signature against what we
+// fired notifications for last time. Whenever something fresh appears
+// (their accept arrived, they shipped, they confirmed receipt), drop a
+// local notification. No backend push — this only runs while the app
+// is open or being loaded, which is fine for a hobby tracker.
+async function maybeFireTradeNotifications() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  if (!(await idb.getMeta('notify_enabled'))) return;
+  if (!Array.isArray(state.trades) || state.trades.length === 0) return;
+
+  const seen = (await idb.getMeta('notified_trade_events')) || {};
+  const uid = window.currentUser?.id;
+  const fresh = [];
+
+  for (const t of state.trades) {
+    const isMine = t.proposer_id === uid;
+    const status = tradeStatusLabel(t, uid, isMine);
+    if (status.kind !== 'your') continue;
+    // Stable signature per trade × action. If the partner advances the
+    // trade so the action required of me changes, the signature changes
+    // and we notify again.
+    const sig = `${t.status}|${t.proposer_shipped_at ? '1' : '0'}|${t.recipient_shipped_at ? '1' : '0'}|${t.proposer_received_at ? '1' : '0'}|${t.recipient_received_at ? '1' : '0'}`;
+    if (seen[t.id] === sig) continue;
+    seen[t.id] = sig;
+    const other = isMine ? t.recipient?.username : t.proposer?.username;
+    fresh.push({ other: other || 'a collector', text: status.text, tradeId: t.id });
+  }
+
+  // Prune entries for trades that no longer require action so the meta
+  // doesn't grow forever.
+  const liveIds = new Set(state.trades.map((t) => t.id));
+  for (const id of Object.keys(seen)) {
+    if (!liveIds.has(id)) delete seen[id];
+  }
+  await idb.setMeta('notified_trade_events', seen);
+
+  if (fresh.length === 0) return;
+  const title = '🦇 The Plush Crypt';
+  const body = fresh.length === 1
+    ? `@${fresh[0].other}: ${fresh[0].text.replace(/^Your turn · /, '')}`
+    : `${fresh.length} trades need your attention.`;
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      const reg = await navigator.serviceWorker.ready;
+      reg.showNotification(title, {
+        body, icon: 'icon-192.png', badge: 'icon-192.png', tag: 'trade-action',
+      });
+    } else {
+      new Notification(title, { body, icon: 'icon-192.png' });
+    }
+  } catch (e) {
+    console.warn('Trade notification failed', e);
+  }
+}
+
+async function fireLocalNotification(title, body, tag) {
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      const reg = await navigator.serviceWorker.ready;
+      reg.showNotification(title, { body, icon: 'icon-192.png', badge: 'icon-192.png', tag });
+    } else {
+      new Notification(title, { body, icon: 'icon-192.png' });
+    }
+  } catch (e) {
+    console.warn('notification failed', e);
+  }
+}
+
+// Local notification when a new incoming friend request appears. Same
+// model as trades/reminders: fires while the app is open or loading (no
+// backend push). Tracks the set of request user-ids we've already
+// notified for in IDB; the first run after enabling seeds silently so a
+// backlog of pending requests doesn't dump all at once.
+async function maybeFireFriendNotifications() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  if (!(await idb.getMeta('notify_enabled'))) return;
+
+  const reqs = state.socRequests || [];
+  const prev = await idb.getMeta('notified_friend_reqs');   // null on first run
+  const seen = new Set(prev || []);
+  await idb.setMeta('notified_friend_reqs', reqs.map((r) => r.userId));
+  if (prev === null) return;                                 // seed silently
+
+  const fresh = reqs.filter((r) => !seen.has(r.userId));
+  if (fresh.length === 0) return;
+  const body = fresh.length === 1
+    ? `@${fresh[0].username} sent you a friend request 🦇`
+    : `${fresh.length} new friend requests in the crypt`;
+  await fireLocalNotification('🦇 The Plush Crypt', body, 'friend-request');
+}
+
+async function maybeFireReminder() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  if (!(await idb.getMeta('notify_enabled'))) return;
+
+  const oos = state.wishlist.filter((w) => w.outOfStock);
+  if (oos.length === 0) return;
+
+  const last = (await idb.getMeta('last_reminder')) || 0;
+  const dayMs = 24 * 60 * 60 * 1000;
+  if (Date.now() - last < dayMs) return;
+
+  const title = '🦇 The Plush Crypt';
+  const body = oos.length === 1
+    ? `Check on restock: ${oos[0].name}`
+    : `${oos.length} out-of-stock wishlist items waiting…`;
+
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      const reg = await navigator.serviceWorker.ready;
+      reg.showNotification(title, {
+        body,
+        icon: 'icon-192.png',
+        badge: 'icon-192.png',
+        tag: 'restock-reminder',
+      });
+    } else {
+      new Notification(title, { body, icon: 'icon-192.png' });
+    }
+    await idb.setMeta('last_reminder', Date.now());
+  } catch (e) {
+    console.warn('Notification failed', e);
+  }
+}
+
+// Backup/restore removed — Supabase syncs your account across devices.
+
+// ─── Toast ───────────────────────────────────────────────────────────
+let toastTimer = null;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.remove('hidden');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.add('hidden'), 2400);
+}
+
+// ─── Filter + scroll persistence ─────────────────────────────────────
+// Filters survive page reload via localStorage; scroll position per tab is
+// kept in memory for the lifetime of the page so flipping between tabs
+// always lands where you left off.
+const FILTERS_KEY = 'filters';
+const tabScroll = new Map();
+
+// Capture window.scrollY before an action that triggers render() and put
+// it back after the next paint, so list re-renders don't snap the user
+// to the top. Use for actions that should leave the user where they
+// were on the same tab (catalog Own/Want, wishlist Got It, etc.).
+async function keepScroll(fn) {
+  const y = window.scrollY;
+  try {
+    await fn();
+  } finally {
+    requestAnimationFrame(() => window.scrollTo({ top: y, behavior: 'instant' }));
+  }
+}
+
+function saveFilters() {
+  try {
+    localStorage.setItem(FILTERS_KEY, JSON.stringify({
+      tab: state.tab,
+      colSubTab: state.colSubTab,
+      filter: state.filter,
+      colCategory: state.colCategory,
+      colDupes: state.colDupes,
+      colNoBag: state.colNoBag,
+      colSort: state.colSort,
+      colView: state.colView,
+      wishCategory: state.wishCategory,
+      wishInStock: state.wishInStock,
+      wishSort: state.wishSort,
+      catalogFilter: state.catalogFilter,
+      catalogStatuses: [...state.catalogStatuses],
+      catalogUnowned: state.catalogUnowned,
+      catalogOriginal: state.catalogOriginal,
+      catalogTheme: state.catalogTheme,
+      catalogColor: state.catalogColor,
+      catalogSort: state.catalogSort,
+      query: state.query,
+      tradeFilter: state.tradeFilter,
+      tradeSubTab: state.tradeSubTab,
+    }));
+  } catch { /* localStorage blocked or full — non-fatal */ }
+}
+
+function loadFilters() {
+  try {
+    const raw = localStorage.getItem(FILTERS_KEY);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    if (typeof s !== 'object' || !s) return;
+    // Copy known scalar keys, fall back to current default if missing.
+    // Note: 'tab' is intentionally NOT restored — the app always lands on
+    // the Social tab (the default) when reopened. Filters/sub-tabs still
+    // persist so each tab keeps its settings once you switch to it.
+    const scalars = [
+      'colSubTab', 'filter', 'colCategory', 'colSort', 'colView', 'wishCategory', 'wishSort',
+      'catalogFilter', 'catalogTheme', 'catalogColor', 'catalogSort', 'query', 'tradeSubTab', 'tradeFilter',
+    ];
+    for (const k of scalars) if (k in s) state[k] = s[k];
+    const bools = ['colDupes', 'colNoBag', 'wishInStock', 'catalogUnowned', 'catalogOriginal'];
+    for (const k of bools) if (k in s) state[k] = !!s[k];
+    if (Array.isArray(s.catalogStatuses)) state.catalogStatuses = new Set(s.catalogStatuses);
+    // Legacy migration: 'pens' was a top-level tab pre-v52; users who had
+    // it saved should land on Collection → Pens sub-tab instead so they
+    // don't see an empty / non-existent tab.
+    if (state.tab === 'pens') { state.tab = 'collection'; state.colSubTab = 'pens'; }
+    // The collection sub-tabs were split from 'plushies'/'pens' into
+    // plushes/minis/accessories/other/pens. Map the old plushies value and
+    // guard against any unknown stored value.
+    if (state.colSubTab === 'plushies') state.colSubTab = 'plushes';
+    if (!['plushes', 'minis', 'accessories', 'other', 'pens'].includes(state.colSubTab)) {
+      state.colSubTab = 'plushes';
+    }
+    // Sync the search input value so the visible UI matches the restored state.
+    const searchEl = document.getElementById('search');
+    if (searchEl && state.query) searchEl.value = state.query;
+  } catch { /* corrupt JSON — ignore */ }
+}
+
+// ─── Event wiring ────────────────────────────────────────────────────
+function wireEvents() {
+  document.querySelectorAll('.tab').forEach((t) => {
+    t.addEventListener('click', async () => {
+      // Remember the scroll position of the tab we're leaving so we can
+      // restore it when the user comes back.
+      tabScroll.set(state.tab, window.scrollY);
+      state.tab = t.dataset.tab;
+      if (state.tab === 'trade') {
+        state.tradeSubTab = 'browse';   // always land on Browse (item 21)
+        await loadTradeData();          // refresh from server on enter
+      }
+      if (state.tab === 'social') {
+        state.socProfile = null;       // always land on the feed, not a stale profile
+        await loadSocialData();
+      }
+      if (state.tab === 'admin') {
+        state.adminUserView = null;
+        await loadAdminUsers();
+      }
+      render();
+      // Defer to next frame so the new tab's grid has laid out.
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: tabScroll.get(state.tab) || 0, behavior: 'instant' });
+      });
+      saveFilters();
+    });
+  });
+
+  // Collection sub-tabs (Plushies / Pens). Scroll is tracked per
+  // sub-tab using a composite key so the lists keep their places.
+  document.querySelectorAll('#collection-subtabs .subtab').forEach((s) => {
+    s.addEventListener('click', () => {
+      const key = `collection:${state.colSubTab}`;
+      tabScroll.set(key, window.scrollY);
+      state.colSubTab = s.dataset.colSubtab;
+      render();
+      requestAnimationFrame(() => {
+        const nextKey = `collection:${state.colSubTab}`;
+        window.scrollTo({ top: tabScroll.get(nextKey) || 0, behavior: 'instant' });
+      });
+      saveFilters();
+    });
+  });
+
+  // Collection filters: native selects + a details/checkbox group for the
+  // multi-select toggles. Each select fires 'change'; each checkbox fires
+  // 'change' too.
+  const wireSelect = (id, target) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => { state[target] = el.value; render(); });
+  };
+  wireSelect('col-state', 'filter');
+  wireSelect('col-view', 'colView');
+  // Sort menu: switching to any sort other than "My order" leaves arrange mode
+  // (you can't drag a date/name-sorted list into a custom order).
+  const sortSel = document.getElementById('col-sort');
+  if (sortSel) sortSel.addEventListener('change', () => {
+    state.colSort = sortSel.value;
+    if (state.colSort !== 'manual') state.arranging = false;
+    render();
+  });
+  // Arrange button: tap to start arranging (which switches the view to the
+  // saved "My order" so you're dragging the real order), tap again when done.
+  // Finishing leaves the collection *showing* My order — it just turns off the
+  // live drag handles — so the order you set sticks (item 20).
+  const arrangeBtn = document.getElementById('col-arrange');
+  if (arrangeBtn) arrangeBtn.addEventListener('click', () => {
+    if (state.arranging) {
+      state.arranging = false;          // done — keep colSort on 'manual' so the order shows
+    } else {
+      state.arranging = true;
+      state.colSort = 'manual';
+    }
+    render();
+  });
+  document.querySelectorAll('#col-extras input[data-col-toggle]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      if (cb.dataset.colToggle === 'dupes') state.colDupes = cb.checked;
+      else if (cb.dataset.colToggle === 'nobag') state.colNoBag = cb.checked;
+      syncCollectionChips();
+      render();
+    });
+  });
+
+  // Wishlist filters
+  wireSelect('wish-cat', 'wishCategory');
+  wireSelect('wish-sort', 'wishSort');
+  document.querySelectorAll('#wish-extras input[data-wish-toggle]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      if (cb.dataset.wishToggle === 'instock') state.wishInStock = cb.checked;
+      syncWishlistChips();
+      render();
+    });
+  });
+
+  // Catalog filters
+  wireSelect('cat-category-sel', 'catalogFilter');
+  wireSelect('cat-sort', 'catalogSort');
+  document.querySelectorAll('#cat-status-multi input[data-cat-status]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      const s = cb.dataset.catStatus;
+      if (cb.checked) state.catalogStatuses.add(s);
+      else state.catalogStatuses.delete(s);
+      syncCatalogChips();
+      render();
+    });
+  });
+  document.querySelectorAll('#cat-extras input[data-cat-toggle]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      if (cb.dataset.catToggle === 'unowned') state.catalogUnowned = cb.checked;
+      else if (cb.dataset.catToggle === 'original') state.catalogOriginal = cb.checked;
+      syncCatalogChips();
+      render();
+    });
+  });
+
+  // Clear filters buttons (per tab)
+  document.querySelectorAll('[data-clear-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => clearTabFilters(btn.dataset.clearTab));
+  });
+
+  // Active-filters bar: keep the per-pill click-to-drop affordance.
+  document.getElementById('active-filters').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-clear]');
+    if (btn) clearFilter(btn.dataset.clear);
+  });
+
+  const themeEl = document.getElementById('cat-theme');
+  if (themeEl) {
+    themeEl.addEventListener('change', () => {
+      state.catalogTheme = themeEl.value;
+      render();
+    });
+  }
+  const colorEl = document.getElementById('cat-color');
+  if (colorEl) {
+    colorEl.addEventListener('change', () => {
+      state.catalogColor = colorEl.value;
+      render();
+    });
+  }
+
+  document.getElementById('search').addEventListener('input', (e) => {
+    state.query = e.target.value;
+    render();
+  });
+
+  document.getElementById('check-restocks').addEventListener('click', checkAllRestocks);
+  document.getElementById('notify-btn').addEventListener('click', toggleNotifications);
+
+  document.querySelectorAll('[data-close]').forEach((el) =>
+    el.addEventListener('click', closeModal)
+  );
+
+  document.getElementById('plushie-form').addEventListener('submit', submitForm);
+  document.getElementById('modal-remove').addEventListener('click', async () => {
+    if (!state.editingId) return;
+    const ok = await removeCollectionItem(state.editingId);
+    if (ok) closeModal();
+  });
+
+  // Reflect the chosen photo filename next to the picker.
+  document.getElementById('f-photo').addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    document.getElementById('f-photo-name').textContent = file ? '✓ ' + file.name : '';
+  });
+
+  document.getElementById('collection-grid').addEventListener('click', onCardClick);
+  // Drag-and-drop manual reordering (item 20) — active only in 'My order' mode
+  // where cards carry data-reorder-id. Touch users use the ▲▼ arrows instead.
+  const colGrid = document.getElementById('collection-grid');
+  colGrid.addEventListener('dragstart', (e) => {
+    const card = e.target.closest('[data-reorder-id]');
+    if (!card) return;
+    state._dragId = card.dataset.reorderId;
+    card.classList.add('dragging');
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+  });
+  colGrid.addEventListener('dragover', (e) => {
+    if (state._dragId) e.preventDefault();
+  });
+  colGrid.addEventListener('dragend', () => {
+    colGrid.querySelectorAll('.dragging').forEach((el) => el.classList.remove('dragging'));
+    state._dragId = null;
+  });
+  colGrid.addEventListener('drop', async (e) => {
+    if (!state._dragId) return;
+    e.preventDefault();
+    const target = e.target.closest('[data-reorder-id]');
+    const dragId = state._dragId;
+    state._dragId = null;
+    colGrid.querySelectorAll('.dragging').forEach((el) => el.classList.remove('dragging'));
+    if (target && target.dataset.reorderId !== dragId) {
+      await dropReorder(dragId, target.dataset.reorderId);
+    }
+  });
+  document.getElementById('unworn-clothing-grid').addEventListener('click', onCardClick);
+  document.getElementById('wishlist-grid').addEventListener('click', onCardClick);
+  document.getElementById('catalog-grid').addEventListener('click', onCardClick);
+
+  // Add-your-own clothing: open from the closet header, plus modal wiring.
+  document.getElementById('add-custom-clothing-btn').addEventListener('click', (e) => {
+    openCustomClothingModal(e.currentTarget.dataset.scale || 'full');
+  });
+  document.getElementById('custom-clothing-modal').addEventListener('click', (e) => {
+    if (e.target.closest('[data-close-cc]')) closeCustomClothingModal();
+  });
+  document.getElementById('custom-clothing-form').addEventListener('submit', submitCustomClothing);
+  document.getElementById('cc-photo').addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    document.getElementById('cc-photo-name').textContent = file ? '✓ ' + file.name : '';
+  });
+
+  // Wearer picker modal — pick a plush to attach an accessory to.
+  document.getElementById('wearer-modal').addEventListener('click', (e) => {
+    if (e.target.closest('[data-close-wearer]')) { closeWearerModal(); return; }
+    const pick = e.target.closest('[data-action="pick-wearer"]');
+    if (pick) setWearer(pick.dataset.accId, pick.dataset.plushId);
+  });
+  // The detail modal also renders data-action buttons (Have, Want, Buy,
+  // admin Edit). Wire them through the same dispatcher.
+  document.getElementById('catalog-detail-modal').addEventListener('click', onCardClick);
+
+  // Trade tab wiring
+  document.querySelectorAll('.subtab').forEach((s) => {
+    s.addEventListener('click', () => setTradeSubTab(s.dataset.subtab));
+  });
+  document.getElementById('trade-view').addEventListener('click', onTradeClick);
+  document.getElementById('trade-view').addEventListener('click', onTradeFilterClick);
+  document.getElementById('admin-view').addEventListener('click', onAdminClick);
+  // The admin queue + dispute review modals live OUTSIDE #admin-view
+  // (top-level siblings) so their clicks don't bubble to the handler
+  // above. Bind those modals to the same dispatcher so Approve /
+  // Reject / Merge / Resolve buttons fire.
+  document.getElementById('admin-queue-modal').addEventListener('click', onAdminClick);
+  document.getElementById('dispute-review-modal')?.addEventListener('click', onAdminClick);
+
+  // Offer modal
+  document.querySelectorAll('[data-close-offer]').forEach((el) =>
+    el.addEventListener('click', closeOfferModal)
+  );
+  document.getElementById('offer-send').addEventListener('click', sendOffer);
+  document.getElementById('offer-builder').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-picker]');
+    if (!btn) return;
+    pickerAdjust(btn.dataset.picker, btn.dataset.id, parseInt(btn.dataset.delta, 10));
+  });
+
+  // Feedback modal — three structured thumbs.
+  document.querySelectorAll('[data-close-feedback]').forEach((el) =>
+    el.addEventListener('click', closeFeedbackModal)
+  );
+  document.querySelectorAll('#feedback-modal .thumb-row').forEach((row) => {
+    const cat = row.dataset.category;
+    row.querySelectorAll('.thumb-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        setFeedbackRating(cat, btn.dataset.value === 'up');
+      });
+    });
+  });
+  document.getElementById('feedback-submit').addEventListener('click', submitFeedback);
+
+  // Mini-profile popover — opens whenever a [data-mini-uid] element is
+  // clicked anywhere in the app. Single delegated listener avoids
+  // re-wiring after every render.
+  document.body.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-mini-uid]');
+    if (t) { e.preventDefault(); openMiniProfile(t.dataset.miniUid); }
+  });
+  document.querySelectorAll('[data-close-mini]').forEach((el) =>
+    el.addEventListener('click', closeMiniProfile)
+  );
+
+  document.getElementById('user-badge').addEventListener('click', openAccountModal);
+
+  // Catalog item create + suggest photo + admin queue modals.
+  document.querySelectorAll('[data-close-catalog-item]').forEach((el) =>
+    el.addEventListener('click', () => document.getElementById('catalog-item-modal').classList.add('hidden'))
+  );
+  document.querySelectorAll('[data-close-catalog-detail]').forEach((el) =>
+    el.addEventListener('click', () => document.getElementById('catalog-detail-modal').classList.add('hidden'))
+  );
+  document.querySelectorAll('[data-close-bundle-picker]').forEach((el) =>
+    el.addEventListener('click', () => document.getElementById('bundle-picker-modal').classList.add('hidden'))
+  );
+  document.getElementById('bundle-picker-form').addEventListener('submit', submitBundlePickerForm);
+  // Merge tool wiring.
+  document.querySelectorAll('[data-close-catalog-merge]').forEach((el) =>
+    el.addEventListener('click', () => document.getElementById('catalog-merge-modal').classList.add('hidden'))
+  );
+  document.getElementById('cm-search').addEventListener('input', onMergeSearchInput);
+  document.getElementById('cm-results').addEventListener('click', (e) => {
+    const t = e.target.closest('[data-merge-id]');
+    if (t) onMergeSelectWinner(t.dataset.mergeId, t.dataset.mergeName, t.dataset.mergeHandle);
+  });
+  document.getElementById('cm-submit').addEventListener('click', submitCatalogMerge);
+  document.getElementById('catalog-item-form').addEventListener('submit', submitCatalogItemForm);
+  // Public 'Suggest a plushie' button on the catalog toolbar.
+  document.getElementById('suggest-plushie-btn')?.addEventListener('click', () => openCatalogItemModal('user'));
+  // Photo source tabs (admin-only) + user picker autocomplete + plushie thumb click.
+  document.querySelectorAll('.ci-source-tab').forEach((b) =>
+    b.addEventListener('click', () => setSourceTab(b.dataset.ciSource))
+  );
+  document.getElementById('ci-pick-user').addEventListener('input', onPickUserInput);
+  document.getElementById('ci-pick-user-list').addEventListener('click', (e) => {
+    const t = e.target.closest('[data-pick-uid]');
+    if (t) onPickUserSelect(t.dataset.pickUid, t.dataset.pickUsername);
+  });
+  document.getElementById('ci-pick-plushie-list').addEventListener('click', (e) => {
+    const t = e.target.closest('[data-pick-photo-path]');
+    if (t) onPickPlushieSelect(t.dataset.pickPhotoPath, t.dataset.pickName);
+  });
+  document.querySelectorAll('[data-close-suggest-photo]').forEach((el) =>
+    el.addEventListener('click', () => document.getElementById('suggest-photo-modal').classList.add('hidden'))
+  );
+  document.getElementById('suggest-photo-form').addEventListener('submit', submitSuggestPhotoForm);
+  document.querySelectorAll('[data-close-admin-queue]').forEach((el) =>
+    el.addEventListener('click', () => document.getElementById('admin-queue-modal').classList.add('hidden'))
+  );
+  document.querySelectorAll('[data-close-dispute-stmt]').forEach((el) =>
+    el.addEventListener('click', () => document.getElementById('dispute-statement-modal').classList.add('hidden'))
+  );
+  document.getElementById('dispute-statement-form').addEventListener('submit', submitDisputeStatementForm);
+  document.getElementById('report-form').addEventListener('submit', submitReport);
+  document.querySelectorAll('[data-close-report]').forEach((el) =>
+    el.addEventListener('click', () => document.getElementById('report-modal').classList.add('hidden'))
+  );
+  document.querySelectorAll('[data-close-dispute-review]').forEach((el) =>
+    el.addEventListener('click', () => document.getElementById('dispute-review-modal').classList.add('hidden'))
+  );
+
+  // Account modal
+  document.querySelectorAll('[data-close-account]').forEach((el) =>
+    el.addEventListener('click', closeAccountModal)
+  );
+  document.getElementById('acct-save-username').addEventListener('click', saveUsername);
+  document.getElementById('acct-save-email').addEventListener('click', saveEmail);
+  document.getElementById('acct-save-address').addEventListener('click', saveDefaultAddress);
+  document.getElementById('acct-save-profile').addEventListener('click', saveAccountProfile);
+  document.getElementById('acct-avatar').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) { state._acctAvatarBlob = null; syncAcctAvatarPreview(); return; }
+    try {
+      state._acctAvatarBlob = await compressImage(file);
+      document.getElementById('acct-avatar-name').textContent = '✓ ' + file.name;
+      syncAcctAvatarPreview();
+    } catch (err) { console.warn('compress', err); toast('Could not read that image.'); }
+  });
+
+  document.getElementById('acct-theme').addEventListener('change', (e) => setTheme(e.target.value));
+  document.getElementById('theme-btn').addEventListener('click', () => {
+    // Debounce: this is a *relative* toggle, so if the handler ever fires
+    // twice for one tap (stacked listeners from a re-run, a synthesized
+    // click on touch, etc.) the two flips cancel out and the theme
+    // appears not to change. Swallow a second invocation within 300ms.
+    const now = Date.now();
+    if (now - (window._lastThemeToggle || 0) < 300) return;
+    window._lastThemeToggle = now;
+    const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    setTheme(current === 'dark' ? 'light' : 'dark');
+  });
+  syncThemeButton();
+  document.getElementById('acct-share').addEventListener('click', () => {
+    closeAccountModal();
+    openShareModal();
+  });
+  document.getElementById('acct-signout').addEventListener('click', () => {
+    closeAccountModal();
+    handleSignOut();
+  });
+  document.getElementById('acct-collections').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-switch-cid]');
+    if (btn) {
+      closeAccountModal();
+      switchCollection(btn.dataset.switchCid);
+    }
+  });
+
+  // Share modal
+  document.querySelectorAll('[data-close-share]').forEach((el) =>
+    el.addEventListener('click', closeShareModal)
+  );
+  document.getElementById('generate-invite').addEventListener('click', generateInvite);
+  document.getElementById('copy-invite').addEventListener('click', copyInviteLink);
+  document.getElementById('share-members').addEventListener('click', onShareClick);
+
+  // Address modal
+  document.querySelectorAll('[data-close-address]').forEach((el) =>
+    el.addEventListener('click', closeAddressModal)
+  );
+  document.getElementById('address-save').addEventListener('click', saveAddress);
+
+  document.getElementById('pens-list').addEventListener('click', (e) => {
+    const btn = e.target.closest('.pen-btn');
+    if (btn) {
+      const id = btn.dataset.penId;
+      const delta = parseInt(btn.dataset.penDelta, 10);
+      if (id && delta) adjustPen(id, delta);
+      return;
+    }
+    // Suggest-a-photo on a pen with no image yet.
+    const suggest = e.target.closest('[data-action="pen-suggest-photo"]');
+    if (suggest) {
+      openSuggestPhotoModal(suggest.dataset.penId, 'pen', suggest.dataset.penName);
+      return;
+    }
+    // Click the pen thumbnail to open it full-size.
+    const thumb = e.target.closest('img.pen-thumb');
+    if (thumb) {
+      const row = thumb.closest('.pen-row');
+      const name = row?.querySelector('.pen-name')?.textContent || '';
+      openLightbox(thumb.src, name);
+    }
+  });
+
+  // Lightbox close — backdrop, card, and × button all carry the
+  // data-close-lightbox attribute.
+  document.querySelectorAll('[data-close-lightbox]').forEach((el) =>
+    el.addEventListener('click', (e) => {
+      // Don't close when the user clicks the image itself.
+      if (e.target.id === 'lightbox-img') return;
+      document.getElementById('lightbox-modal').classList.add('hidden');
+    })
+  );
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !document.getElementById('modal').classList.contains('hidden')) {
+      closeModal();
+    }
+  });
+}
+
