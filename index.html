@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=87" />
+  <link rel="stylesheet" href="./styles.css?v=88" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -325,6 +325,14 @@
       <p id="modal-name" class="modal-name"></p>
       <form id="plushie-form">
         <input type="hidden" id="form-id" />
+
+        <!-- Editable main name — shown only for custom (off-catalog) clothing,
+             which the collector named themselves. Catalog items keep their
+             fixed, catalog-sourced name (the static label above). -->
+        <label class="field hidden" id="field-name">
+          <span>Name</span>
+          <input type="text" id="f-name" maxlength="80" placeholder="e.g. Hand-knit black cardigan" />
+        </label>
 
         <label class="field" id="field-nickname">
           <span>Your name for it (optional)</span>
@@ -864,6 +872,8 @@
               <li>New safety tools: <strong>block</strong> another collector to hide each other (it also removes any friendship and stops trades between you), and <strong>report</strong> a post, comment, or collector to the mods. Manage who you've blocked from the <strong>Me</strong> tab.</li>
               <li>Freshened our <strong>Terms</strong>, <strong>Privacy</strong>, and <strong>About</strong> to cover the social features.</li>
               <li>Added this <strong>Change Log</strong> — you're reading it. 🦇</li>
+              <li>The Closet reads cleaner: dropped the redundant "worn" tag, and the put-it-back control is now a tidy ↩ in the compact list.</li>
+              <li class="changelog-gated">Custom clothing can now be renamed right from its edit view.</li>
             </ul>
             <p class="changelog-fixes">Misc bug fixes.</p>
           </div>
@@ -1197,6 +1207,6 @@
   <script src="./auth.js?v=55"></script>
   <script src="./db.js?v=51"></script>
   <script src="./data.js?v=64"></script>
-  <script src="./app.js?v=84"></script>
+  <script src="./app.js?v=85"></script>
 </body>
 </html>
