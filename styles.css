@@ -3562,6 +3562,16 @@ body.locked { overflow: hidden; }
   font-size: 0.95rem; padding: 2px 4px; border-radius: 6px;
 }
 .soc-post-del:hover, .soc-comment-del:hover { color: var(--danger); background: var(--danger-bg); }
+/* Report / block affordances — quiet until hovered. */
+.soc-post-flag, .soc-comment-flag {
+  background: none; border: none; cursor: pointer; color: var(--ink-mute);
+  font-size: 0.85rem; padding: 2px 4px; border-radius: 6px; opacity: 0.6;
+}
+.soc-post-flag:hover, .soc-comment-flag:hover { opacity: 1; background: var(--surface-2); }
+.soc-comment-flag { margin-left: 4px; }
+.btn-ghost.soc-danger { color: var(--danger); }
+.btn-ghost.soc-danger:hover { background: var(--danger-bg); }
+.soc-unavailable { padding: 32px 16px; text-align: center; }
 .soc-comment-edit {
   background: none; border: none; cursor: pointer; color: var(--ink-mute);
   font-size: 0.85rem; padding: 2px 4px; border-radius: 6px; margin-left: auto;

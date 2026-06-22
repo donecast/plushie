@@ -48,6 +48,8 @@ const state = {
   adminPendingCatalog: [],    // pending catalog_items waiting for admin review
   adminPendingPhotos: [],     // pending photo suggestions waiting for admin review
   adminOpenDisputes: [],      // trades with dispute_open = true (admin review queue)
+  adminOpenReports: [],       // open content_reports (admin review queue)
+  reportTarget: null,         // { targetType, targetId, ownerId, name } for the report modal
   suggestPhotoTarget: null,   // { id, kind } for the suggest-photo modal
   disputeDraft: null,         // { tradeId, mode: 'open' | 'add' } when filing a dispute statement
   bundlePicker: null,         // { bundleId, matches } when the bundle component picker is open
@@ -3334,6 +3336,10 @@ function wireEvents() {
     el.addEventListener('click', () => document.getElementById('dispute-statement-modal').classList.add('hidden'))
   );
   document.getElementById('dispute-statement-form').addEventListener('submit', submitDisputeStatementForm);
+  document.getElementById('report-form').addEventListener('submit', submitReport);
+  document.querySelectorAll('[data-close-report]').forEach((el) =>
+    el.addEventListener('click', () => document.getElementById('report-modal').classList.add('hidden'))
+  );
   document.querySelectorAll('[data-close-dispute-review]').forEach((el) =>
     el.addEventListener('click', () => document.getElementById('dispute-review-modal').classList.add('hidden'))
   );
@@ -5100,14 +5106,16 @@ async function loadAdminUsers() {
     state.adminUsers = await data.adminListUsers();
     // Also surface counts on the Tools strip badges. Non-fatal if any
     // of these fails — the queues still open from their buttons.
-    const [disp, cats, photos] = await Promise.allSettled([
+    const [disp, cats, photos, reports] = await Promise.allSettled([
       data.adminListDisputes(),
       data.adminListCatalogPending(),
       data.adminListPhotoSuggestions('pending'),
+      data.adminListReports('open'),
     ]);
     if (disp.status === 'fulfilled') state.adminOpenDisputes = disp.value;
     if (cats.status === 'fulfilled') state.adminPendingCatalog = cats.value;
     if (photos.status === 'fulfilled') state.adminPendingPhotos = photos.value;
+    if (reports.status === 'fulfilled') state.adminOpenReports = reports.value;
   } catch (err) {
     console.error('adminListUsers', err);
     toast('Could not load users.');
@@ -5170,6 +5178,14 @@ function renderAdminUserList() {
           <p class="dim">Trades where one party requested fall-through and the other disputed. Review both statements and resolve.</p>
         </div>
         <button data-admin-action="review-disputes">Review</button>
+      </div>
+
+      <div class="admin-tool">
+        <div>
+          <strong>User &amp; content reports ${(state.adminOpenReports || []).length ? `<span class="badge badge-form">${state.adminOpenReports.length} open</span>` : ''}</strong>
+          <p class="dim">Posts, comments, and collectors reported by users. Review and remove the content or dismiss.</p>
+        </div>
+        <button data-admin-action="review-reports">Review</button>
       </div>
 
       <div class="admin-tool">
@@ -5450,6 +5466,12 @@ async function onAdminClick(e) {
     openDisputeDetailModal(btn.dataset.id);
   } else if (action === 'resolve-dispute') {
     await adminResolveDispute(btn.dataset.id, btn.dataset.outcome);
+  } else if (action === 'review-reports') {
+    await openReportsModal();
+  } else if (action === 'resolve-report') {
+    await adminResolveReportAction(btn.dataset.id, btn.dataset.status);
+  } else if (action === 'delete-reported') {
+    await adminDeleteReportedAction(btn.dataset.id, btn.dataset.targetType, btn.dataset.targetId);
   } else if (action === 'approve-catalog-item') {
     await adminApproveCatalogItem(btn.dataset.id);
   } else if (action === 'reject-catalog-item') {
@@ -5625,6 +5647,77 @@ async function adminResolveDispute(tradeId, outcome) {
   } catch (err) {
     console.error(err);
     toast('Could not resolve: ' + (err.message || err));
+  }
+}
+
+// ─── Reports queue (mirrors the disputes queue) ─────────────────────
+async function openReportsModal() {
+  const body = document.getElementById('aq-body');
+  document.getElementById('aq-title').textContent = 'Open reports';
+  body.innerHTML = '<p class="dim">Loading…</p>';
+  document.getElementById('admin-queue-modal').classList.remove('hidden');
+  try {
+    const rows = await data.adminListReports('open');
+    state.adminOpenReports = rows;
+    body.innerHTML = rows.length
+      ? rows.map(renderReportRow).join('')
+      : '<p class="dim">No open reports. ✨</p>';
+  } catch (err) {
+    console.error(err);
+    body.innerHTML = `<p class="dim">Couldn't load: ${escapeHtml(err.message || String(err))}</p>`;
+  }
+}
+
+const REPORT_REASON_LABELS = {
+  spam: 'Spam or scam', harassment: 'Harassment or bullying', hate: 'Hate or violence',
+  sexual: 'Sexual or inappropriate', impersonation: 'Impersonation', other: 'Something else',
+};
+const REPORT_TYPE_LABELS = { post: 'Post', comment: 'Comment', user: 'Collector' };
+
+function renderReportRow(r) {
+  const canRemove = r.target_type === 'post' || r.target_type === 'comment';
+  return `
+    <article class="catalog-pending-row">
+      <div class="catalog-pending-body">
+        <h3>${REPORT_TYPE_LABELS[r.target_type] || r.target_type} report${r.targetOwnerName ? ` · @${escapeHtml(r.targetOwnerName)}` : ''}</h3>
+        <p class="dim">Reason: <strong>${escapeHtml(REPORT_REASON_LABELS[r.reason] || r.reason)}</strong>
+          · by @${escapeHtml(r.reporterName || '?')} · ${new Date(r.created_at).toLocaleString()}</p>
+        ${r.details ? `<p class="dispute-statement-box">${escapeHtml(r.details).replace(/\n/g, '<br/>')}</p>` : ''}
+        <p class="dim">Target id: <code>${escapeHtml(r.target_id)}</code></p>
+        <div class="form-actions">
+          ${canRemove ? `<button class="btn-danger admin-purge-btn" data-admin-action="delete-reported" data-id="${r.id}" data-target-type="${r.target_type}" data-target-id="${escapeHtml(r.target_id)}">Remove ${r.target_type}</button>` : ''}
+          <button class="btn-primary" data-admin-action="resolve-report" data-id="${r.id}" data-status="resolved">Mark resolved</button>
+          <button class="btn-ghost" data-admin-action="resolve-report" data-id="${r.id}" data-status="dismissed">Dismiss</button>
+        </div>
+      </div>
+    </article>`;
+}
+
+async function adminResolveReportAction(reportId, status) {
+  const note = status === 'dismissed'
+    ? (prompt('Optional note (why dismissed):') || '')
+    : '';
+  try {
+    await data.adminResolveReport(reportId, status, note);
+    toast(status === 'dismissed' ? 'Report dismissed.' : 'Report resolved.');
+    await openReportsModal();
+  } catch (err) {
+    console.error(err);
+    toast('Could not update report.');
+  }
+}
+
+async function adminDeleteReportedAction(reportId, targetType, targetId) {
+  if (!confirm(`Permanently remove this ${targetType}? This can't be undone.`)) return;
+  try {
+    await data.adminDeleteReportedContent(targetType, targetId);
+    // Removing the content resolves the report.
+    await data.adminResolveReport(reportId, 'resolved', 'Content removed.');
+    toast(`${targetType[0].toUpperCase() + targetType.slice(1)} removed.`);
+    await openReportsModal();
+  } catch (err) {
+    console.error(err);
+    toast('Could not remove that content.');
   }
 }
 
@@ -6514,15 +6607,34 @@ function registerSW() {
 // Top 8, profiles. Early-Facebook-meets-MySpace, account required.
 // ════════════════════════════════════════════════════════════════════
 
+// Drop posts authored by anyone you're blocked-with, and scrub blocked
+// authors out of the comment threads (incl. nested replies). Posts are
+// already gated server-side by can_see_post, but a blocked user can still
+// comment on a third party's public post — this hides those too.
+function pruneBlockedComments(comments) {
+  if (!comments) return comments;
+  return comments
+    .filter((c) => !data.isBlocked(c.authorId))
+    .map((c) => ({ ...c, replies: pruneBlockedComments(c.replies) }));
+}
+function stripBlocked(feed) {
+  return (feed || [])
+    .filter((p) => !data.isBlocked(p.authorId))
+    .map((p) => ({ ...p, comments: pruneBlockedComments(p.comments) }));
+}
+
 async function loadSocialData() {
   try {
-    const [feed, friends, requests] = await Promise.all([
+    const [feed, friends, requests, , myBlocks] = await Promise.all([
       data.listFeed(),
       data.listFriends(),
       data.listIncomingRequests(),
+      data.loadBlockedIds().catch(() => null),   // who I'm blocked-with (union)
+      data.listMyBlocks().catch(() => []),         // who I blocked (for the manager)
     ]);
-    state.socFeed = feed;
+    state.socFeed = stripBlocked(feed);
     state.socFriends = friends;
+    state.myBlocks = myBlocks || [];
     state.socRequests = requests;
     state.socPendingCount = requests.length;
     maybeFireFriendNotifications().catch((e) => console.warn(e));
@@ -6681,6 +6793,7 @@ function renderComment(c, postId, depth = 0) {
         ${bodyHtml}
         ${(c.mine && !editing) ? `<button class="soc-comment-edit" data-soc-action="edit-comment" data-comment-id="${c.id}" title="Edit">✎</button>` : ''}
         ${(c.canDelete && !editing) ? `<button class="soc-comment-del" data-soc-action="delete-comment" data-comment-id="${c.id}" title="Delete">×</button>` : ''}
+        ${(!c.mine && !editing) ? `<button class="soc-comment-flag" data-soc-action="report-comment" data-comment-id="${c.id}" data-owner="${c.authorId}" data-name="${escapeHtml(c.authorName)}" title="Report this comment">🚩</button>` : ''}
       </div>
       <div class="soc-comment-tools">
         <span class="soc-react-wrap">
@@ -6716,7 +6829,9 @@ function renderPostCard(p) {
       </button>
       <span class="soc-post-meta">${visBadge(p.visibility)} · ${escapeHtml(socTimeAgo(p.createdAt))}${p.edited ? ' · edited' : ''}</span>
       ${p.mine ? `<button class="soc-post-edit" data-soc-action="edit-post" data-post-id="${p.id}" title="Edit">✏️</button>
-                  <button class="soc-post-del" data-soc-action="delete-post" data-post-id="${p.id}" title="Delete">🗑</button>` : ''}
+                  <button class="soc-post-del" data-soc-action="delete-post" data-post-id="${p.id}" title="Delete">🗑</button>`
+              : `<button class="soc-post-flag" data-soc-action="report-post" data-post-id="${p.id}" data-owner="${p.authorId}" data-name="${escapeHtml(p.authorName)}" title="Report this post">🚩</button>
+                 <button class="soc-post-flag" data-soc-action="block-user" data-uid="${p.authorId}" data-name="${escapeHtml(p.authorName)}" title="Block @${escapeHtml(p.authorName)}">🚫</button>`}
     </header>
     ${p.plushName ? `<p class="soc-post-plush">🧸 ${escapeHtml(p.plushName)}</p>` : ''}
     ${p.body ? `<p class="soc-post-body">${linkifyMentions(p.body)}</p>` : ''}
@@ -6821,12 +6936,32 @@ function renderFriends() {
 // ─── My profile tab ─────────────────────────────────────────────────
 function renderMyProfileTab() {
   // Reuse the profile renderer pointed at myself, but with edit affordances.
-  renderProfileInto(document.getElementById('soc-me'), {
+  const el = document.getElementById('soc-me');
+  renderProfileInto(el, {
     profile: { id: window.currentUser.id, username: window.currentUser.username, bio: state._myBio, avatarUrl: state._myAvatarUrl, socialLinks: state._mySocialLinks },
     posts: state._myPosts || [],
     top8: state._myTop8 || [],
     isMe: true,
   });
+  el.insertAdjacentHTML('beforeend', renderBlockedManager());
+}
+
+// "Blocked collectors" manager — the only place to unblock someone whose
+// profile is otherwise hidden from you.
+function renderBlockedManager() {
+  const blocks = state.myBlocks || [];
+  const rows = blocks.length
+    ? blocks.map((b) => `
+        <div class="soc-friend-row">
+          <button class="soc-userlink" data-soc-action="view-profile" data-uid="${b.id}"><b>@${escapeHtml(b.username)}</b></button>
+          <button class="btn-ghost" data-soc-action="unblock-user" data-uid="${b.id}" data-name="${escapeHtml(b.username)}">Unblock</button>
+        </div>`).join('')
+    : '<p class="empty-note">You haven\'t blocked anyone.</p>';
+  return `
+    <section class="soc-section">
+      <h2 class="soc-section-head">Blocked collectors 🚫</h2>
+      ${rows}
+    </section>`;
 }
 
 // ─── Viewing someone's profile (overlay) ────────────────────────────
@@ -6839,12 +6974,33 @@ async function openProfile(userId) {
       data.friendshipWith(userId),
     ]);
     if (!profile) { toast('Profile not found.'); return; }
-    state.socProfile = { profile, posts, top8, friendship, isMe: userId === window.currentUser.id };
+    const isMe = userId === window.currentUser.id;
+    // If you're blocked-with this person but you aren't the blocker, their
+    // content isn't yours to see. (If YOU blocked them, we still show the
+    // profile so you can Unblock.)
+    if (!isMe && data.isBlocked(userId) && !data.isMyBlock(userId)) {
+      state.socProfile = { profile, posts: [], top8: [], friendship: 'none', isMe, unavailable: true };
+      renderSocial();
+      return;
+    }
+    state.socProfile = {
+      profile, friendship, isMe,
+      posts: stripBlocked(posts),
+      top8,
+    };
     renderSocial();
   } catch (e) { console.error('openProfile', e); toast('Could not open profile.'); }
 }
 
-function renderProfileInto(el, { profile, posts, top8, friendship, isMe, withBack }) {
+function renderProfileInto(el, { profile, posts, top8, friendship, isMe, withBack, unavailable }) {
+  if (unavailable) {
+    el.innerHTML = `
+      ${withBack ? `<button class="linklike soc-back" data-soc-action="close-profile">← Back to feed</button>` : ''}
+      <div class="soc-unavailable">
+        <p class="empty-note">This collector isn't available to you.</p>
+      </div>`;
+    return;
+  }
   const top8Html = renderTop8(top8, isMe);
   let relBtns = '';
   if (isMe) {
@@ -6865,6 +7021,12 @@ function renderProfileInto(el, { profile, posts, top8, friendship, isMe, withBac
     else if (friendship === 'outgoing') relBtns = `<button class="btn-ghost" data-soc-action="remove-friend" data-uid="${profile.id}">Cancel request</button>`;
     else if (friendship === 'incoming') relBtns = `<button class="btn-primary" data-soc-action="accept-friend" data-uid="${profile.id}">Accept request</button>`;
     else relBtns = `<button class="btn-primary" data-soc-action="add-friend" data-uid="${profile.id}">Add friend</button>`;
+    // Block/unblock + report, available on anyone else's profile.
+    const uname = escapeHtml(profile.username);
+    relBtns += data.isMyBlock(profile.id)
+      ? `<button class="btn-ghost soc-danger" data-soc-action="unblock-user" data-uid="${profile.id}" data-name="${uname}">Unblock</button>`
+      : `<button class="btn-ghost soc-danger" data-soc-action="block-user" data-uid="${profile.id}" data-name="${uname}">🚫 Block</button>`;
+    relBtns += `<button class="btn-ghost" data-soc-action="report-user" data-uid="${profile.id}" data-name="${uname}">🚩 Report</button>`;
   }
 
   el.innerHTML = `
@@ -7425,6 +7587,85 @@ async function onSocialClick(e) {
     case 'remove-friend': await socFriendAction(() => data.removeFriend(uid), 'Removed.'); break;
     case 'toggle-inner':  await socFriendAction(() => data.setInner(uid, target.dataset.on === '1'), 'Castle Crew updated. 🏰'); break;
     case 'toggle-coffin': await socFriendAction(() => data.setCoffinBuddy(uid, target.dataset.on === '1'), 'Coffin Buddies updated. ⚰️'); break;
+
+    case 'block-user':    await onBlockUser(uid, target.dataset.name); break;
+    case 'unblock-user':  await onUnblockUser(uid, target.dataset.name); break;
+    case 'report-post':   openReportModal('post', postId, target.dataset.owner, target.dataset.name); break;
+    case 'report-comment':openReportModal('comment', target.dataset.commentId, target.dataset.owner, target.dataset.name); break;
+    case 'report-user':   openReportModal('user', uid, uid, target.dataset.name); break;
+  }
+}
+
+// Block: confirm (it severs friendship + circles), then refresh.
+async function onBlockUser(uid, name) {
+  const who = name ? `@${name}` : 'this collector';
+  if (!confirm(`Block ${who}?\n\nYou won't see each other's posts, comments, or profiles, any friendship is removed, and neither of you can start a trade with the other.`)) return;
+  try {
+    await data.blockUser(uid);
+    toast(`Blocked ${who}. 🚫`);
+    // Re-pull the feed/friends so their content drops out immediately.
+    await loadSocialData();
+    if (state.socProfile && !state.socProfile.isMe) state.socProfile = null;
+    renderSocial();
+    updateSocialBadge();
+  } catch (e) { console.error('block', e); toast('Could not block.'); }
+}
+
+async function onUnblockUser(uid, name) {
+  try {
+    await data.unblockUser(uid);
+    toast(`Unblocked${name ? ` @${name}` : ''}.`);
+    await loadSocialData();
+    if (state.socProfile) await openProfile(state.socProfile.profile.id);
+    else renderSocial();
+  } catch (e) { console.error('unblock', e); toast('Could not unblock.'); }
+}
+
+// ─── Reporting ──────────────────────────────────────────────────────
+const REPORT_REASONS = [
+  ['spam',        'Spam or scam'],
+  ['harassment',  'Harassment or bullying'],
+  ['hate',        'Hate or violence'],
+  ['sexual',      'Sexual or inappropriate content'],
+  ['impersonation','Impersonation'],
+  ['other',       'Something else'],
+];
+
+function openReportModal(targetType, targetId, ownerId, name) {
+  state.reportTarget = { targetType, targetId, ownerId, name };
+  const labels = { post: 'post', comment: 'comment', user: 'collector' };
+  document.getElementById('report-title').textContent =
+    `Report ${labels[targetType] || 'content'}${name ? ` by @${name}` : ''}`;
+  const sel = document.getElementById('report-reason');
+  sel.innerHTML = REPORT_REASONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  document.getElementById('report-details').value = '';
+  document.getElementById('report-modal').classList.remove('hidden');
+}
+
+async function submitReport(e) {
+  e.preventDefault();
+  const t = state.reportTarget;
+  if (!t) return;
+  const reason = document.getElementById('report-reason').value;
+  const details = document.getElementById('report-details').value.trim();
+  const btn = document.getElementById('report-submit');
+  btn.disabled = true;
+  try {
+    await data.reportContent({
+      targetType: t.targetType,
+      targetId: t.targetId,
+      targetOwnerId: t.ownerId,
+      reason,
+      details,
+    });
+    document.getElementById('report-modal').classList.add('hidden');
+    state.reportTarget = null;
+    toast('Thanks — report sent to the crypt-keepers. 🦇');
+  } catch (err) {
+    console.error('report', err);
+    toast('Could not send that report.');
+  } finally {
+    btn.disabled = false;
   }
 }
 

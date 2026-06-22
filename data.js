@@ -550,7 +550,11 @@ data.browseOfferings = async function () {
     .neq('owner_id', window.currentUser.id)
     .order('created_at', { ascending: false });
   if (error) throw error;
-  const available = rows.filter((r) => (r.quantity - r.reserved) > 0);
+  // Refresh the blocked set so we never surface offerings from someone
+  // you're blocked-with (either direction).
+  try { await data.loadBlockedIds(); } catch { /* non-fatal */ }
+  const available = rows.filter((r) =>
+    (r.quantity - r.reserved) > 0 && !data.isBlocked(r.owner_id));
   // Resolve usernames separately — there's no FK from trade_items.owner_id to profiles.id.
   const ownerIds = [...new Set(available.map((r) => r.owner_id))];
   let usernames = new Map();
@@ -660,6 +664,11 @@ data.listTrades = async function () {
 };
 
 data.createTrade = async function ({ recipientId, proposerLines, recipientLines, message, parentTradeId }) {
+  // Can't trade with someone you're blocked-with (either direction). The
+  // trades insert policy (0034) enforces this too; we check first for a
+  // clean message instead of a raw RLS error mid-insert.
+  const { data: blk } = await sb.rpc('blocked_with_me', { other: recipientId });
+  if (blk === true) throw new Error('blocked');
   const insert = {
     proposer_id: window.currentUser.id,
     recipient_id: recipientId,
@@ -927,6 +936,120 @@ data.adminResolveDispute = async function (tradeId, outcome, notes) {
     .update(update)
     .eq('id', tradeId);
   if (error) throw error;
+};
+
+// ─── Blocking ───────────────────────────────────────────────────────
+// Block is directed (me → them) but enforced mutually in the DB. The
+// 0034 trigger severs any friendship / circle membership on insert.
+data.blockUser = async function (otherId) {
+  const { error } = await sb.from('user_blocks').insert({
+    blocker_id: window.currentUser.id,
+    blocked_id: otherId,
+  });
+  if (error && !/duplicate key/i.test(error.message || '')) throw error;
+  await data.loadBlockedIds();
+};
+
+data.unblockUser = async function (otherId) {
+  const { error } = await sb.from('user_blocks').delete()
+    .eq('blocker_id', window.currentUser.id)
+    .eq('blocked_id', otherId);
+  if (error) throw error;
+  await data.loadBlockedIds();
+};
+
+// People I have blocked (for the "Blocked collectors" management list and
+// the Unblock affordance on their profile).
+data.listMyBlocks = async function () {
+  const { data: rows, error } = await sb.from('user_blocks')
+    .select('blocked_id, created_at')
+    .eq('blocker_id', window.currentUser.id)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  const ids = rows.map((r) => r.blocked_id);
+  let names = new Map();
+  if (ids.length) {
+    const { data: profs } = await sb.from('profiles').select('id, username').in('id', ids);
+    names = new Map((profs || []).map((p) => [p.id, p.username]));
+  }
+  data._myBlockIds = new Set(ids);
+  return rows.map((r) => ({
+    id: r.blocked_id,
+    username: names.get(r.blocked_id) || 'unknown',
+    createdAt: r.created_at,
+  }));
+};
+
+// Union of "people I blocked" + "people who blocked me" (direction hidden
+// on purpose). Cached on data._blockedIds for synchronous filtering.
+data.loadBlockedIds = async function () {
+  const { data: rows, error } = await sb.rpc('blocked_user_ids');
+  if (error) { console.warn('blocked_user_ids', error); data._blockedIds = data._blockedIds || new Set(); return data._blockedIds; }
+  data._blockedIds = new Set((rows || []).map((r) => (typeof r === 'string' ? r : (r.blocked_user_ids ?? r.id))));
+  return data._blockedIds;
+};
+data._blockedIds = new Set();
+data._myBlockIds = new Set();
+data.isBlocked   = function (uid) { return data._blockedIds.has(uid); };
+data.isMyBlock   = function (uid) { return data._myBlockIds.has(uid); };
+
+// ─── Reports ────────────────────────────────────────────────────────
+data.reportContent = async function ({ targetType, targetId, targetOwnerId, reason, details }) {
+  const { error } = await sb.from('content_reports').insert({
+    reporter_id: window.currentUser.id,
+    target_type: targetType,
+    target_id: String(targetId),
+    target_owner_id: targetOwnerId || null,
+    reason,
+    details: details || null,
+  });
+  if (error) throw error;
+};
+
+data.adminListReports = async function (status = 'open') {
+  const { data: rows, error } = await sb.from('content_reports')
+    .select('*')
+    .eq('status', status)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  const uids = new Set();
+  for (const r of rows) {
+    if (r.reporter_id) uids.add(r.reporter_id);
+    if (r.target_owner_id) uids.add(r.target_owner_id);
+  }
+  if (uids.size) {
+    const { data: profs } = await sb.from('profiles').select('id, username').in('id', [...uids]);
+    const map = new Map((profs || []).map((p) => [p.id, p.username]));
+    for (const r of rows) {
+      r.reporterName = map.get(r.reporter_id) || '?';
+      r.targetOwnerName = r.target_owner_id ? (map.get(r.target_owner_id) || '?') : null;
+    }
+  }
+  return rows;
+};
+
+// Resolve ('resolved' kept / 'dismissed') with an optional note.
+data.adminResolveReport = async function (reportId, status, note) {
+  const { error } = await sb.from('content_reports').update({
+    status,
+    resolution_note: note || null,
+    resolved_by: window.currentUser.id,
+    resolved_at: new Date().toISOString(),
+  }).eq('id', reportId);
+  if (error) throw error;
+};
+
+// Remove the reported post or comment (admin delete grant from 0034).
+data.adminDeleteReportedContent = async function (targetType, targetId) {
+  if (targetType === 'post') {
+    const { error } = await sb.from('posts').delete().eq('id', targetId);
+    if (error) throw error;
+  } else if (targetType === 'comment') {
+    const { error } = await sb.from('post_comments').delete().eq('id', targetId);
+    if (error) throw error;
+  } else {
+    throw new Error('Only posts and comments can be removed this way.');
+  }
 };
 
 // Legacy alias — kept so any cached client builds calling the old
@@ -1967,7 +2090,14 @@ data.sendFriendRequest = async function (otherId) {
     requester_id: window.currentUser.id,
     addressee_id: otherId,
   });
-  if (error) throw error;
+  // The 0034 RLS check rejects requests to someone you're blocked-with;
+  // surface that as a friendly message instead of a raw policy error.
+  if (error) {
+    if (/row-level security|violates row-level/i.test(error.message || '')) {
+      throw new Error('blocked');
+    }
+    throw error;
+  }
 };
 
 data.acceptFriendRequest = async function (requesterId) {
