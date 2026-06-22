@@ -240,7 +240,14 @@ async function submitCatalogItemForm(e) {
       toast(isAdmin ? 'Catalog item created.' : 'Submitted to admin for review. Thanks!');
     }
     document.getElementById('catalog-item-modal').classList.add('hidden');
-    await loadCatalog();
+    // Prefer a live refresh over a bare loadCatalog(): reloading
+    // catalog.json drops the on-demand-parsed lore/accessories on every
+    // Shopify item (which silently broke accessory searches). A live
+    // refresh restores them, re-applies overrides, and still re-fetches
+    // custom items so this create/edit shows up. Fall back to loadCatalog
+    // only if the live fetch is unavailable, so the new item still lands.
+    const refreshed = await refreshCatalogLive();
+    if (!refreshed) await loadCatalog();
     if (state.tab === 'catalog') render();
   } catch (err) {
     console.error(err);
@@ -326,8 +333,19 @@ async function submitCatalogOverrideForm(e) {
     await data.adminUpsertCatalogOverride(ctx.handle, { lore, symbolism, accessories });
     toast('Catalog details saved.');
     document.getElementById('catalog-override-modal').classList.add('hidden');
-    await loadCatalog();
-    if (state.tab === 'catalog') render();
+    // Do NOT call loadCatalog() here: it reloads catalog.json, which
+    // carries only basic fields, so it wipes the on-demand-parsed lore /
+    // symbolism / Set Includes off every OTHER item — silently breaking
+    // accessory searches like "-tote -bag" until the next live refresh.
+    // A live refresh re-parses every item AND re-applies all overrides
+    // (including this save, and correctly dropping any we just cleared).
+    // If it's unavailable (offline / CORS), overlay just this edit in
+    // memory so we still never drop the parsed data.
+    const refreshed = await refreshCatalogLive();
+    if (!refreshed) {
+      applyCatalogOverrides(state.catalog, [{ handle: ctx.handle, lore, symbolism, accessories }]);
+      if (state.tab === 'catalog') render();
+    }
     // Repaint the detail modal if it's still open behind this one.
     const detail = document.getElementById('catalog-detail-modal');
     if (detail && !detail.classList.contains('hidden')) openCatalogDetailModal(ctx.cid);
@@ -803,7 +821,11 @@ async function adminApproveCatalogItem(id) {
     await data.adminApproveCatalogItem(id);
     toast('Approved.');
     await openCatalogPendingModal();
-    await loadCatalog();
+    // Live refresh (not a bare loadCatalog) so this admin action doesn't
+    // wipe the on-demand-parsed lore/accessories off other items; fall
+    // back to loadCatalog only if the live fetch is unavailable.
+    const refreshed = await refreshCatalogLive();
+    if (!refreshed) await loadCatalog();
     if (state.tab === 'catalog') render();
   } catch (err) {
     console.error(err);
@@ -869,7 +891,11 @@ async function submitCatalogMerge() {
     document.getElementById('catalog-merge-modal').classList.add('hidden');
     state.catalogMerge = null;
     await openCatalogPendingModal();
-    await loadCatalog();
+    // Live refresh (not a bare loadCatalog) so this admin action doesn't
+    // wipe the on-demand-parsed lore/accessories off other items; fall
+    // back to loadCatalog only if the live fetch is unavailable.
+    const refreshed = await refreshCatalogLive();
+    if (!refreshed) await loadCatalog();
     if (state.tab === 'catalog') render();
   } catch (err) {
     console.error(err);
@@ -963,7 +989,11 @@ async function adminApprovePhotoSuggestion(id) {
     await data.adminApprovePhotoSuggestion(id, shopifyInfo);
     toast('Photo approved.');
     await openPhotoSuggestionsModal();
-    await loadCatalog();
+    // Live refresh (not a bare loadCatalog) so this admin action doesn't
+    // wipe the on-demand-parsed lore/accessories off other items; fall
+    // back to loadCatalog only if the live fetch is unavailable.
+    const refreshed = await refreshCatalogLive();
+    if (!refreshed) await loadCatalog();
     if (state.tab === 'catalog') render();
   } catch (err) {
     console.error(err);
