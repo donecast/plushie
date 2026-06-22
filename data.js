@@ -995,6 +995,17 @@ data._myBlockIds = new Set();
 data.isBlocked   = function (uid) { return data._blockedIds.has(uid); };
 data.isMyBlock   = function (uid) { return data._myBlockIds.has(uid); };
 
+// Accounts that can never be blocked: admins + the redrambler moderator.
+// Mirrors is_protected_user() in db/0035 — the DB policy is the real
+// guard; this just hides the Block affordance client-side. Callers pass
+// whatever they know about the target (username always, is_admin when
+// available).
+data.PROTECTED_USERNAMES = new Set(['thegamersdome', 'redrambler']);
+data.isUnblockable = function ({ username, is_admin } = {}) {
+  if (is_admin) return true;
+  return data.PROTECTED_USERNAMES.has((username || '').toLowerCase());
+};
+
 // ─── Reports ────────────────────────────────────────────────────────
 data.reportContent = async function ({ targetType, targetId, targetOwnerId, reason, details }) {
   const { error } = await sb.from('content_reports').insert({
@@ -1317,9 +1328,35 @@ data.adminUserSnapshot = async function (userId) {
     .from('trade_items')
     .select('*')
     .eq('owner_id', userId);
+  // Blocks this user is involved in. Direction matters in the admin view
+    // (initiated vs received), unlike the symmetric client-side block set.
+    // Reading other people's blocks needs the is_admin() select policy from
+    // db/0035; until that's applied these come back empty for non-self rows.
+  const [{ data: bi }, { data: bb }] = await Promise.all([
+    sb.from('user_blocks').select('blocked_id, created_at').eq('blocker_id', userId),
+    sb.from('user_blocks').select('blocker_id, created_at').eq('blocked_id', userId),
+  ]);
+  const blockIds = new Set();
+  (bi || []).forEach((r) => blockIds.add(r.blocked_id));
+  (bb || []).forEach((r) => blockIds.add(r.blocker_id));
+  let blockNames = new Map();
+  if (blockIds.size) {
+    const { data: bp } = await sb.from('profiles').select('id, username').in('id', [...blockIds]);
+    blockNames = new Map((bp || []).map((p) => [p.id, p.username]));
+  }
+  const blocksInitiated = (bi || []).map((r) => ({
+    id: r.blocked_id, username: blockNames.get(r.blocked_id) || 'unknown', created_at: r.created_at,
+  }));
+  const blockedBy = (bb || []).map((r) => ({
+    id: r.blocker_id, username: blockNames.get(r.blocker_id) || 'unknown', created_at: r.created_at,
+  }));
   // Feedback summary
   const fb = await data.getFeedbackSummary(userId);
-  return { collection: col, plushies, wishlist, pens, trades: trades || [], tradeItems: tradeItems || [], feedback: fb };
+  return {
+    collection: col, plushies, wishlist, pens,
+    trades: trades || [], tradeItems: tradeItems || [],
+    blocksInitiated, blockedBy, feedback: fb,
+  };
 };
 
 
@@ -1765,11 +1802,6 @@ data.adminUpdateWishlist = async function (wishlistId, patch) {
     .from('wishlist')
     .update({ ...patch, updated_at: new Date().toISOString() })
     .eq('id', wishlistId);
-  if (error) throw error;
-};
-
-data.adminDeleteWishlist = async function (wishlistId) {
-  const { error } = await sb.from('wishlist').delete().eq('id', wishlistId);
   if (error) throw error;
 };
 
