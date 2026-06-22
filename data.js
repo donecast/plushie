@@ -2239,6 +2239,13 @@ data.deleteComment = async function (commentId) {
   if (error) throw error;
 };
 
+// Edit one of my own comments (item 25). RLS restricts updates to the author.
+data.editComment = async function (commentId, body) {
+  const { error } = await sb.from('post_comments')
+    .update({ body }).eq('id', commentId).eq('author_id', window.currentUser.id);
+  if (error) throw error;
+};
+
 // Toggle one of my emoji reactions on a comment (item 5).
 data.toggleCommentReaction = async function (commentId, emoji, on) {
   const uid = window.currentUser.id;

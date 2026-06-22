@@ -7,6 +7,9 @@ const state = {
   colDupes: false,            // collection: only quantity > 1
   colNoBag: false,            // collection: only missing bag
   colSort: 'acquired_desc',
+  arranging: false,           // actively in drag-to-reorder mode (the ↕ Arrange toggle).
+                              // Separate from colSort==='manual': the custom order can be
+                              // *shown* without the drag grips being live.
   colView: 'cards',           // collection layout: 'cards' (roomy) | 'compact' (dense list)
   wishCategory: 'all',
   wishInStock: false,
@@ -62,6 +65,7 @@ const state = {
   socProfile: null,           // { profile, posts, top8, friendship } when viewing someone
   socExpandedComments: new Set(), // postIds whose comment box/list is expanded
   socReplyTo: null,               // comment id currently being replied to
+  socEditComment: null,           // comment id currently being edited
   socComposeVis: 'friends',   // visibility selected in the composer
   socComposePhoto: null,      // pending compressed Blob for a new post
   socPendingCount: 0,         // incoming friend requests — drives the tab badge
@@ -227,6 +231,7 @@ function clearTabFilters(tab) {
     state.colDupes = false;
     state.colNoBag = false;
     state.colSort = 'acquired_desc';
+    state.arranging = false;
     syncCollectionChips();
   } else if (tab === 'wishlist') {
     state.wishCategory = 'all';
@@ -301,6 +306,13 @@ function syncCollectionChips() {
   if (sortEl) sortEl.value = state.colSort;
   const viewEl = document.getElementById('col-view');
   if (viewEl) viewEl.value = state.colView;
+  // The Arrange toggle lights up only while you're actively arranging (item 20).
+  const arrangeBtn = document.getElementById('col-arrange');
+  if (arrangeBtn) {
+    const on = state.arranging;
+    arrangeBtn.classList.toggle('active', on);
+    arrangeBtn.textContent = on ? '✓ Done arranging' : '↕ Arrange';
+  }
 }
 
 function syncWishlistChips() {
@@ -1016,7 +1028,7 @@ function extractSetIncludes(blocks, startIdx, endIdx, title = '') {
   // re-words their Set Includes line.
   return filtered.map((it) => {
     const display = canonicalizeAccessoryName(it.name);
-    return { name: display, key: display.toLowerCase() };
+    return { name: display, key: accessoryKey(display) };
   });
 }
 
@@ -1054,14 +1066,20 @@ function extractSpecTail(blocks, title = '') {
   }
   return out.map((it) => {
     const display = canonicalizeAccessoryName(it.name);
-    return { name: display, key: display.toLowerCase() };
+    return { name: display, key: accessoryKey(display) };
   });
 }
 
 function canonicalizeAccessoryName(raw) {
+  // Preserve a hard quantity of 2+ ('2x Baby Opossums') as a normalized
+  // 'N× ' display prefix; a bare 1x / single is noise and is dropped. The
+  // prefix is stripped back off when we derive the match key (accessoryKey),
+  // so it never affects accessory identity / missing-list matching.
+  const qm = String(raw || '').match(/^\s*(\d+)\s*[x×]\s+/i);
+  const qty = qm && parseInt(qm[1], 10) >= 2 ? `${parseInt(qm[1], 10)}× ` : '';
   const out = (raw || '')
-    // Drop the 'Nx ' or 'N× ' quantity prefix.
-    .replace(/^\d+\s*[x×]\s+/i, '')
+    // Drop the 'Nx ' or 'N× ' quantity prefix (re-added as `qty` below).
+    .replace(/^\s*\d+\s*[x×]\s+/i, '')
     // Drop a leading 'Comes with a/the …' prose lead-in ('Comes with a tote
     // bag …' → 'tote bag …'); the item name is what follows.
     .replace(/^\s*comes with\s+(?:a|an|the|one|two|your)?\s*/i, '')
@@ -1093,7 +1111,15 @@ function canonicalizeAccessoryName(raw) {
     // Trailing sentence punctuation left after a clause trim ('… canvas bag.').
     .replace(/\s*[.,;:]+\s*$/, '')
     .trim();
-  return stripOutfitWord(out);
+  return qty + stripOutfitWord(out);
+}
+
+// The match key for an accessory: the canonical display name with any
+// quantity prefix ('2× ') stripped and lowercased. Keys are what get stored
+// in a collection row's missing_accessories, so they must stay quantity-free
+// and stable even as the display name gains/loses a count.
+function accessoryKey(name) {
+  return String(name || '').replace(/^\s*\d+\s*[x×]\s+/i, '').toLowerCase();
 }
 
 // ─── Accessory list hygiene ──────────────────────────────────────────
@@ -1154,7 +1180,7 @@ function normalizeAccessories(list) {
       return small.length >= 2 && small.every((t) => big.includes(t));
     });
     if (dup) continue;
-    kept.push({ name, key: name.toLowerCase(), dk });
+    kept.push({ name, key: accessoryKey(name), dk });
   }
   return kept.map(({ name, key }) => ({ name, key }));
 }
@@ -1657,7 +1683,7 @@ function renderAttachedAccessory(a) {
     : '<span class="no-photo">🧥</span>';
   return `
     <div class="attached-acc" data-acc-id="${a.id}">
-      <div class="attached-acc-photo" data-action="open-detail" data-id="${a.id}" role="button" title="Edit / rename / reassign">${photo}</div>
+      <div class="attached-acc-photo" data-action="zoom-photo" data-id="${a.id}" role="button" title="Tap to see it bigger">${photo}</div>
       <div class="attached-acc-info">
         <span class="attached-acc-name" data-action="open-detail" data-id="${a.id}" role="button">${escapeHtml(a.nickname || stripOutfitWord(a.name))}</span>
         <button class="attached-detach" data-action="detach-acc" data-id="${a.id}" title="Hang it back up in the closet">↩ Hang it back up</button>
@@ -1719,7 +1745,7 @@ function renderCard(item, kind) {
   if (tradeMark) badges.push(tradeMark);
 
   const tradeBtn = kind === 'collection'
-    ? `<button data-action="offer-trade" data-id="${item.id}">↻ Offer for trade</button>`
+    ? `<button data-action="offer-trade" data-id="${item.id}">↻ Trade?</button>`
     : `<button data-action="seek-trade" data-id="${item.id}">↺ Seek in trade</button>`;
 
   const qty = item.quantity || 1;
@@ -1738,11 +1764,13 @@ function renderCard(item, kind) {
     ? `<button data-action="assign-wearer" data-id="${item.id}" title="Attach this to the plush wearing it">🧥 Who's wearing this?</button>`
     : '';
 
-  // Manual reorder controls (item 20) — only in My-order mode, and only for
-  // items that live in the main collection grid (clothing sits in its own
-  // closet section, so it doesn't take part in manual ordering). A drag grip
-  // (desktop) plus up/down arrows (works everywhere, incl. touch).
-  const manualMode = kind === 'collection' && state.colSort === 'manual' && !isWearableItem(item);
+  // Manual reorder controls (item 20) — only while actively arranging (the ↕
+  // Arrange toggle), and only for items that live in the main collection grid
+  // (clothing sits in its own closet section, so it doesn't take part in
+  // manual ordering). A drag grip (desktop) plus up/down arrows (touch). Note
+  // this is gated on `arranging`, NOT the sort: viewing the saved custom order
+  // ("My order" in the sort menu) shows it without the live drag handles.
+  const manualMode = kind === 'collection' && state.arranging && !isWearableItem(item);
   const reorder = manualMode
     ? `<div class="col-reorder" title="Drag the grip to reorder, or use the arrows">
          <button class="reorder-btn" data-action="move-up" data-id="${item.id}" aria-label="Move up">▲</button>
@@ -1895,8 +1923,8 @@ function render() {
     const colGrid = document.getElementById('collection-grid');
     colGrid.classList.toggle('grid-compact', compact);
     colGrid.classList.toggle('grid-list', !compact);
-    // In manual sort, surface a hint so the drag/▲▼ affordance is discoverable.
-    const manualHint = state.colSort === 'manual' && mainItems.length > 1
+    // While arranging, surface a hint so the drag/▲▼ affordance is discoverable.
+    const manualHint = state.arranging && mainItems.length > 1
       ? '<p class="subview-hint">↕ Drag the ☰ grip or use ▲▼ to arrange your collection exactly how you want.</p>'
       : '';
     colGrid.innerHTML = manualHint + mainItems.map((i) => renderCollectionEntry(i)).join('');
@@ -2066,9 +2094,11 @@ function openModal(kind, item, { fresh = false } = {}) {
   state.editingId = item.id;
 
   const wearable = isWearableItem(item);
+  // Title the editor by what's actually being edited (item 28).
+  const EDIT_TITLE = { plush: 'Edit Plushie', mini: 'Edit Mini', clothing: 'Edit Clothing', accessory: 'Edit Accessory', bundle: 'Edit Bundle', other: 'Edit Other' };
   document.getElementById('modal-title').textContent = fresh
     ? (wearable ? 'Added! Who’s wearing it?' : 'Added! Make it yours')
-    : 'Edit Plushie';
+    : (EDIT_TITLE[itemCategory(item)] || 'Edit Plushie');
   document.getElementById('modal-name').textContent = stripOutfitWord(item.name || '');
 
   // Only true plushes & minis carry "lore"-flavoured fields (a personal name
@@ -3005,8 +3035,29 @@ function wireEvents() {
     if (el) el.addEventListener('change', () => { state[target] = el.value; render(); });
   };
   wireSelect('col-state', 'filter');
-  wireSelect('col-sort', 'colSort');
   wireSelect('col-view', 'colView');
+  // Sort menu: switching to any sort other than "My order" leaves arrange mode
+  // (you can't drag a date/name-sorted list into a custom order).
+  const sortSel = document.getElementById('col-sort');
+  if (sortSel) sortSel.addEventListener('change', () => {
+    state.colSort = sortSel.value;
+    if (state.colSort !== 'manual') state.arranging = false;
+    render();
+  });
+  // Arrange button: tap to start arranging (which switches the view to the
+  // saved "My order" so you're dragging the real order), tap again when done.
+  // Finishing leaves the collection *showing* My order — it just turns off the
+  // live drag handles — so the order you set sticks (item 20).
+  const arrangeBtn = document.getElementById('col-arrange');
+  if (arrangeBtn) arrangeBtn.addEventListener('click', () => {
+    if (state.arranging) {
+      state.arranging = false;          // done — keep colSort on 'manual' so the order shows
+    } else {
+      state.arranging = true;
+      state.colSort = 'manual';
+    }
+    render();
+  });
   document.querySelectorAll('#col-extras input[data-col-toggle]').forEach((cb) => {
     cb.addEventListener('change', () => {
       if (cb.dataset.colToggle === 'dupes') state.colDupes = cb.checked;
@@ -5696,7 +5747,7 @@ async function submitCatalogItemForm(e) {
     .split('\n')
     .map((s) => canonicalizeAccessoryName(s))
     .filter(Boolean)
-    .map((name) => ({ name, key: name.toLowerCase() }));
+    .map((name) => ({ name, key: accessoryKey(name) }));
   const photoFile = document.getElementById('ci-photo').files[0] || null;
   const mode = state.catalogItemModalMode || 'admin';
   const isEdit = mode === 'edit';
@@ -6543,13 +6594,22 @@ function renderComment(c, postId, depth = 0) {
   const palette = SOC_REACTIONS.map((e) =>
     `<button class="soc-react-opt" data-soc-action="react-comment" data-comment-id="${c.id}" data-emoji="${e}">${e}</button>`).join('');
   const replying = state.socReplyTo === c.id;
+  const editing = state.socEditComment === c.id;
   const replies = (c.replies || []).map((r) => renderComment(r, postId, Math.min(depth + 1, 1))).join('');
+  const bodyHtml = editing
+    ? `<form class="soc-comment-form soc-comment-edit-form" data-soc-action="submit-comment-edit" data-comment-id="${c.id}">
+         <input type="text" class="soc-comment-input" maxlength="500" value="${escapeHtml(c.body)}" />
+         <button class="btn-primary" type="submit">Save</button>
+         <button class="linklike" type="button" data-soc-action="cancel-edit-comment">Cancel</button>
+       </form>`
+    : `<span>${linkifyMentions(c.body)}</span>`;
   return `
     <div class="soc-comment ${depth ? 'soc-comment-reply' : ''}">
       <div class="soc-comment-main">
         <button class="soc-userlink" data-soc-action="view-profile" data-uid="${c.authorId}"><b>@${escapeHtml(c.authorName)}</b></button>
-        <span>${linkifyMentions(c.body)}</span>
-        ${c.canDelete ? `<button class="soc-comment-del" data-soc-action="delete-comment" data-comment-id="${c.id}" title="Delete">×</button>` : ''}
+        ${bodyHtml}
+        ${(c.mine && !editing) ? `<button class="soc-comment-edit" data-soc-action="edit-comment" data-comment-id="${c.id}" title="Edit">✎</button>` : ''}
+        ${(c.canDelete && !editing) ? `<button class="soc-comment-del" data-soc-action="delete-comment" data-comment-id="${c.id}" title="Delete">×</button>` : ''}
       </div>
       <div class="soc-comment-tools">
         <span class="soc-react-wrap">
@@ -6656,13 +6716,13 @@ function renderFriends() {
             ${tierTag}
           </div>
           <span class="soc-friend-actions">
-            <button class="btn-ghost" data-soc-action="toggle-inner" data-uid="${f.userId}" data-on="${f.isInner ? '0' : '1'}">
-              ${f.isInner ? 'Remove from Castle Crew' : 'Add to Castle Crew'}
-            </button>
             <button class="btn-ghost" data-soc-action="toggle-coffin" data-uid="${f.userId}" data-on="${f.isCoffinBuddy ? '0' : '1'}">
-              ${f.isCoffinBuddy ? 'Remove from Coffin Buddies' : 'Add to Coffin Buddies'}
+              ${f.isCoffinBuddy ? '🚫 Coffin Buddies' : 'Add to Coffin Buddies'}
             </button>
-            <button class="btn-ghost" data-soc-action="remove-friend" data-uid="${f.userId}">Unfriend</button>
+            <button class="btn-ghost" data-soc-action="toggle-inner" data-uid="${f.userId}" data-on="${f.isInner ? '0' : '1'}">
+              ${f.isInner ? '🚫 Castle Crew' : 'Add to Castle Crew'}
+            </button>
+            <button class="btn-ghost" data-soc-action="remove-friend" data-uid="${f.userId}">🚫 Coven</button>
           </span>
         </div>`; }).join('')}
     </section>` : `<p class="empty-note">No friends in your Coven yet — search for a collector above.</p>`;
@@ -6716,9 +6776,9 @@ function renderProfileInto(el, { profile, posts, top8, friendship, isMe, withBac
         ? '<span class="soc-rel-tag">⚰️ Coffin Buddies</span>'
         : (fr.isInner ? '<span class="soc-rel-tag">🏰 Castle Crew</span>' : '<span class="soc-rel-tag">🦇 In your Coven</span>');
       relBtns = `${tierTag}
-               <button class="btn-ghost" data-soc-action="toggle-inner" data-uid="${profile.id}" data-on="${fr.isInner ? '0' : '1'}">${fr.isInner ? 'Remove from Castle Crew' : 'Add to Castle Crew'}</button>
-               <button class="btn-ghost" data-soc-action="toggle-coffin" data-uid="${profile.id}" data-on="${fr.isCoffinBuddy ? '0' : '1'}">${fr.isCoffinBuddy ? 'Remove from Coffin Buddies' : 'Add to Coffin Buddies'}</button>
-               <button class="btn-ghost" data-soc-action="remove-friend" data-uid="${profile.id}">Unfriend</button>`;
+               <button class="btn-ghost" data-soc-action="toggle-coffin" data-uid="${profile.id}" data-on="${fr.isCoffinBuddy ? '0' : '1'}">${fr.isCoffinBuddy ? '🚫 Coffin Buddies' : 'Add to Coffin Buddies'}</button>
+               <button class="btn-ghost" data-soc-action="toggle-inner" data-uid="${profile.id}" data-on="${fr.isInner ? '0' : '1'}">${fr.isInner ? '🚫 Castle Crew' : 'Add to Castle Crew'}</button>
+               <button class="btn-ghost" data-soc-action="remove-friend" data-uid="${profile.id}">🚫 Coven</button>`;
     }
     else if (friendship === 'outgoing') relBtns = `<button class="btn-ghost" data-soc-action="remove-friend" data-uid="${profile.id}">Cancel request</button>`;
     else if (friendship === 'incoming') relBtns = `<button class="btn-primary" data-soc-action="accept-friend" data-uid="${profile.id}">Accept request</button>`;
@@ -6731,7 +6791,7 @@ function renderProfileInto(el, { profile, posts, top8, friendship, isMe, withBac
       ${socAvatar(profile.avatarUrl, profile.username, 'soc-avatar-lg')}
       <div class="soc-profile-id">
         <h2>@${escapeHtml(profile.username)}</h2>
-        ${profile.bio ? `<p class="soc-bio">${escapeHtml(profile.bio)}</p>` : (isMe ? `<p class="soc-bio soc-bio-empty">Add a bio to tell the crypt about yourself…</p>` : '')}
+        ${profile.bio ? `<p class="soc-bio">${linkifyMentions(profile.bio)}</p>` : (isMe ? `<p class="soc-bio soc-bio-empty">Add a bio to tell the crypt about yourself…</p>` : '')}
         <div class="soc-profile-actions">${relBtns}</div>
       </div>
     </header>
@@ -7061,7 +7121,9 @@ function wireSocialEvents() {
   // Comment submit + compose/profile/top8 forms (submit events).
   document.getElementById('social-view').addEventListener('submit', (e) => {
     const f = e.target.closest('[data-soc-action="submit-comment"]');
-    if (f) { e.preventDefault(); submitCommentForm(f); }
+    if (f) { e.preventDefault(); submitCommentForm(f); return; }
+    const ef = e.target.closest('[data-soc-action="submit-comment-edit"]');
+    if (ef) { e.preventDefault(); submitCommentEdit(ef); }
   });
 
   // Graceful image fallback. `error` doesn't bubble, so listen in the
@@ -7148,6 +7210,15 @@ async function onSocialClick(e) {
     case 'edit-post': openPostEditor(postId); break;
     case 'delete-post': await onDeletePost(postId); break;
     case 'delete-comment': await onDeleteComment(target.dataset.commentId); break;
+    case 'edit-comment':
+      state.socEditComment = target.dataset.commentId;
+      state.socReplyTo = null;
+      rerenderSocialCurrent();
+      break;
+    case 'cancel-edit-comment':
+      state.socEditComment = null;
+      rerenderSocialCurrent();
+      break;
     case 'react-comment': await onReactComment(target.dataset.commentId, target.dataset.emoji); break;
     case 'toggle-react-palette': {
       const pal = document.querySelector(`[data-react-palette="${target.dataset.commentId}"]`);
@@ -7229,6 +7300,21 @@ async function submitCommentForm(form) {
     if (state.socProfile) await openProfile(state.socProfile.profile.id);
     else rerenderSocialCurrent();
   } catch (e) { console.error('comment', e); toast('Could not comment.'); }
+}
+
+// Save an edit to one of my own comments (item 25).
+async function submitCommentEdit(form) {
+  const input = form.querySelector('.soc-comment-input');
+  const body = input.value.trim();
+  const commentId = form.dataset.commentId;
+  if (!body) { toast('A comment can’t be empty.'); return; }
+  try {
+    await data.editComment(commentId, body);
+    state.socEditComment = null;
+    await loadSocialData();
+    if (state.socProfile) await openProfile(state.socProfile.profile.id);
+    else rerenderSocialCurrent();
+  } catch (e) { console.error('edit comment', e); toast('Could not save your edit.'); }
 }
 
 // Toggle one of my emoji reactions on a comment, then refresh.
