@@ -844,6 +844,7 @@
           <li><strong>Shipping addresses:</strong> stored as structured fields; revealed only to the other party of an accepted trade, and only after they've also entered theirs.</li>
           <li><strong>Feedback:</strong> the ratings (communication / shipping / accuracy, plus comments) you give or receive are visible to other signed-in users via your profile. You can edit your own feedback for 7 days.</li>
           <li><strong>Notifications:</strong> today these fire in your browser while the app is open. If we ship native apps, we'll store a device push token to deliver them.</li>
+          <li><strong>Blocking &amp; reporting:</strong> you can block another collector — you'll be hidden from each other, any friendship is removed, and neither of you can friend or trade with the other. You can also report a post, comment, or collector to the admins. Reports are private (only you and the admins see them), and we never tell someone they've been blocked or reported.</li>
           <li><strong>Admins</strong> can read collection / wish list / trade data and remove social content for moderation. Currently the only admin is the site operator.</li>
           <li><strong>Third parties:</strong> auth, database, and storage run on Supabase; magic-link emails send via our SMTP provider (Resend); image proxying, photo storage, and hosting run on Cloudflare; catalog data is fetched from plushiedreadfuls.com. We don't sell your data.</li>
           <li><strong>Deletion:</strong> email <a href="mailto:support@plushcrypt.com">support@plushcrypt.com</a> from your account address and we'll wipe your rows and photos (backups age out afterward).</li>
@@ -856,6 +857,16 @@
         <p class="changelog-gated changelog-insider-note">🔒 Insider view: blue items are gated features only you and the allowlist can see — they're hidden from everyone else.</p>
 
         <div class="changelog">
+          <div class="changelog-day">
+            <h3 class="changelog-date">June 22, 2026</h3>
+            <ul>
+              <li>New safety tools: <strong>block</strong> another collector to hide each other (it also removes any friendship and stops trades between you), and <strong>report</strong> a post, comment, or collector to the mods. Manage who you've blocked from the <strong>Me</strong> tab.</li>
+              <li>Freshened our <strong>Terms</strong>, <strong>Privacy</strong>, and <strong>About</strong> to cover the social features.</li>
+              <li>Added this <strong>Change Log</strong> — you're reading it. 🦇</li>
+            </ul>
+            <p class="changelog-fixes">Misc bug fixes.</p>
+          </div>
+
           <div class="changelog-day">
             <h3 class="changelog-date">June 21, 2026</h3>
             <ul>
@@ -908,7 +919,7 @@
 
       <section class="legal-section hidden" data-legal-section="about">
         <h2>About</h2>
-        <p>The Plush Crypt is an independent, fan-made home for plushie collectors — catalog what you own, keep a wish list, trade with other collectors, and share it all through a small social layer of friends, posts, and your Top 8 Buns.</p>
+        <p>The Plush Crypt is an independent, fan-made home for plushie collectors — catalog what you own, keep a wish list, trade with other collectors, and share it all through a small social layer of friends, posts, and your Top 8 Buns. Simple tools — blocking and reporting — help keep the crypt kind.</p>
         <p>We're not affiliated with, endorsed by, or sponsored by Plushie Dreadfuls Co. or any other plushie manufacturer. Product names, photos, and trademarks belong to their respective owners.</p>
         <p>Questions, takedown requests, or bug reports: <a href="mailto:support@plushcrypt.com">support@plushcrypt.com</a></p>
       </section>
