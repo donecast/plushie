@@ -841,42 +841,51 @@ main {
   font-size: 0.72rem;
   padding: 6px 9px;
 }
-/* Outfitted entries: keep the dense row, let attached pieces wrap below. */
-/* Outfitted plushes in list/compact views: keep the plush row its normal
-   height and render worn clothing as a compact, non-growing thumbnail strip to
-   the right so every row stays the same height (item 22). */
-.grid-list .col-entry.outfitted,
+/* Roomy (grid-list, the default) view: render each worn piece as a full card —
+   title centered at the top, the photo filling the middle as large as the
+   plush it sits beside allows, and "Hang it back up" anchored to the bottom
+   (item 5). The attached-acc inherits the vertical base layout; we just place
+   the strip beside the plush and give the cards a uniform width. */
+.grid-list .col-entry.outfitted {
+  display: flex; flex-wrap: nowrap; align-items: stretch; gap: 12px;
+}
+.grid-list .col-entry.outfitted > .card { flex: 1 1 auto; min-width: 0; }
+.grid-list .col-entry.outfitted .attached-wrap {
+  flex: 0 1 auto; max-width: 50%;
+  flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start;
+  align-items: stretch; gap: 10px; padding: 0;
+}
+.grid-list .attached-acc { width: 150px; }
+
+/* Compact view keeps the dense, non-growing thumbnail strip so every row stays
+   the same height (item 22): photo left, name, then the detach button. */
 .grid-compact .col-entry.outfitted {
   display: flex; flex-wrap: nowrap; align-items: stretch; gap: 10px;
 }
-.grid-list .col-entry.outfitted > .card,
 .grid-compact .col-entry.outfitted > .card { flex: 1 1 auto; min-width: 0; }
-.grid-list .col-entry.outfitted .attached-wrap,
 .grid-compact .col-entry.outfitted .attached-wrap {
   flex: 0 1 auto; max-width: 48%;
   flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start;
   align-items: stretch; gap: 6px; padding: 0;
 }
-.grid-list .attached-acc,
 .grid-compact .attached-acc {
   flex: 0 0 auto; width: 190px;   /* uniform width so every worn-piece card lines up (item 27) */
   flex-direction: row; align-items: center; gap: 8px;
   padding: 4px 8px 4px 4px; border-radius: 10px;
 }
-.grid-list .attached-acc::before,
-.grid-compact .attached-acc::before { display: none; }   /* drop the floating 'worn' tag in compact strips */
-.grid-list .attached-acc-photo,
+.grid-compact .attached-acc::before { display: none; }   /* drop the floating 'worn' tag in the strip */
 .grid-compact .attached-acc-photo {
-  width: 44px; height: 44px; aspect-ratio: 1; border-radius: 8px; flex: none;
+  order: 0; width: 44px; height: 44px; min-height: 0; aspect-ratio: 1;
+  border-radius: 8px; flex: none;
 }
-.grid-list .attached-acc-info,
-.grid-compact .attached-acc-info {
-  padding: 0; gap: 2px; min-width: 0;
+.grid-compact .attached-acc-name {
+  order: 1; flex: 1 1 auto; min-width: 0;
+  font-size: 0.78rem; text-align: left; padding: 0;
 }
-.grid-list .attached-acc-name,
-.grid-compact .attached-acc-name { font-size: 0.78rem; }
-.grid-compact .attached-detach,
-.grid-list .attached-detach { font-size: 0.68rem; padding: 2px 5px; align-self: flex-start; }
+.grid-compact .attached-detach {
+  order: 2; flex: none; margin: 0;
+  font-size: 0.68rem; padding: 2px 5px;
+}
 
 .card-status {
   font-family: var(--sans);
@@ -3277,6 +3286,23 @@ body.locked { overflow: hidden; }
   border-bottom: 1.5px dashed var(--rose-seam);
 }
 .catalog-pending-row:last-child { border-bottom: 0; }
+.catalog-pending-toggle {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  padding: 10px 0;
+  background: none;
+  border: 0;
+  border-top: 1.5px dashed var(--rose-seam);
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink-2);
+  text-align: left;
+  cursor: pointer;
+  opacity: 0.8;
+}
+.catalog-pending-toggle:hover { opacity: 1; }
+#catalog-approved-list { margin-top: 6px; }
 .catalog-pending-photo {
   width: 88px;
   height: 88px;
@@ -3720,6 +3746,37 @@ body.locked { overflow: hidden; }
 }
 .soc-search-results { margin-bottom: 16px; }
 
+/* @mention typeahead dropdown (item 6) */
+.mention-suggest {
+  position: fixed; z-index: 1200; max-height: 240px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border-rose-mild);
+  border-radius: 12px; box-shadow: var(--shadow-card); padding: 4px;
+}
+.mention-row {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  background: none; border: 0; border-radius: 8px; padding: 6px 8px;
+  cursor: pointer; font: inherit; color: var(--ink);
+}
+.mention-row:hover { background: var(--blush); }
+.mention-avatar { width: 26px; height: 26px; font-size: 0.7rem; flex: none; }
+
+/* Friend-tier explainer (Coven / Castle Crew / Coffin Buddies) */
+.soc-tier-help {
+  margin-bottom: 16px; padding: 10px 14px;
+  background: var(--surface); border: 1px solid var(--border-rose-mild);
+  border-radius: 12px;
+}
+.soc-tier-help summary {
+  cursor: pointer; font-weight: 700; color: var(--ink); list-style: none;
+}
+.soc-tier-help summary::-webkit-details-marker { display: none; }
+.soc-tier-help[open] summary { margin-bottom: 8px; }
+.soc-tier-list {
+  margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px;
+  color: var(--ink-mute); line-height: 1.5; font-size: 0.9rem;
+}
+.soc-tier-name { font-weight: 700; color: var(--ink); }
+
 /* Profile */
 .soc-back { margin-bottom: 12px; display: inline-block; }
 .soc-profile-head { display: flex; gap: 16px; align-items: flex-start; margin-bottom: 20px; }
@@ -3727,6 +3784,32 @@ body.locked { overflow: hidden; }
 .soc-bio { margin: 4px 0 10px; color: var(--ink-mute); line-height: 1.5; }
 .soc-bio-empty { font-style: italic; }
 .soc-profile-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* Social links — account-modal editor (one username box per network) */
+.social-link-fields { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.social-link-row { display: flex; align-items: center; gap: 8px; }
+.social-link-label {
+  flex: 0 0 110px; font-size: 0.85rem; color: var(--ink-mute);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.social-link-input {
+  flex: 1 1 auto; min-width: 0; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--border-rose-mild); background: var(--surface);
+  font: inherit; color: var(--ink);
+}
+/* Social links — profile display chips */
+.soc-links { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.soc-link-chip {
+  display: inline-flex; align-items: center; gap: 5px; text-decoration: none;
+  font-size: 0.78rem; color: var(--ink); padding: 4px 10px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--border-rose-mild);
+}
+.soc-link-chip:hover { border-color: var(--gold-border, var(--gold)); color: var(--gold); }
+.soc-link-glyph { font-size: 0.9rem; line-height: 1; }
+
+@media (max-width: 480px) {
+  .social-link-label { flex-basis: 92px; font-size: 0.8rem; }
+}
 
 /* Top 8 */
 .soc-top8-grid {
@@ -3801,7 +3884,7 @@ body.locked { overflow: hidden; }
 /* ── Worn-by: clothing accessories attached to their plush ────────── */
 .col-entry.outfitted {
   grid-column: 1 / -1;           /* outfitted plushes take a full row */
-  display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap;
+  display: flex; gap: 12px; align-items: stretch; flex-wrap: wrap;
 }
 .col-entry.outfitted > .card { flex: 2 1 260px; min-width: 0; }
 /* Accessories cluster beside the plush, pushed to the right edge of the row
@@ -3819,19 +3902,24 @@ body.locked { overflow: hidden; }
   font-size: 0.66rem; padding: 1px 7px; border-radius: 999px;
   background: var(--gold); color: var(--text-on-gold); font-weight: 800;
 }
+/* Title centered at the top, photo filling the middle as large as the card
+   will allow, and the "Hang it back up" button anchored to the bottom (item 5).
+   The card stretches to the height of the plush it sits beside, so the photo
+   grows to fill whatever room is left between the title and the button. */
+.attached-acc-name {
+  order: 0; font-weight: 700; font-size: 0.82rem; line-height: 1.2;
+  text-align: center; padding: 22px 8px 6px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .attached-acc-photo {
-  aspect-ratio: 1; background: var(--blush);
+  order: 1; flex: 1 1 auto; min-height: 120px; background: var(--blush);
   display: flex; align-items: center; justify-content: center; overflow: hidden;
 }
 .attached-acc-photo img { width: 100%; height: 100%; object-fit: cover; }
-.attached-acc-info { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
-.attached-acc-name {
-  font-weight: 700; font-size: 0.82rem; line-height: 1.2;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
 .attached-detach {
-  background: none; border: 1px solid var(--hairline); border-radius: 8px;
-  cursor: pointer; color: var(--ink-mute); font-size: 0.72rem; padding: 3px 6px;
+  order: 2; margin: 8px; background: none; border: 1px solid var(--hairline);
+  border-radius: 8px; cursor: pointer; color: var(--ink-mute);
+  font-size: 0.72rem; padding: 3px 6px;
 }
 .attached-detach:hover { color: var(--danger); border-color: var(--danger-border); }
 
@@ -3858,6 +3946,7 @@ body.locked { overflow: hidden; }
 @media (max-width: 560px) {
   .col-entry.outfitted { gap: 10px; }
   .attached-acc { width: 108px; }
+  .grid-list .attached-acc { width: 116px; }   /* roomy worn card, trimmed for phones */
 }
 
 /* Attached accessory: photo + name open the edit modal (rename/reassign) */

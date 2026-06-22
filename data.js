@@ -309,8 +309,10 @@ const data = {
   async _urlFor(bucket, path) {
     if (!path) return null;
     // Same cache for both code paths — short-circuits a re-fetch on
-    // every render. R2 URLs are stable; Supabase signed URLs valid
-    // for an hour. Cache both for the session.
+    // every render. R2 URLs are stable. We cache signed URLs for the
+    // whole page session, so they must outlive any realistic session:
+    // a 1h expiry left long-lived tabs / PWAs showing broken images
+    // once the cached URL aged out. Sign for 7 days instead.
     if (data._photoUrlCache.has(`${bucket}:${path}`)) return data._photoUrlCache.get(`${bucket}:${path}`);
     let url = null;
     if (window.R2_BASE) {
@@ -319,7 +321,7 @@ const data = {
     } else {
       const { data: signed, error } = await sb
         .storage.from(bucket)
-        .createSignedUrl(path, 3600);
+        .createSignedUrl(path, 604800);
       if (error) { console.warn('signed url failed', path, error); return null; }
       url = signed.signedUrl;
     }
@@ -2200,22 +2202,44 @@ data.searchUsers = async function (prefix, limit = 12) {
 
 // ─── Profile ────────────────────────────────────────────────────────
 data.getSocialProfile = async function (userId) {
-  const { data: row, error } = await sb
+  // social_links may not exist pre-0035; fall back to the base columns so an
+  // un-migrated client still loads profiles.
+  let row, error;
+  ({ data: row, error } = await sb
     .from('profiles')
-    .select('id, username, bio, avatar_path')
+    .select('id, username, bio, avatar_path, social_links')
     .eq('id', userId)
-    .maybeSingle();
+    .maybeSingle());
+  if (error && /social_links/.test(error.message || '')) {
+    ({ data: row, error } = await sb
+      .from('profiles')
+      .select('id, username, bio, avatar_path')
+      .eq('id', userId)
+      .maybeSingle());
+  }
   if (error) throw error;
   if (!row) return null;
-  return { ...row, avatarUrl: row.avatar_path ? await data.socialPhotoUrl(row.avatar_path) : null };
+  return {
+    ...row,
+    socialLinks: row.social_links || {},
+    avatarUrl: row.avatar_path ? await data.socialPhotoUrl(row.avatar_path) : null,
+  };
 };
 
-data.updateMyProfile = async function ({ bio, avatarBlob }) {
+data.updateMyProfile = async function ({ bio, avatarBlob, socialLinks }) {
   const patch = {};
   if (bio !== undefined) patch.bio = bio;
+  if (socialLinks !== undefined) patch.social_links = socialLinks;
   if (avatarBlob instanceof Blob) patch.avatar_path = await data.uploadSocialPhoto(avatarBlob);
   if (Object.keys(patch).length === 0) return;
-  const { error } = await sb.from('profiles').update(patch).eq('id', window.currentUser.id);
+  let { error } = await sb.from('profiles').update(patch).eq('id', window.currentUser.id);
+  // social_links may not exist pre-0035 — retry without it so bio/avatar still
+  // save, rather than failing the whole update.
+  if (error && /social_links/.test(error.message || '') && 'social_links' in patch) {
+    delete patch.social_links;
+    if (Object.keys(patch).length === 0) return;
+    ({ error } = await sb.from('profiles').update(patch).eq('id', window.currentUser.id));
+  }
   if (error) throw error;
 };
 
