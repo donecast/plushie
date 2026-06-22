@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=84" />
+  <link rel="stylesheet" href="./styles.css?v=85" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -915,6 +915,30 @@
     </div>
   </div>
 
+  <!-- Report modal: report a post / comment / user to the admins -->
+  <div id="report-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-report></div>
+    <div class="modal-card">
+      <button class="modal-close" data-close-report aria-label="Close">×</button>
+      <h2 id="report-title">Report</h2>
+      <p class="dim">Reports are private and go to the crypt-keepers for review. Thanks for helping keep the crypt kind.</p>
+      <form id="report-form">
+        <label class="field">
+          <span class="field-label">Reason</span>
+          <select id="report-reason"></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Details <em class="dim">— optional</em></span>
+          <textarea id="report-details" rows="3" maxlength="1000" placeholder="Anything that helps us understand what's going on…"></textarea>
+        </label>
+        <div class="form-actions">
+          <button type="button" class="btn-ghost" data-close-report>Cancel</button>
+          <button type="submit" id="report-submit" class="btn-primary">Send report</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Auth overlay: blocks the app until signed in + profile exists -->
   <div id="auth-overlay" class="auth-overlay hidden">
     <div class="auth-card">
@@ -1156,7 +1180,7 @@
   <script src="./config.js?v=51"></script>
   <script src="./auth.js?v=55"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=61"></script>
-  <script src="./app.js?v=80"></script>
+  <script src="./data.js?v=62"></script>
+  <script src="./app.js?v=81"></script>
 </body>
 </html>
