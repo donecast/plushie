@@ -1,0 +1,12 @@
+{
+  "name": "plush-crypt",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The Plush Crypt — a gothic-cute PWA for tracking a Plushie Dreadfuls collection. This package.json exists only for the dev-time test suite; the shipped app stays a no-build static site.",
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
