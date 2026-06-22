@@ -5219,39 +5219,45 @@ async function onToggleCustomClothingForUser(e) {
 
 function renderAdminUserView() {
   const { user, snapshot } = state.adminUserView;
+  // Compact, read-only row. The whole card opens a read-only detail modal
+  // (the compact grid hides meta/meaning, so detail is where the rest of
+  // the facts live + a tap-to-enlarge photo).
   const renderItemRow = (it, kind) => {
     const src = it.photo || catalogImageFor(it.catalogId);
-    const photo = src ? `<img src="${escapeHtml(src)}" alt="" />` : `<span class="no-photo">🖤</span>`;
+    const photo = src ? `<img src="${escapeHtml(src)}" alt="" loading="lazy" />` : `<span class="no-photo">🖤</span>`;
     return `
-      <article class="card">
+      <article class="card admin-item-card" data-admin-action="item-detail" data-id="${it.id}" data-kind="${kind}" role="button" tabindex="0" title="View details">
         <div class="card-photo">${photo}</div>
-        <div class="card-body">
+        <div class="card-body card-clickable">
           <h3 class="card-name">${escapeHtml(it.nickname || stripOutfitWord(it.name))}</h3>
-          ${it.nickname ? `<p class="card-product">${escapeHtml(stripOutfitWord(it.name))}</p>` : ''}
-          ${it.meaning ? `<p class="card-meaning">${escapeHtml(it.meaning)}</p>` : ''}
-          <div class="card-meta">
-            ${kind === 'collection' && it.dateCollected ? `<span>${formatDate(it.dateCollected)}</span>` : ''}
-            ${kind === 'collection' && it.acquiredHow ? `<span>${escapeHtml(it.acquiredHow)}</span>` : ''}
-            ${kind === 'collection' && (it.quantity || 1) > 1 ? `<span>×${it.quantity}</span>` : ''}
-            ${kind === 'wishlist' && it.outOfStock ? `<span class="meta-warn">Out of stock</span>` : ''}
-          </div>
         </div>
-        ${kind === 'wishlist' ? `<div class="card-actions">
-          <button class="btn-danger" data-admin-action="del-wish" data-id="${it.id}">Delete</button>
-        </div>` : ''}
       </article>
     `;
   };
 
   const f = snapshot.feedback || {};
-  const tradesHtml = snapshot.trades.slice(0, 30).map((t) => {
+
+  // Trades: surface the ones an admin actually cares about — in-process
+  // (pending/accepted), disputed (any status with an open dispute), and
+  // successful (completed). Cancelled/rejected/expired/countered noise is
+  // tucked behind a "show all other trades" toggle.
+  const renderTradeLi = (t) => {
     const them = t.proposer_id === user.id ? t.recipient?.username : t.proposer?.username;
     const direction = t.proposer_id === user.id ? '→' : '←';
     const lines = (t.trade_line_items || []).map((l) =>
       `${l.quantity}× ${escapeHtml(l.trade_item?.name ?? 'item')} (${l.side})`
     ).join(', ');
-    return `<li><strong>${direction} @${escapeHtml(them || '?')}</strong> · ${escapeHtml(t.status)} · <span class="dim">${new Date(t.created_at).toLocaleDateString()}</span><br/><span class="dim">${lines}</span>${t.message ? `<br/><em>"${escapeHtml(t.message)}"</em>` : ''}</li>`;
-  }).join('');
+    const disputed = t.dispute_open ? ' <span class="meta-warn">⚠ disputed</span>' : '';
+    return `<li><strong>${direction} @${escapeHtml(them || '?')}</strong> · ${escapeHtml(t.status)}${disputed} · <span class="dim">${new Date(t.created_at).toLocaleDateString()}</span><br/><span class="dim">${lines}</span>${t.message ? `<br/><em>"${escapeHtml(t.message)}"</em>` : ''}</li>`;
+  };
+  const isPrimaryTrade = (t) => t.dispute_open || ['pending', 'accepted', 'completed'].includes(t.status);
+  const primaryTrades = snapshot.trades.filter(isPrimaryTrade);
+  const otherTrades = snapshot.trades.filter((t) => !isPrimaryTrade(t));
+  const tradesHtml = primaryTrades.slice(0, 50).map(renderTradeLi).join('');
+  const otherTradesHtml = otherTrades.map(renderTradeLi).join('');
+
+  const { blocksInitiated = [], blockedBy = [] } = snapshot;
+  const blockLi = (b) => `<li>@${escapeHtml(b.username)} <span class="dim">· ${new Date(b.created_at).toLocaleDateString()}</span></li>`;
 
   document.getElementById('admin-content').innerHTML = `
     <div class="admin-back">
@@ -5296,13 +5302,13 @@ function renderAdminUserView() {
     </section>
 
     <section class="my-items-section">
-      <h3 class="trader-head"><span>Collection (${snapshot.plushies.length})</span><span class="dim">read-only</span></h3>
-      <div class="grid grid-list">${snapshot.plushies.map((i) => renderItemRow(i, 'collection')).join('')}</div>
+      <h3 class="trader-head"><span>Collection (${snapshot.plushies.length})</span><span class="dim">read-only · tap to view</span></h3>
+      <div class="grid grid-compact">${snapshot.plushies.map((i) => renderItemRow(i, 'collection')).join('') || '<p class="dim">Empty.</p>'}</div>
     </section>
 
     <section class="my-items-section">
-      <h3 class="trader-head"><span>Wish list (${snapshot.wishlist.length})</span><span class="dim">deletable</span></h3>
-      <div class="grid grid-list">${snapshot.wishlist.map((i) => renderItemRow(i, 'wishlist')).join('')}</div>
+      <h3 class="trader-head"><span>Wish list (${snapshot.wishlist.length})</span><span class="dim">read-only · tap to view</span></h3>
+      <div class="grid grid-compact">${snapshot.wishlist.map((i) => renderItemRow(i, 'wishlist')).join('') || '<p class="dim">Empty.</p>'}</div>
     </section>
 
     <section class="my-items-section">
@@ -5313,8 +5319,28 @@ function renderAdminUserView() {
     </section>
 
     <section class="my-items-section">
-      <h3 class="trader-head"><span>Trades (${snapshot.trades.length})</span></h3>
-      <ul class="member-list">${tradesHtml || '<li class="dim">no trades</li>'}</ul>
+      <h3 class="trader-head"><span>Trades (${primaryTrades.length})</span><span class="dim">in-process · disputed · completed</span></h3>
+      <ul class="member-list">${tradesHtml || '<li class="dim">no active, disputed, or completed trades</li>'}</ul>
+      ${otherTrades.length ? `
+        <button type="button" class="admin-collapse-toggle" data-admin-action="toggle-other-trades" aria-expanded="false">
+          Show all other trades (${otherTrades.length}) ▾
+        </button>
+        <ul class="member-list hidden" id="admin-other-trades">${otherTradesHtml}</ul>
+      ` : ''}
+    </section>
+
+    <section class="my-items-section">
+      <h3 class="trader-head"><span>Blocks</span></h3>
+      <div class="admin-blocks">
+        <div>
+          <h4 class="admin-blocks-head">Blocks initiated (${blocksInitiated.length})</h4>
+          <ul class="member-list">${blocksInitiated.map(blockLi).join('') || '<li class="dim">none</li>'}</ul>
+        </div>
+        <div>
+          <h4 class="admin-blocks-head">Blocked by (${blockedBy.length})</h4>
+          <ul class="member-list">${blockedBy.map(blockLi).join('') || '<li class="dim">none</li>'}</ul>
+        </div>
+      </div>
     </section>
 
     <section class="admin-danger">
@@ -5332,6 +5358,49 @@ function renderAdminUserView() {
     ?.addEventListener('change', onTogglePhotoUploadsForUser);
   document.querySelector('[data-admin-toggle="custom-clothing"]')
     ?.addEventListener('change', onToggleCustomClothingForUser);
+}
+
+// Read-only detail for an item in the admin collection/wishlist view —
+// the "view more" behind a compact row. Reuses the generic admin queue
+// modal. The photo is tap-to-enlarge (lightbox).
+function openAdminItemDetail(id, kind) {
+  const snap = state.adminUserView?.snapshot;
+  if (!snap) return;
+  const list = kind === 'wishlist' ? snap.wishlist : snap.plushies;
+  const it = (list || []).find((x) => x.id === id);
+  if (!it) return;
+  const src = it.photo || catalogImageFor(it.catalogId);
+  const photo = src
+    ? `<img src="${escapeHtml(src)}" alt="" class="admin-detail-photo" data-admin-action="zoom-item" data-id="${escapeHtml(id)}" data-kind="${escapeHtml(kind)}" role="button" title="Tap to enlarge" />`
+    : `<div class="admin-detail-photo no-photo">🖤</div>`;
+
+  const facts = [];
+  if (it.nickname) facts.push(['Nickname', escapeHtml(it.nickname)]);
+  facts.push(['Item', escapeHtml(stripOutfitWord(it.name))]);
+  if (kind === 'collection') {
+    if (it.meaning) facts.push(['Meaning', escapeHtml(it.meaning)]);
+    if (it.dateCollected) facts.push(['Collected', escapeHtml(formatDate(it.dateCollected))]);
+    if (it.acquiredHow) facts.push(['Acquired', escapeHtml(it.acquiredHow)]);
+    if ((it.quantity || 1) > 1) facts.push(['Quantity', `×${it.quantity}`]);
+    const missing = Array.isArray(it.missingAccessories) ? it.missingAccessories : [];
+    if (missing.length) facts.push(['Missing', escapeHtml(missing.join(', '))]);
+    else if (it.hasBag === false) facts.push(['Missing', 'tote bag']);
+    if (it.retired) facts.push(['Status', 'Retired']);
+  } else {
+    if (it.outOfStock) facts.push(['Status', 'Out of stock']);
+    if (it.url) facts.push(['Link', `<a href="${escapeHtml(it.url)}" target="_blank" rel="noopener">plushiedreadfuls.com ↗</a>`]);
+  }
+
+  document.getElementById('aq-title').textContent = it.nickname || stripOutfitWord(it.name);
+  document.getElementById('aq-body').innerHTML = `
+    <div class="admin-item-detail">
+      <div class="admin-detail-photo-wrap">${photo}</div>
+      <dl class="admin-detail-facts">
+        ${facts.map(([k, v]) => `<div><dt>${escapeHtml(k)}</dt><dd>${v}</dd></div>`).join('')}
+      </dl>
+    </div>
+  `;
+  document.getElementById('admin-queue-modal').classList.remove('hidden');
 }
 
 async function onAdminClick(e) {
@@ -5354,26 +5423,22 @@ async function onAdminClick(e) {
   } else if (action === 'back') {
     state.adminUserView = null;
     renderAdmin();
-  } else if (action === 'del-wish') {
-    // Typed-username guard. Modifying another user's data is rare and
-    // potentially confusing — make the admin spell it out.
-    const username = state.adminUserView?.user?.username || '';
-    const ok = await confirmTypingUsername({
-      title: `Delete this wishlist entry?`,
-      body: `You're about to delete a wish list entry on behalf of <strong>@${escapeHtml(username)}</strong>.<br/>Type their username to confirm.`,
-      expected: username,
-      confirmLabel: 'Delete entry',
-    });
-    if (!ok) return;
-    try {
-      await data.adminDeleteWishlist(btn.dataset.id);
-      const uid = state.adminUserView.user.id;
-      state.adminUserView.snapshot = await data.adminUserSnapshot(uid);
-      renderAdmin();
-      toast('Removed.');
-    } catch (err) {
-      console.error(err);
-      toast('Could not delete.');
+  } else if (action === 'item-detail') {
+    openAdminItemDetail(btn.dataset.id, btn.dataset.kind);
+  } else if (action === 'zoom-item') {
+    const snap = state.adminUserView?.snapshot;
+    const list = btn.dataset.kind === 'wishlist' ? snap?.wishlist : snap?.plushies;
+    const it = (list || []).find((x) => x.id === btn.dataset.id);
+    const src = it && (it.photo || catalogImageFor(it.catalogId));
+    if (src) openLightbox(src, stripOutfitWord(it.nickname || it.name || ''));
+  } else if (action === 'toggle-other-trades') {
+    const list = document.getElementById('admin-other-trades');
+    if (list) {
+      const open = list.classList.toggle('hidden') === false;
+      btn.setAttribute('aria-expanded', String(open));
+      btn.textContent = open
+        ? 'Hide other trades ▴'
+        : `Show all other trades (${list.children.length}) ▾`;
     }
   } else if (action === 'purge-user') {
     const uid = btn.dataset.uid;
@@ -6760,7 +6825,7 @@ function renderPostCard(p) {
       ${p.mine ? `<button class="soc-post-edit" data-soc-action="edit-post" data-post-id="${p.id}" title="Edit">✏️</button>
                   <button class="soc-post-del" data-soc-action="delete-post" data-post-id="${p.id}" title="Delete">🗑</button>`
               : `<button class="soc-post-flag" data-soc-action="report-post" data-post-id="${p.id}" data-owner="${p.authorId}" data-name="${escapeHtml(p.authorName)}" title="Report this post">🚩</button>
-                 <button class="soc-post-flag" data-soc-action="block-user" data-uid="${p.authorId}" data-name="${escapeHtml(p.authorName)}" title="Block @${escapeHtml(p.authorName)}">🚫</button>`}
+                 ${data.isUnblockable({ username: p.authorName }) ? '' : `<button class="soc-post-flag" data-soc-action="block-user" data-uid="${p.authorId}" data-name="${escapeHtml(p.authorName)}" title="Block @${escapeHtml(p.authorName)}">🚫</button>`}`}
     </header>
     ${p.plushName ? `<p class="soc-post-plush">🧸 ${escapeHtml(p.plushName)}</p>` : ''}
     ${p.body ? `<p class="soc-post-body">${linkifyMentions(p.body)}</p>` : ''}
@@ -6939,11 +7004,16 @@ function renderProfileInto(el, { profile, posts, top8, friendship, isMe, withBac
     else if (friendship === 'outgoing') relBtns = `<button class="btn-ghost" data-soc-action="remove-friend" data-uid="${profile.id}">Cancel request</button>`;
     else if (friendship === 'incoming') relBtns = `<button class="btn-primary" data-soc-action="accept-friend" data-uid="${profile.id}">Accept request</button>`;
     else relBtns = `<button class="btn-primary" data-soc-action="add-friend" data-uid="${profile.id}">Add friend</button>`;
-    // Block/unblock + report, available on anyone else's profile.
+    // Block/unblock + report, available on anyone else's profile. Admins +
+    // the redrambler moderator can't be blocked (DB-enforced in db/0035);
+    // hide the affordance for them rather than offer an action that errors.
     const uname = escapeHtml(profile.username);
-    relBtns += data.isMyBlock(profile.id)
-      ? `<button class="btn-ghost soc-danger" data-soc-action="unblock-user" data-uid="${profile.id}" data-name="${uname}">Unblock</button>`
-      : `<button class="btn-ghost soc-danger" data-soc-action="block-user" data-uid="${profile.id}" data-name="${uname}">🚫 Block</button>`;
+    const unblockable = data.isUnblockable({ username: profile.username, is_admin: profile.is_admin });
+    if (data.isMyBlock(profile.id)) {
+      relBtns += `<button class="btn-ghost soc-danger" data-soc-action="unblock-user" data-uid="${profile.id}" data-name="${uname}">Unblock</button>`;
+    } else if (!unblockable) {
+      relBtns += `<button class="btn-ghost soc-danger" data-soc-action="block-user" data-uid="${profile.id}" data-name="${uname}">🚫 Block</button>`;
+    }
     relBtns += `<button class="btn-ghost" data-soc-action="report-user" data-uid="${profile.id}" data-name="${uname}">🚩 Report</button>`;
   }
 
@@ -7420,6 +7490,12 @@ async function onSocialClick(e) {
 // Block: confirm (it severs friendship + circles), then refresh.
 async function onBlockUser(uid, name) {
   const who = name ? `@${name}` : 'this collector';
+  // Admins + the redrambler moderator can't be blocked (DB-enforced). Guard
+  // here too so the rare path that still surfaces a button fails gracefully.
+  if (data.isUnblockable({ username: name })) {
+    toast(`${who} can't be blocked.`);
+    return;
+  }
   if (!confirm(`Block ${who}?\n\nYou won't see each other's posts, comments, or profiles, any friendship is removed, and neither of you can start a trade with the other.`)) return;
   try {
     await data.blockUser(uid);
