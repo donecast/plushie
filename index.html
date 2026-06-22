@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=81" />
+  <link rel="stylesheet" href="./styles.css?v=82" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -843,16 +843,17 @@
       <section class="legal-section hidden" data-legal-section="changelog">
         <h2>Change Log</h2>
         <p>What's new in the crypt, freshest first. We'll keep adding to this as we dig.</p>
+        <p class="changelog-gated changelog-insider-note">🔒 Insider view: blue items are gated features only you and the allowlist can see — they're hidden from everyone else.</p>
 
         <div class="changelog">
           <div class="changelog-day">
             <h3 class="changelog-date">June 21, 2026</h3>
             <ul>
-              <li>A big feature pass across <strong>Collection</strong>, <strong>Social</strong>, and <strong>Trade</strong> — 20 of your requested tweaks in one sweep.</li>
-              <li>Custom clothing now lives in an always-on closet and wears a ✨ <strong>Custom</strong> tag so it's easy to spot.</li>
-              <li>Friend tiers (your <strong>Coven</strong> and your <strong>Inner Coffin</strong>) got clearer.</li>
-              <li>Smarter accessory detection — we now pull "set includes" pieces from more of the brand's wildly inconsistent product write-ups.</li>
-              <li>Tidier outfitted-plush layouts, clearer username warnings, and more honest shipping-address handling.</li>
+              <li>Lots of polish across <strong>Collection</strong>, <strong>Social</strong>, and <strong>Trade</strong>.</li>
+              <li>Friend tiers got clearer — your <strong>Coven</strong> (friends) and your <strong>Inner Coffin</strong> (your closest few).</li>
+              <li>We're better at listing the accessories that come bundled with each plush, even when the maker's product pages are inconsistent.</li>
+              <li>Tidier layouts for plushes wearing outfits, clearer username messages, and safer handling of shipping addresses.</li>
+              <li class="changelog-gated">Custom clothing now lives in an always-on closet and wears a ✨ <strong>Custom</strong> tag so it's easy to spot.</li>
             </ul>
             <p class="changelog-fixes">Misc bug fixes.</p>
           </div>
@@ -860,26 +861,25 @@
           <div class="changelog-day">
             <h3 class="changelog-date">June 20, 2026</h3>
             <ul>
-              <li>New <strong>Social</strong> tab: friends (your Coven), an Inner Coffin for your closest few, posts, and a <strong>Top 8 Buns</strong> showcase. It's also the new landing tab.</li>
+              <li>New <strong>Social</strong> tab and home base: friends (your Coven), an Inner Coffin for your closest few, posts, and a <strong>Top 8 Buns</strong> showcase.</li>
               <li>Edit your own posts after publishing.</li>
               <li>Get notified when someone sends you a friend request.</li>
-              <li><strong>The Closet</strong>: unworn clothing split into its own 2-up grid, and clothing can now be "worn by" one of your plushes.</li>
-              <li>A smarter "Have" flow plus a per-item accessory checklist so you can track exactly what's missing.</li>
-              <li>Photo uploads in Collection and Trades (now on faster cloud storage).</li>
-              <li>Search learned new tricks: <code>-exclusions</code> and "exact phrases", plus mask &amp; clothing categories.</li>
-              <li>Stock images show by default — your own photos are optional.</li>
+              <li><strong>The Closet</strong>: unworn clothing now has its own grid, and clothing can be marked as "worn by" one of your plushes.</li>
+              <li>A smarter "Have" flow plus a per-item accessory checklist, so you can track exactly what's missing.</li>
+              <li>Search learned new tricks: exclude words with <code>-word</code>, match an "exact phrase", and filter by mask &amp; clothing categories.</li>
+              <li>Stock images show by default.</li>
+              <li class="changelog-gated">Upload your own photos in Collection and Trades (now on faster cloud storage).</li>
             </ul>
-            <p class="changelog-fixes">Misc bug fixes (theme toggle, accessory lists, admin queue, and more).</p>
+            <p class="changelog-fixes">Misc bug fixes (theme toggle, accessory lists, and more).</p>
           </div>
 
           <div class="changelog-day">
             <h3 class="changelog-date">June 19, 2026</h3>
             <ul>
-              <li>Catalog detail view with each plush's <strong>lore &amp; symbolism</strong>, opening on demand.</li>
-              <li>Bundles get their own category — marking a bundle "Have" explodes it into its component pieces.</li>
-              <li>Accessories tracked as a per-item checklist.</li>
-              <li>Pens (your plush counts) can grow reference photos.</li>
-              <li>Catalog polish: equal-height cards and a cleaner badge order.</li>
+              <li>Tap any plush for a detail view with its <strong>lore &amp; symbolism</strong>.</li>
+              <li>Bundles get their own category — marking a bundle "Have" splits it into the individual pieces inside.</li>
+              <li>Track the accessories for each plush as a simple checklist.</li>
+              <li>Catalog polish: even-height cards and a cleaner badge order.</li>
             </ul>
             <p class="changelog-fixes">Misc bug fixes.</p>
           </div>
@@ -887,11 +887,11 @@
           <div class="changelog-day">
             <h3 class="changelog-date">June 18, 2026</h3>
             <ul>
-              <li>Add <strong>custom catalog items</strong>, plus "do you have this picture?" submissions to fill in missing art.</li>
-              <li>Catalog variants now inherit their parent's details field-by-field.</li>
-              <li><strong>Trade disputes</strong>: both sides can file a statement, with an admin resolution queue to sort it out.</li>
+              <li>Add your own <strong>catalog items</strong> for plushes that aren't listed yet.</li>
+              <li>Plush variants now inherit their parent's details automatically.</li>
+              <li><strong>Trade disputes</strong>: if a trade goes sideways, both sides can file a statement and we'll help sort it out.</li>
             </ul>
-            <p class="changelog-fixes">Misc bug fixes (stuck trade reservations, mutual-confirmation fall-through).</p>
+            <p class="changelog-fixes">Misc bug fixes.</p>
           </div>
         </div>
       </section>
@@ -1147,6 +1147,6 @@
   <script src="./auth.js?v=55"></script>
   <script src="./db.js?v=51"></script>
   <script src="./data.js?v=60"></script>
-  <script src="./app.js?v=76"></script>
+  <script src="./app.js?v=77"></script>
 </body>
 </html>

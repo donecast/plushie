@@ -1851,6 +1851,22 @@ main {
   font-size: 0.92rem;
   color: var(--ink-2);
 }
+/* Gated changelog items: hidden from the public, only revealed for
+   insiders (admins + the ALWAYS_GRANTED allowlist) — app.js adds
+   .cl-insider to <body> when the current user qualifies. Shown in blue
+   so insiders can tell at a glance which lines aren't public yet. */
+.changelog-gated { display: none; }
+body.cl-insider .changelog-gated { display: list-item; }
+body.cl-insider p.changelog-gated { display: block; }
+body.cl-insider .changelog-gated,
+body.cl-insider .changelog-gated strong { color: #2f6fed; }
+.changelog-insider-note {
+  font-size: 0.86rem;
+  font-style: italic;
+  margin: 0 0 14px !important;
+}
+[data-theme="dark"] body.cl-insider .changelog-gated,
+[data-theme="dark"] body.cl-insider .changelog-gated strong { color: #7db1ff; }
 .footer-note {
   flex-basis: 100%;
   margin: 0;
