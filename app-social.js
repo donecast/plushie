@@ -246,8 +246,7 @@ function renderPostCard(p) {
       <span class="soc-post-meta">${visBadge(p.visibility)} · ${escapeHtml(socTimeAgo(p.createdAt))}${p.edited ? ' · edited' : ''}</span>
       ${p.mine ? `<button class="soc-post-edit" data-soc-action="edit-post" data-post-id="${p.id}" title="Edit">✏️</button>
                   <button class="soc-post-del" data-soc-action="delete-post" data-post-id="${p.id}" title="Delete">🗑</button>`
-              : `<button class="soc-post-flag" data-soc-action="report-post" data-post-id="${p.id}" data-owner="${p.authorId}" data-name="${escapeHtml(p.authorName)}" title="Report this post">🚩</button>
-                 ${data.isUnblockable({ username: p.authorName }) ? '' : `<button class="soc-post-flag" data-soc-action="block-user" data-uid="${p.authorId}" data-name="${escapeHtml(p.authorName)}" title="Block @${escapeHtml(p.authorName)}">🚫</button>`}`}
+              : `<button class="soc-post-flag" data-soc-action="report-post" data-post-id="${p.id}" data-owner="${p.authorId}" data-name="${escapeHtml(p.authorName)}" title="Report this post">🚩</button>`}
     </header>
     ${p.plushName ? `<p class="soc-post-plush">🧸 ${escapeHtml(p.plushName)}</p>` : ''}
     ${p.body ? `<p class="soc-post-body">${linkifyMentions(p.body)}</p>` : ''}
