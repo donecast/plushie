@@ -309,8 +309,10 @@ const data = {
   async _urlFor(bucket, path) {
     if (!path) return null;
     // Same cache for both code paths — short-circuits a re-fetch on
-    // every render. R2 URLs are stable; Supabase signed URLs valid
-    // for an hour. Cache both for the session.
+    // every render. R2 URLs are stable. We cache signed URLs for the
+    // whole page session, so they must outlive any realistic session:
+    // a 1h expiry left long-lived tabs / PWAs showing broken images
+    // once the cached URL aged out. Sign for 7 days instead.
     if (data._photoUrlCache.has(`${bucket}:${path}`)) return data._photoUrlCache.get(`${bucket}:${path}`);
     let url = null;
     if (window.R2_BASE) {
@@ -319,7 +321,7 @@ const data = {
     } else {
       const { data: signed, error } = await sb
         .storage.from(bucket)
-        .createSignedUrl(path, 3600);
+        .createSignedUrl(path, 604800);
       if (error) { console.warn('signed url failed', path, error); return null; }
       url = signed.signedUrl;
     }

@@ -5148,8 +5148,14 @@ function renderAdminUserList() {
       </tr>
     `;
   }).join('');
-  const pendingCustomBadge = (state.adminPendingCatalog || []).length
-    ? `<span class="badge badge-form">${state.adminPendingCatalog.length} pending</span>` : '';
+  // Only rows actually awaiting a decision count as "pending". The
+  // queue list also carries already-approved-but-unreviewed rows
+  // (trusted-submitter auto-approvals); those are NOT pending and
+  // must not inflate the badge.
+  const pendingCustomCount = (state.adminPendingCatalog || [])
+    .filter((r) => r.status === 'pending').length;
+  const pendingCustomBadge = pendingCustomCount
+    ? `<span class="badge badge-form">${pendingCustomCount} pending</span>` : '';
   const pendingPhotoBadge = (state.adminPendingPhotos || []).length
     ? `<span class="badge badge-form">${state.adminPendingPhotos.length} pending</span>` : '';
   document.getElementById('admin-content').innerHTML = `
@@ -5478,6 +5484,10 @@ async function onAdminClick(e) {
     await adminRejectCatalogItem(btn.dataset.id);
   } else if (action === 'merge-catalog-item') {
     openCatalogMergeModal(btn.dataset.id, btn.dataset.handle);
+  } else if (action === 'dismiss-catalog-item') {
+    await adminDismissCatalogItem(btn.dataset.id);
+  } else if (action === 'toggle-approved-catalog') {
+    toggleApprovedCatalog(btn);
   } else if (action === 'approve-photo-suggestion') {
     await adminApprovePhotoSuggestion(btn.dataset.id);
   } else if (action === 'reject-photo-suggestion') {
@@ -6333,20 +6343,52 @@ async function openCatalogPendingModal() {
   try {
     const rows = await data.adminListCatalogPending();
     state.adminPendingCatalog = rows;
-    if (rows.length === 0) {
-      body.innerHTML = '<p class="dim">Nothing pending. ✨</p>';
-      return;
+    // The queue carries two kinds of row: genuinely pending submissions
+    // awaiting a decision, and already-decided rows (trusted-submitter
+    // auto-approvals) surfaced once for a retroactive glance. Keep the
+    // pending ones front-and-centre; tuck the rest behind a one-line
+    // "Show approved" toggle so they don't nag every visit.
+    const pending = rows.filter((r) => r.status === 'pending');
+    const reviewed = rows.filter((r) => r.status !== 'pending');
+
+    const pendingHtml = pending.length
+      ? pending.map(renderPendingCatalogRow).join('')
+      : '<p class="dim">Nothing pending. ✨</p>';
+
+    let reviewedHtml = '';
+    if (reviewed.length) {
+      reviewedHtml = `
+        <button type="button" class="catalog-pending-toggle" data-admin-action="toggle-approved-catalog" aria-expanded="false">
+          Show approved (${reviewed.length}) ▾
+        </button>
+        <div id="catalog-approved-list" class="hidden">
+          ${reviewed.map(renderPendingCatalogRow).join('')}
+        </div>
+      `;
     }
-    body.innerHTML = rows.map(renderPendingCatalogRow).join('');
+
+    body.innerHTML = pendingHtml + reviewedHtml;
   } catch (err) {
     console.error(err);
     body.innerHTML = `<p class="dim">Couldn't load queue: ${escapeHtml(err.message || String(err))}</p>`;
   }
 }
 
+// Expand/collapse the already-approved rows inside the pending modal.
+function toggleApprovedCatalog(btn) {
+  const list = document.getElementById('catalog-approved-list');
+  if (!list) return;
+  const open = list.classList.toggle('hidden') === false;
+  btn.setAttribute('aria-expanded', String(open));
+  const count = list.children.length;
+  btn.textContent = open ? `Hide approved (${count}) ▴` : `Show approved (${count}) ▾`;
+}
+
 function renderPendingCatalogRow(row) {
+  // Fall back to the placeholder if the (signed) image URL ever fails to
+  // load, rather than leaving a broken-image icon.
   const thumb = row.image
-    ? `<img src="${escapeHtml(row.image)}" alt="" />`
+    ? `<img src="${escapeHtml(row.image)}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'no-photo',textContent:'🖤'}))" />`
     : `<span class="no-photo">🖤</span>`;
   return `
     <article class="catalog-pending-row">
@@ -6362,11 +6404,26 @@ function renderPendingCatalogRow(row) {
           ? `<button class="btn-primary" data-admin-action="approve-catalog-item" data-id="${row.id}">Approve</button>
              <button data-admin-action="merge-catalog-item" data-id="${row.id}" data-handle="${escapeHtml(row.handle)}">Merge into…</button>
              <button class="btn-ghost" data-admin-action="reject-catalog-item" data-id="${row.id}">Reject</button>`
-          : `<p class="dim">${row.status}</p>`
+          : `<button class="btn-ghost" data-admin-action="dismiss-catalog-item" data-id="${row.id}">Dismiss</button>`
         }
       </div>
     </article>
   `;
+}
+
+// "Dismiss" marks an already-approved row as reviewed so it drops out of
+// the queue for good (clears the retroactive-review surfacing).
+async function adminDismissCatalogItem(id) {
+  try {
+    await data.adminMarkCatalogReviewSeen(id);
+    // Drop it from the cached queue so the badge/count update immediately.
+    state.adminPendingCatalog = (state.adminPendingCatalog || []).filter((r) => r.id !== id);
+    toast('Dismissed.');
+    await openCatalogPendingModal();
+  } catch (err) {
+    console.error(err);
+    toast('Could not dismiss: ' + (err.message || err));
+  }
 }
 
 async function adminApproveCatalogItem(id) {
