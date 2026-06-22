@@ -330,7 +330,11 @@ body {
 }
 
 /* ─── Header ────────────────────────────── */
-header {
+/* Scoped to the app's top bar (a direct child of <body>). Without `body > `
+   this bare `header` rule also hit nested semantic <header>s — the social
+   profile head, each post head, the trade head — turning them into sticky
+   bars that piled up at top:0 and painted over the real header on scroll. */
+body > header {
   position: sticky;
   top: 0;
   z-index: 20;
