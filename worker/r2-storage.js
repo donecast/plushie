@@ -4,7 +4,7 @@
 // photos + admin catalog photos that previously lived in Supabase
 // Storage. Free egress on R2 is the reason we're moving.
 //
-// Two R2 buckets, bound in wrangler config:
+// Three R2 buckets, bound in wrangler config:
 //   * PHOTOS  — per-collection user photos
 //                paths: <collection_uuid>/<plushie_uuid>.jpg
 //   * CATALOG — admin-curated catalog item images, pen photos,
@@ -12,6 +12,9 @@
 //                paths: items/<slug>-<rand>.jpg
 //                       pens/<pen_id>.jpg
 //                       suggestions/<slug>-<rand>.jpg
+//   * SOCIAL  — public-readable copies used by the feed, profiles,
+//                avatars, top-plushes, and shared trade photos
+//                paths: <user_uuid>/<rand>.jpg
 //
 // Auth model (v1, pragmatic):
 //   * Uploads + deletes require an Authorization: Bearer <jwt>
@@ -31,13 +34,15 @@
 //
 //   1. R2 → Create bucket → "plush-crypt-photos" (private)
 //   2. R2 → Create bucket → "plush-crypt-catalog" (private)
-//   3. Workers & Pages → Create → Worker → name it
+//   3. R2 → Create bucket → "plush-crypt-social"  (private)
+//   4. Workers & Pages → Create → Worker → name it
 //      "plush-crypt-r2" → Save and Deploy (you'll replace the stub).
-//   4. The new Worker → Edit code → paste THIS file's contents →
+//   5. The new Worker → Edit code → paste THIS file's contents →
 //      Save and Deploy.
-//   5. The new Worker → Settings → Variables → R2 bucket bindings:
+//   6. The new Worker → Settings → Variables → R2 bucket bindings:
 //        Variable name: PHOTOS    → Bucket: plush-crypt-photos
 //        Variable name: CATALOG   → Bucket: plush-crypt-catalog
+//        Variable name: SOCIAL    → Bucket: plush-crypt-social
 //      Save.
 //   6. Note the deployed URL (e.g. https://plush-crypt-r2.scott-e08
 //      .workers.dev). Put it in config.js as window.R2_BASE.
@@ -48,7 +53,7 @@
 // domain. Not required.
 // ───────────────────────────────────────────────────────────────────
 
-const ALLOWED_BUCKETS = new Set(['photos', 'catalog']);
+const ALLOWED_BUCKETS = new Set(['photos', 'catalog', 'social']);
 const READ_CACHE_SECONDS = 60 * 60 * 24 * 30; // 30 days at edge + browser
 
 export default {
@@ -68,7 +73,9 @@ export default {
     if (!bucketName || !key) return text('expected /<bucket>/<key>', 400);
     if (!ALLOWED_BUCKETS.has(bucketName)) return text('unknown bucket', 404);
 
-    const bucket = bucketName === 'photos' ? env.PHOTOS : env.CATALOG;
+    const bucket = bucketName === 'photos' ? env.PHOTOS
+                 : bucketName === 'social' ? env.SOCIAL
+                 : env.CATALOG;
     if (!bucket) return text(`bucket ${bucketName} not bound in Worker config`, 500);
 
     if (method === 'GET' || method === 'HEAD') {

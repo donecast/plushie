@@ -2,8 +2,8 @@
 /**
  * One-shot migration: Supabase Storage → Cloudflare R2.
  *
- * Iterates every object in the 'photos' and 'catalog' buckets on
- * Supabase, downloads each via a signed URL, and re-uploads through
+ * Iterates every object in the 'photos', 'catalog', and 'social'
+ * buckets on Supabase, downloads each via a signed URL, and re-uploads through
  * the deployed R2 Worker. Idempotent — re-running skips objects R2
  * already has at the same key.
  *
@@ -37,7 +37,7 @@ const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE;
 const R2_BASE = (process.env.R2_BASE || '').replace(/\/$/, '');
 const USER_JWT = process.env.USER_JWT;
 const DRY = process.argv.includes('--dry-run');
-const BUCKETS = ['photos', 'catalog'];
+const BUCKETS = ['photos', 'catalog', 'social'];
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE || !R2_BASE || !USER_JWT) {
   console.error('Set SUPABASE_URL, SUPABASE_SERVICE_ROLE, R2_BASE, USER_JWT.');

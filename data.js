@@ -341,8 +341,9 @@ const data = {
 
   async deletePhoto(path) {
     if (!path || path.startsWith('http')) return;
+    data._photoUrlCache.delete(`photos:${path}`);
+    if (window.R2_BASE) { await data._r2Delete('photos', path); return; }
     await sb.storage.from('photos').remove([path]);
-    data._photoUrlCache.delete(path);
   },
 
   async _resolvePhotos(items) {
