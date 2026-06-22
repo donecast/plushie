@@ -797,7 +797,9 @@ function parseBodyHtml(html, title = '') {
   // Victorian McGee sets).
   let accessories = [];
   if (setIncludesIdx !== -1) {
-    accessories = extractSetIncludes(blocks, setIncludesIdx, sectionEnd(setIncludesIdx), title);
+    // Headed section: bounded by the next heading, so the conservative prose
+    // pass can safely pick up extras the brand wrote as sentences.
+    accessories = extractSetIncludes(blocks, setIncludesIdx, sectionEnd(setIncludesIdx), title, true);
   } else {
     let firstQty = -1, qtyLines = 0;
     for (let i = 0; i < blocks.length; i++) {
@@ -949,7 +951,10 @@ function setIncludesLineItem(line) {
   let s = (line || '').trim();
   if (!s) return null;
   let ok = false;
-  if (/^\d+\s*[x×]\s+/i.test(s)) {
+  // Quantity prefix '1x …' / '3× …'. The space after the x is optional so the
+  // brand's no-space typo ('1xMini Beehive of Bees') still parses as one item,
+  // while a bare digit after the x keeps real dimensions ('10x10cm') out.
+  if (/^\d+\s*[x×](?:\s+|(?=["'“(\[A-Za-z]))/i.test(s)) {
     ok = true;
   } else {
     const n = leadingBulletLen(s);
@@ -967,6 +972,56 @@ function setIncludesLineItem(line) {
   // A question is brand patter, not an item ("Can (maybe) be convinced to
   // guard the gates to your home? Try carrots?").
   if (/\?/.test(s)) return null;
+  return s;
+}
+
+// A conversational lead-in the brand uses when it lists an included extra as a
+// sentence instead of a '1x …' line — stripped so the item reads cleanly
+// ("Full of Bees." → "Bees", "Comes with a canvas bag" → "a canvas bag").
+const PROSE_LEADIN_RE = /^(comes?\s+with|includes?|including|complete\s+with|along\s+with|featuring|full\s+of)\s+/i;
+// Lines that open with an interjection or conjunction are brand patter, never
+// an item ("Yes Literally Bees.", "And those abs", "Why the blood run hold").
+const PROSE_INTERJECTION_RE = /^(yes|yeah|ok|okay|no|nope|well|oh|hey|wow|psst|hmm|maybe|just|honestly|literally|and|but|so|why|when|because)\b/i;
+
+// Second-pass extractor for the (headed) 'Set Includes' section: catches extras
+// the brand wrote as plain prose rather than the canonical '1x …' line — e.g.
+// ADHD Bat's "Full of Bees.", or "Custom designed lace collar". setIncludesLineItem
+// rejects all unmarked prose (so lore can't leak in via the no-heading fallback),
+// but inside a section already bounded by the next heading that guard is too
+// strict and silently eats real accessories. This accepts a *short noun-phrase*
+// line while still rejecting questions, notes/disclaimers (NOISE_LINE_RE),
+// interjection fragments, and anything sentence-length. Returns null otherwise.
+function proseSetIncludesItem(line) {
+  let s = (line || '').trim();
+  // A footnote asterisk marks brand patter ("I'm planking right now actually*").
+  if (!s || /\?/.test(s) || /\*/.test(s) || NOISE_LINE_RE.test(s)) return null;
+  // Drop a numbered-list ordinal ("1. Strait Jacket Hoodie" → "Strait Jacket …").
+  s = s.replace(/^\d+\.\s+/, '').trim();
+  const stripped = s.replace(PROSE_LEADIN_RE, '').trim();
+  const hadLeadIn = stripped !== s;
+  s = stripped.replace(/[\s.;:,!]+$/, '').trim();
+  if (!s) return null;
+  // A bare interjection/conjunction fragment isn't an item — but if we already
+  // stripped a lead-in ("Full of …") the remainder is, so don't re-reject it.
+  if (!hadLeadIn && PROSE_INTERJECTION_RE.test(s)) return null;
+  // First/second-person prose is patter or song lyrics, never an item
+  // ("I don't need no one to understand", "we cannot stop dancing").
+  if (/\b(i|i'?m|i'?ve|you|your|we|we'?re|me|my|us|our)\b/i.test(s)) return null;
+  // A '… Features' / 'Collector Edition' line is a sub-heading / note, not an item.
+  if (/\b(features?|edition)$/i.test(s)) return null;
+  if (/\bto boot\b/i.test(s)) return null;
+  // Spec / size / materials / sizing / superlative fragments aren't accessories:
+  // a size descriptor ("feet to top of ears", "… to toes"), a materials/made/
+  // design/features lead, a sizing note ("one size", "fitting", "EU 42"), or a
+  // superlative fur pitch ("our softest most luxurious fur yet").
+  if (/\b(feet|tip|ears?|head)\s+to\b|\bto\s+(top|toes?)\b/i.test(s)) return null;
+  if (/^(materials|made|design|features?)\b/i.test(s)) return null;
+  if (/\bone size\b|\bfitting\b|\beu\s*\d/i.test(s)) return null;
+  if (/\b(softest|luxurious|luxury|cuddliest|huggable)\b/i.test(s)) return null;
+  // Items are short noun phrases; a sentence-length line is prose, not an item.
+  const words = s.split(/\s+/).filter(Boolean);
+  if (!words.length || words.length > 7 || s.length > 60) return null;
+  if (!/[a-z]/i.test(s)) return null;
   return s;
 }
 
@@ -988,7 +1043,7 @@ function collapseDoubles(s) {
   return String(s || '').replace(/(.)\1+/g, '$1');
 }
 
-function extractSetIncludes(blocks, startIdx, endIdx, title = '') {
+function extractSetIncludes(blocks, startIdx, endIdx, title = '', allowProse = false) {
   const items = [];
   // Stop is a soft cap: the next-section heading may share a block with the
   // last item line (e.g. '1x Tote Bag<br>Symbolism:'), so we iterate up to
@@ -1011,7 +1066,8 @@ function extractSetIncludes(blocks, startIdx, endIdx, title = '') {
     } else {
       for (const line of blockLines(b)) {
         if (isHeadingLine(line)) break outer;
-        const name = setIncludesLineItem(line);
+        let name = setIncludesLineItem(line);
+        if (!name && allowProse) name = proseSetIncludesItem(line);
         if (name) items.push({ name });
       }
     }
@@ -1055,10 +1111,14 @@ function extractSetIncludes(blocks, startIdx, endIdx, title = '') {
   // collection rows). Without canonicalization the saved
   // missing_accessories array would drift whenever Plushie Dreadfuls
   // re-words their Set Includes line.
-  return filtered.map((it) => {
-    const display = canonicalizeAccessoryName(it.name);
-    return { name: display, key: accessoryKey(display) };
-  });
+  return filtered
+    .map((it) => {
+      const display = canonicalizeAccessoryName(it.name);
+      return { name: display, key: accessoryKey(display) };
+    })
+    // Canonicalization can reduce a line to nothing (e.g. a bare quantity or a
+    // trimmed-away clause) — drop those so an empty chip never renders.
+    .filter((it) => it.name && it.name.trim());
 }
 
 // Victorian McGee's plushes mostly skip the whole "Set Includes" convention:
@@ -1104,11 +1164,12 @@ function canonicalizeAccessoryName(raw) {
   // 'N× ' display prefix; a bare 1x / single is noise and is dropped. The
   // prefix is stripped back off when we derive the match key (accessoryKey),
   // so it never affects accessory identity / missing-list matching.
-  const qm = String(raw || '').match(/^\s*(\d+)\s*[x×]\s+/i);
+  const qm = String(raw || '').match(/^\s*(\d+)\s*[x×](?:\s+|(?=["'“(\[A-Za-z]))/i);
   const qty = qm && parseInt(qm[1], 10) >= 2 ? `${parseInt(qm[1], 10)}× ` : '';
   const out = (raw || '')
-    // Drop the 'Nx ' or 'N× ' quantity prefix (re-added as `qty` below).
-    .replace(/^\s*\d+\s*[x×]\s+/i, '')
+    // Drop the 'Nx ' or 'N× ' quantity prefix (re-added as `qty` below). The
+    // space after the x is optional to absorb the brand's '1xMini …' typo.
+    .replace(/^\s*\d+\s*[x×](?:\s+|(?=["'“(\[A-Za-z]))/i, '')
     // Drop a leading 'Comes with a/the …' prose lead-in ('Comes with a tote
     // bag …' → 'tote bag …'); the item name is what follows.
     .replace(/^\s*comes with\s+(?:a|an|the|one|two|your)?\s*/i, '')
@@ -1496,9 +1557,13 @@ function filteredCatalog() {
       if (!tags.some((t) => t.includes(state.catalogColor))) return false;
     }
     if (!q) return true;
-    // Name + tags form one haystack so a term can match either, while
-    // negative/phrase operators (-foo, "foo bar") still apply across both.
-    const hay = `${it.name} ${(it.tags || []).join(' ')}`;
+    // Name, tags, AND the parsed 'Set Includes' contents form one haystack so a
+    // term can match the plush itself, a theme tag, or an accessory it ships
+    // with — searching "bees" now surfaces every plush whose set includes bees,
+    // not just the ones the brand happened to tag. Negative/phrase operators
+    // (-foo, "foo bar") still apply across all of it.
+    const accNames = (it.accessories || []).map((a) => a.name).join(' ');
+    const hay = `${it.name} ${(it.tags || []).join(' ')} ${accNames}`;
     return queryMatches(hay, q);
   });
   return sortCatalog(items, state.catalogSort);
