@@ -1860,6 +1860,48 @@ main {
 .legal-section li { margin-bottom: 8px; line-height: 1.5; color: var(--ink); }
 .legal-section strong { color: var(--rose-2); font-weight: 700; }
 .legal-section a { color: var(--rose-1); }
+.legal-section code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+  background: var(--rose-bg, rgba(0, 0, 0, 0.05));
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.changelog-day { margin-bottom: 20px; }
+.changelog-day:not(:last-child) {
+  padding-bottom: 16px;
+  border-bottom: 1px dashed var(--line, rgba(0, 0, 0, 0.12));
+}
+.changelog-date {
+  font-family: var(--display);
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: var(--rose-2);
+  margin: 0 0 8px;
+  letter-spacing: 0.01em;
+}
+.changelog-fixes {
+  margin: 6px 0 0 !important;
+  font-style: italic;
+  font-size: 0.92rem;
+  color: var(--ink-2);
+}
+/* Gated changelog items: hidden from the public, only revealed for
+   insiders (admins + the ALWAYS_GRANTED allowlist) — app.js adds
+   .cl-insider to <body> when the current user qualifies. Shown in blue
+   so insiders can tell at a glance which lines aren't public yet. */
+.changelog-gated { display: none; }
+body.cl-insider .changelog-gated { display: list-item; }
+body.cl-insider p.changelog-gated { display: block; }
+body.cl-insider .changelog-gated,
+body.cl-insider .changelog-gated strong { color: #2f6fed; }
+.changelog-insider-note {
+  font-size: 0.86rem;
+  font-style: italic;
+  margin: 0 0 14px !important;
+}
+[data-theme="dark"] body.cl-insider .changelog-gated,
+[data-theme="dark"] body.cl-insider .changelog-gated strong { color: #7db1ff; }
 .footer-note {
   flex-basis: 100%;
   margin: 0;

@@ -4678,6 +4678,16 @@ function wireLegalModal() {
 }
 
 function openLegalModal(which) {
+  // Gated change-log items (.changelog-gated) only show for "insiders":
+  // admins plus the small ALWAYS_GRANTED allowlist (e.g. redrambler). Recompute
+  // each open so it reflects the signed-in user even if they signed in after a
+  // previous open (the modal is reachable pre-auth from the footer).
+  const u = window.currentUser;
+  const insider = !!u && (
+    u.isAdmin ||
+    (data.ALWAYS_GRANTED_USERNAMES || []).includes((u.username || '').toLowerCase())
+  );
+  document.body.classList.toggle('cl-insider', insider);
   document.getElementById('legal-modal').classList.remove('hidden');
   switchLegalTab(which || 'terms');
 }
