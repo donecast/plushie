@@ -19,7 +19,7 @@ test('core cross-file functions are all defined on the shared global', () => {
   // Sampled across every concern so a missing global in any area is caught.
   const expected = [
     'cleanCatalogName', 'itemStatus', 'catalogCategory', 'normalizeAccessories',
-    'escapeHtml', 'formatDate', 'parseQuery', 'matchesQuery',
+    'escapeHtml', 'formatDate', 'parseQuery', 'splitOrGroups', 'parseSearch', 'matchesQuery',
     'render', 'renderCard', 'openModal', 'toast', 'wireEvents',
     'renderTrade', 'openAccountModal', 'wireLegalModal', 'renderAdmin',
     'openCatalogItemModal', 'boot', 'renderSocial', 'renderFeed',
