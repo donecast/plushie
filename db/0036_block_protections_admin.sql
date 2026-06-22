@@ -1,4 +1,4 @@
--- 0035_block_protections_admin.sql
+-- 0036_block_protections_admin.sql
 -- Two block-system tweaks for the admin era. Paste into the Supabase SQL
 -- Editor and run. Safe to re-run.
 --

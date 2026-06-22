@@ -996,7 +996,7 @@ data.isBlocked   = function (uid) { return data._blockedIds.has(uid); };
 data.isMyBlock   = function (uid) { return data._myBlockIds.has(uid); };
 
 // Accounts that can never be blocked: admins + the redrambler moderator.
-// Mirrors is_protected_user() in db/0035 — the DB policy is the real
+// Mirrors is_protected_user() in db/0036 — the DB policy is the real
 // guard; this just hides the Block affordance client-side. Callers pass
 // whatever they know about the target (username always, is_admin when
 // available).
@@ -1331,7 +1331,7 @@ data.adminUserSnapshot = async function (userId) {
   // Blocks this user is involved in. Direction matters in the admin view
     // (initiated vs received), unlike the symmetric client-side block set.
     // Reading other people's blocks needs the is_admin() select policy from
-    // db/0035; until that's applied these come back empty for non-self rows.
+    // db/0036; until that's applied these come back empty for non-self rows.
   const [{ data: bi }, { data: bb }] = await Promise.all([
     sb.from('user_blocks').select('blocked_id, created_at').eq('blocker_id', userId),
     sb.from('user_blocks').select('blocker_id, created_at').eq('blocked_id', userId),
