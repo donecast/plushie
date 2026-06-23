@@ -1594,11 +1594,13 @@ data.adminListUserPlushies = async function (userId) {
 // admin RLS on photos lets us read; admin RLS on catalog lets us
 // write. Returns the new catalog/* path.
 data.adminCopyPhotoToCatalog = async function (sourcePhotoPath, slugHint) {
-  const { data: signed, error: e1 } = await sb
-    .storage.from('photos')
-    .createSignedUrl(sourcePhotoPath, 300);
-  if (e1) throw e1;
-  const resp = await fetch(signed.signedUrl, { mode: 'cors' });
+  // Read through the routing helper so this works post-R2-cutover:
+  // new photos live only in R2, so a direct Supabase signed URL would
+  // 404. photoUrl() returns the R2 Worker URL when R2_BASE is set and
+  // a Supabase signed URL otherwise.
+  const url = await data.photoUrl(sourcePhotoPath);
+  if (!url) throw new Error('source photo not found');
+  const resp = await fetch(url, { mode: 'cors' });
   if (!resp.ok) throw new Error(`fetch ${resp.status}`);
   const blob = await resp.blob();
   return await data.uploadCatalogImage(blob, slugHint || 'item');
@@ -1847,10 +1849,25 @@ data._purgePhotoFolder = async function (collectionId) {
     }
   } catch (e) { console.warn('supabase photo purge', e); }
 
-  // R2 (via the Worker) — only if cutover has happened. We don't
-  // have a list endpoint on the Worker yet, so this is a best-effort
-  // no-op for now. If R2_BASE isn't set, there's nothing in R2 to
-  // clean up anyway. Once a list endpoint is added we can iterate.
+  // R2 (via the Worker) — only once cutover has happened. List the
+  // collection's objects through the Worker's prefix-list endpoint,
+  // then delete each. If R2_BASE isn't set there's nothing in R2.
+  if (window.R2_BASE) {
+    try {
+      const base = window.R2_BASE.replace(/\/$/, '');
+      const { data: session } = await sb.auth.getSession();
+      const jwt = session?.session?.access_token;
+      if (jwt) {
+        const resp = await fetch(`${base}/photos/${collectionId}/?list`, {
+          headers: { authorization: `Bearer ${jwt}` },
+        });
+        if (resp.ok) {
+          const { keys } = await resp.json();
+          await Promise.all((keys || []).map((k) => data._r2Delete('photos', k)));
+        }
+      }
+    } catch (e) { console.warn('r2 photo purge', e); }
+  }
 };
 
 data.adminUpdateWishlist = async function (wishlistId, patch) {
