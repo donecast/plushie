@@ -117,6 +117,84 @@ const auth = {
 
 window.auth = auth;
 
+// ─── Dev sign-in bypass ──────────────────────────────────────────
+// A local-only convenience so the sole developer can skip the email
+// magic-link round-trip and land straight in the app as themselves.
+// Because the app runs on Supabase RLS, a mock user can't read real
+// data — so this performs a *real* password sign-in. It is hard-gated
+// to dev hosts AND requires credentials that only exist on the dev
+// machine (config.dev.js / localStorage), so it cannot activate on
+// plushcrypt.com or inside the Capacitor build (config.dev.js is
+// git-ignored and never bundled). See config.dev.example.js.
+function isDevHost() {
+  // Escape hatch to exercise the real gate locally: ?prodauth in the URL
+  // or window.FORCE_PROD_AUTH = true.
+  if (window.FORCE_PROD_AUTH || /[?&]prodauth\b/.test(location.search)) return false;
+  // Never in the native shell, even though it serves from localhost.
+  if (location.protocol === 'capacitor:' || window.Capacitor) return false;
+  if (location.protocol === 'file:') return true;
+  const h = location.hostname;
+  if (['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]'].includes(h)) return true;
+  if (/\.local$/i.test(h)) return true;                       // mDNS hostnames
+  // Private LAN ranges (testing from a phone on the same network).
+  if (/^192\.168\./.test(h) || /^10\./.test(h)
+      || /^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+  return false;
+}
+
+// Pull dev credentials from config.dev.js (window.DEV_LOGIN) or, as a
+// fallback, a remembered localStorage entry. Returns null when neither
+// is set — in which case the dev bypass simply does nothing.
+function devCredentials() {
+  const fromFile = window.DEV_LOGIN;
+  if (fromFile && fromFile.email && fromFile.password) return fromFile;
+  try {
+    const raw = localStorage.getItem('dev_login');
+    if (raw) {
+      const o = JSON.parse(raw);
+      if (o && o.email && o.password) return o;
+    }
+  } catch { /* ignore malformed entry */ }
+  return null;
+}
+
+// On a dev host, inject config.dev.js once so window.DEV_LOGIN is set
+// before the gate evaluates. Resolves even when the file is absent (the
+// common case in production, where this function never runs anyway).
+let _devConfigLoaded = false;
+async function maybeLoadDevConfig() {
+  if (_devConfigLoaded || !isDevHost() || window.DEV_LOGIN) return;
+  _devConfigLoaded = true;
+  await new Promise((resolve) => {
+    const s = document.createElement('script');
+    s.src = './config.dev.js';
+    s.onload = resolve;
+    s.onerror = () => resolve();   // no dev config present — that's fine
+    document.head.appendChild(s);
+  });
+}
+
+let _devLoginAttempted = false;
+async function tryDevAutoLogin() {
+  if (_devLoginAttempted || !isDevHost()) return false;
+  const creds = devCredentials();
+  if (!creds) return false;
+  _devLoginAttempted = true;        // only ever try once per page load
+  const { error } = await sb.auth.signInWithPassword({
+    email: creds.email,
+    password: creds.password,
+  });
+  if (error) {
+    console.warn('[dev] auto sign-in failed:', error.message,
+      '\n[dev] Check email/password in config.dev.js (see config.dev.example.js).');
+    return false;
+  }
+  console.info('[dev] signed in as', creds.email);
+  return true;   // onAuthStateChange(SIGNED_IN) re-runs the gate evaluate()
+}
+
+window.isDevHost = isDevHost;
+
 // ─── Gate UI ─────────────────────────────────────────────────────
 // Shows the auth overlay until we have both a session and a profile,
 // then starts the app. Called from app.js boot.
@@ -144,7 +222,12 @@ async function runAuthGate(onReady) {
     show('loading');
     try {
       const session = await auth.getSession();
-      if (!session) { show('login'); return; }
+      if (!session) {
+        // Dev-only: try the password bypass before falling back to the
+        // email gate. On success the SIGNED_IN event re-runs evaluate().
+        if (isDevHost() && devCredentials() && await tryDevAutoLogin()) return;
+        show('login'); return;
+      }
       const profile = await auth.getProfile();
       if (!profile) { show('username'); return; }
 
@@ -286,6 +369,9 @@ async function runAuthGate(onReady) {
     }
   });
 
+  // On a dev host, pull in config.dev.js (if present) before the first
+  // evaluate so the password bypass can fire. No-op everywhere else.
+  await maybeLoadDevConfig();
   await evaluate();
 }
 
