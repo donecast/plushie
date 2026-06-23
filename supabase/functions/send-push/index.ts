@@ -7,21 +7,35 @@
 // transport changes (a 'web' row goes out via VAPID here, a future
 // 'ios'/'android' device token would go out via APNs/FCM).
 //
-// Deploy:
-//   supabase functions deploy send-push
+// Deploy (the function does its own auth below, so skip the gateway JWT
+// check — this also lets the non-JWT sb_secret_ key through as a Bearer):
+//   supabase functions deploy send-push --no-verify-jwt
 // Secrets (set once):
 //   supabase secrets set VAPID_PUBLIC_KEY=...           # same as config.js
 //   supabase secrets set VAPID_PRIVATE_KEY=...          # NEVER commit this
 //   supabase secrets set VAPID_SUBJECT=mailto:scott@donecast.com
-// SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are injected automatically.
+//   supabase secrets set SEND_PUSH_KEY=sb_secret_...    # new Supabase secret key
+// SUPABASE_URL is injected automatically. SEND_PUSH_KEY is the privileged
+// key used for RLS-bypassing reads and to authenticate trusted server
+// callers; we fall back to the legacy auto-injected SUPABASE_SERVICE_ROLE_KEY
+// so existing deploys keep working until SEND_PUSH_KEY is set.
+//
+// IMPORTANT — the DB push trigger must present this SAME key. The trigger
+// (_push_send in db/0041_friend_push_trigger.sql) reads a Vault secret
+// named `send_push_key` and sends it as the Bearer. Set BOTH to the same
+// live sb_secret_ value:
+//   supabase secrets set SEND_PUSH_KEY=sb_secret_xxx           # function side
+//   select vault.update_secret(                                -- trigger side
+//     (select id from vault.secrets where name='send_push_key'),
+//     'sb_secret_xxx');
 //
 // Callers:
 //   * A signed-in user (Bearer = their access token) — may push only to
 //     their own devices, unless they're an admin (profiles.is_admin),
 //     who may pass `user_ids` to target others. Used by sendSelfTestPush.
-//   * A trusted server caller (Bearer = the service-role key) — may pass
-//     `user_ids` freely. This is the path a future DB trigger / restock
-//     cron will use to fan out drop alerts.
+//   * A trusted server caller (Bearer = SEND_PUSH_KEY / service-role key) —
+//     may pass `user_ids` freely. This is the path the push DB triggers and
+//     a future restock cron use to fan out alerts.
 //
 // Body: { user_ids?: string[], title?, body?, url?, tag?, icon? }
 
@@ -29,14 +43,22 @@ import webpush from "npm:web-push@3.6.7";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+// Prefer the new Supabase secret key; fall back to the legacy (deprecated)
+// service-role key so the switchover doesn't break an existing deploy.
+const SECRET_KEY = Deno.env.get("SEND_PUSH_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+// Any of these, presented as the Bearer token, marks a trusted server caller.
+// Both are accepted during the transition off the legacy key.
+const SERVER_KEYS = new Set(
+  [Deno.env.get("SEND_PUSH_KEY"), Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")]
+    .filter((k): k is string => !!k),
+);
 const VAPID_PUBLIC_KEY = Deno.env.get("VAPID_PUBLIC_KEY")!;
 const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY")!;
 const VAPID_SUBJECT = Deno.env.get("VAPID_SUBJECT") || "mailto:Scott@thebsgcompany.com";
 
 webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
-const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+const admin = createClient(SUPABASE_URL, SECRET_KEY, {
   auth: { persistSession: false },
 });
 
@@ -70,10 +92,10 @@ Deno.serve(async (req) => {
     : null;
 
   let targetIds: string[];
-  if (token === SERVICE_ROLE_KEY) {
+  if (SERVER_KEYS.has(token)) {
     // Trusted server caller (cron / DB trigger) — may target anyone.
     if (!requestedIds || requestedIds.length === 0) {
-      return json({ error: "user_ids required for service-role calls" }, 400);
+      return json({ error: "user_ids required for server-role calls" }, 400);
     }
     targetIds = requestedIds;
   } else {
