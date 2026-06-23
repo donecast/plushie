@@ -1,3 +1,6 @@
+# dev-only auth bypass (real credentials — never commit). See config.dev.example.js
+config.dev.js
+
 # wrangler files
 .wrangler
 .dev.vars*
