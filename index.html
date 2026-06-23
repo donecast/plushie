@@ -91,6 +91,33 @@
   </header>
 
   <main>
+    <!-- My Crypt leads with a compact profile header, then the section sub-tabs,
+         then the shared toolbar (search + filters) sitting directly above the
+         collection grid. All three are hidden on non-Crypt tabs, so Catalog &c.
+         keep the toolbar at the top as before. -->
+    <div id="crypt-masthead" class="crypt-masthead hidden"></div>
+
+    <nav id="collection-subtabs" class="subtabs subtabs-collection hidden" role="tablist" aria-label="My Crypt sections">
+      <button class="subtab active" data-col-subtab="plushes">
+        Plushes <span class="dim" id="col-subtab-count-plushes"></span>
+      </button>
+      <button class="subtab" data-col-subtab="minis">
+        Minis <span class="dim" id="col-subtab-count-minis"></span>
+      </button>
+      <button class="subtab" data-col-subtab="accessories">
+        Accessories <span class="dim" id="col-subtab-count-accessories"></span>
+      </button>
+      <button class="subtab" data-col-subtab="other">
+        Other <span class="dim" id="col-subtab-count-other"></span>
+      </button>
+      <button class="subtab" data-col-subtab="pens">
+        Pens <span class="dim" id="col-subtab-count-pens"></span>
+      </button>
+      <button class="subtab" data-col-subtab="wishlist">
+        Wish List <span class="dim" id="col-subtab-count-wishlist"></span>
+      </button>
+    </nav>
+
     <div class="toolbar">
       <input type="search" id="search" placeholder="Search the crypt…  (-exclude, &quot;exact phrase&quot;, a , b for either)" aria-label="Search" title="Search supports -exclusions, &quot;exact phrases&quot;, & for AND, and , for OR (e.g. -tote &amp; -bag, or tote, bag)" />
       <div id="collection-filters" class="filters">
@@ -228,35 +255,6 @@
       <span class="count" id="count-label">0 items</span>
     </div>
     <div id="active-filters" class="active-filters"></div>
-
-    <!-- My Crypt — your profile masthead renders here when the Crypt tab is
-         active; the sub-tab strip + collection/wishlist bodies live below. -->
-    <div id="crypt-masthead" class="crypt-masthead hidden"></div>
-
-    <!-- My Crypt sub-tabs: collection categories (Plushes/Minis/Accessories/
-         Other), Pens, plus Wish List (folded in from the old top-level tab).
-         Clothing lives in the Plushes/Minis closet, by scale. State key is
-         colSubTab. Moved out of #collection-view so it also drives Wish List. -->
-    <nav id="collection-subtabs" class="subtabs subtabs-collection hidden" role="tablist" aria-label="My Crypt sections">
-      <button class="subtab active" data-col-subtab="plushes">
-        Plushes <span class="dim" id="col-subtab-count-plushes"></span>
-      </button>
-      <button class="subtab" data-col-subtab="minis">
-        Minis <span class="dim" id="col-subtab-count-minis"></span>
-      </button>
-      <button class="subtab" data-col-subtab="accessories">
-        Accessories <span class="dim" id="col-subtab-count-accessories"></span>
-      </button>
-      <button class="subtab" data-col-subtab="other">
-        Other <span class="dim" id="col-subtab-count-other"></span>
-      </button>
-      <button class="subtab" data-col-subtab="pens">
-        Pens <span class="dim" id="col-subtab-count-pens"></span>
-      </button>
-      <button class="subtab" data-col-subtab="wishlist">
-        Wish List <span class="dim" id="col-subtab-count-wishlist"></span>
-      </button>
-    </nav>
 
     <section id="collection-view" class="view hidden">
       <div id="collection-sub-items" class="subview">
@@ -1304,14 +1302,14 @@
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=97"></script>
-  <script src="./app-catalog.js?v=97"></script>
-  <script src="./app-collection.js?v=97"></script>
-  <script src="./app-ui.js?v=97"></script>
-  <script src="./app-trade.js?v=97"></script>
-  <script src="./app-account.js?v=97"></script>
-  <script src="./app-admin.js?v=97"></script>
-  <script src="./app-admin-catalog.js?v=97"></script>
-  <script src="./app-social.js?v=97"></script>
+  <script src="./app-core.js?v=98"></script>
+  <script src="./app-catalog.js?v=98"></script>
+  <script src="./app-collection.js?v=98"></script>
+  <script src="./app-ui.js?v=98"></script>
+  <script src="./app-trade.js?v=98"></script>
+  <script src="./app-account.js?v=98"></script>
+  <script src="./app-admin.js?v=98"></script>
+  <script src="./app-admin-catalog.js?v=98"></script>
+  <script src="./app-social.js?v=98"></script>
 </body>
 </html>

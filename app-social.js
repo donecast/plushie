@@ -368,11 +368,28 @@ function renderMyProfileTab() {
 function renderCryptMasthead() {
   const el = document.getElementById('crypt-masthead');
   if (!el || !window.currentUser) return;
+  // render() runs on every card tap (quantity steppers, etc.). Rebuilding this
+  // tall block each time collapses + reflows it above the grid, which fights
+  // keepScroll and snaps the page to the top. Only rebuild when the identity
+  // content actually changed since the last paint.
+  const sig = JSON.stringify({
+    u: window.currentUser.username,
+    b: state._myBio || '',
+    a: state._myAvatarUrl || '',
+    s: state._mySocialLinks || null,
+    t: (state._myTop8 || []).map((x) => (x && (x.id ?? x.itemId)) ?? x),
+    k: (state.myBlocks || []).map((x) => x.id),
+  });
+  if (el._mastheadSig === sig && el.childNodes.length) return;
+  el._mastheadSig = sig;
+  // My Crypt leads with the collection, so the masthead is the compact identity
+  // header only — avatar, bio, links, Top 8, edit affordances. Your posts live
+  // on Home (the feed), not stacked on top of your collection.
   renderProfileInto(el, {
     profile: { id: window.currentUser.id, username: window.currentUser.username, bio: state._myBio, avatarUrl: state._myAvatarUrl, socialLinks: state._mySocialLinks },
-    posts: state._myPosts || [],
     top8: state._myTop8 || [],
     isMe: true,
+    omitPosts: true,
   });
   el.insertAdjacentHTML('beforeend', renderBlockedManager());
 }
@@ -423,7 +440,7 @@ async function openProfile(userId) {
   } catch (e) { console.error('openProfile', e); toast('Could not open profile.'); }
 }
 
-function renderProfileInto(el, { profile, posts, top8, friendship, isMe, withBack, unavailable }) {
+function renderProfileInto(el, { profile, posts = [], top8, friendship, isMe, withBack, unavailable, omitPosts }) {
   if (unavailable) {
     el.innerHTML = `
       ${withBack ? `<button class="linklike soc-back" data-soc-action="close-profile">← Back to feed</button>` : ''}
@@ -480,10 +497,10 @@ function renderProfileInto(el, { profile, posts, top8, friendship, isMe, withBac
       <h2 class="soc-section-head">Top 8 Buns 🐰</h2>
       ${top8Html}
     </section>
-    <section class="soc-section">
+    ${omitPosts ? '' : `<section class="soc-section">
       <h2 class="soc-section-head">${isMe ? 'Your posts' : 'Posts'}</h2>
       ${posts.length ? posts.map(renderPostCard).join('') : `<p class="empty-note">No posts yet.</p>`}
-    </section>`;
+    </section>`}`;
 }
 
 function renderTop8(top8, isMe) {
