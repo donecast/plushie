@@ -103,6 +103,103 @@ test('normalizeShopifyProduct derives retired from the retired tag and sold-out 
   assert.equal(call('normalizeShopifyProduct', sold([])).retired, false);
 });
 
+test('expandVariants splits a collectible multi-variant product into per-variant sub-items', () => {
+  const raw = {
+    id: '111', title: 'Skelly Bun Flower Crown', handle: 'skelly-bun',
+    product_type: 'Plush', tags: ['plush'],
+    options: [{ name: 'Type', values: ['Purple', 'Peach', 'Skelly Bows'] }],
+    variants: [
+      { id: 1, title: 'Purple', price: '45', available: true,  featured_image: { src: 'https://cdn.shopify.com/x/p.jpg' } },
+      { id: 2, title: 'Peach',  price: '45', available: false, featured_image: { src: 'https://cdn.shopify.com/x/q.jpg' } },
+      { id: 3, title: 'Skelly Bows', price: '48', available: true, featured_image: { src: 'https://cdn.shopify.com/x/r.jpg' } },
+    ],
+  };
+  const norm = call('normalizeShopifyProduct', raw);
+  const out = call('expandVariants', [norm]);
+  assert.equal(out.length, 4);                                   // 1 parent + 3 children
+  const parent = out.find((i) => i.id === '111');
+  assert.equal(parent.variantParent, true);
+  assert.equal('_raw' in parent, false);                        // private stash stripped
+  const kids = out.filter((i) => i.isVariant);
+  assert.deepEqual(kids.map((k) => k.id), ['111::1', '111::2', '111::3']);
+  assert.deepEqual(kids.map((k) => k.formLabel), ['Purple', 'Peach', 'Skelly Bows']);
+  assert.deepEqual(kids.map((k) => k.available), [true, false, true]);
+  assert.deepEqual(kids.map((k) => k.price), [45, 45, 48]);
+  assert.deepEqual(kids.map((k) => k.image), ['https://cdn.shopify.com/x/p.jpg', 'https://cdn.shopify.com/x/q.jpg', 'https://cdn.shopify.com/x/r.jpg']);
+  assert.equal(kids[0].parentId, '111');
+  assert.equal(kids[0].parentHandle, 'skelly-bun');
+});
+
+test('expandVariants leaves single-variant and non-collectible-option products alone', () => {
+  const single = call('normalizeShopifyProduct', {
+    id: '1', title: 'Plain Rabbit', handle: 'plain', product_type: 'Plush', tags: [],
+    options: [{ name: 'Title', values: ['Default Title'] }],
+    variants: [{ id: 9, title: 'Default Title', price: '40', available: true }],
+  });
+  // 'Hang Tag' is a purchase choice, not a different plush.
+  const hangtag = call('normalizeShopifyProduct', {
+    id: '2', title: 'Emily', handle: 'emily', product_type: 'Plush', tags: [],
+    options: [{ name: 'Hang Tag', values: ['Numbered', 'Numbered and Autographed'] }],
+    variants: [
+      { id: 21, title: 'Numbered', price: '60', available: false },
+      { id: 22, title: 'Numbered and Autographed', price: '90', available: false },
+    ],
+  });
+  const out = call('expandVariants', [single, hangtag]);
+  assert.equal(out.length, 2);                                   // nothing expanded
+  assert.equal(out.every((i) => !i.isVariant && !i.variantParent), true);
+});
+
+test('resolveCatalogItem backfills a feed variant from its umbrella parent', () => {
+  const vm = require('node:vm');
+  vm.runInContext(`
+    state.catalog = [
+      { id: 'p', name: 'Crown', handle: 'crown', variantParent: true, type: 'Plush',
+        available: true, tags: ['plush', 'pink'], lore: 'A lore', symbolism: 'A sym',
+        accessories: [{ name: 'Tote' }] },
+      { id: 'p::1', name: 'Crown', handle: 'crown', isVariant: true, parentId: 'p',
+        parentHandle: 'crown', formLabel: 'Purple', image: 'https://cdn.shopify.com/x/p.jpg',
+        available: false, accessories: [] },
+    ];
+  `, app.ctx);
+  const child = vm.runInContext(`state.catalog[1]`, app.ctx);
+  const resolved = app.call('resolveCatalogItem', child);
+  assert.equal(resolved.lore, 'A lore');                         // inherited
+  assert.equal(resolved.symbolism, 'A sym');                     // inherited
+  assert.equal(resolved.type, 'Plush');                          // inherited
+  assert.deepEqual(resolved.tags, ['plush', 'pink']);            // inherited
+  assert.deepEqual(resolved.accessories, [{ name: 'Tote' }]);    // inherited (child had none)
+  assert.equal(resolved.available, false);                       // child's own value wins
+  assert.equal(resolved.formLabel, 'Purple');                    // preserved
+  assert.equal(resolved.parentShopifyHandle, 'crown');           // Buy points at parent
+});
+
+test('filteredCatalog hides the variant umbrella parent, shows its children', () => {
+  const vm = require('node:vm');
+  vm.runInContext(`
+    state.collection = []; state.wishlist = [];
+    state.query = ''; state.catalogFilter = 'all'; state.catalogTheme = 'all';
+    state.catalogColor = 'all'; state.catalogUnowned = false; state.catalogOriginal = false;
+    state.catalogSort = 'name_asc'; state.catalogStatuses = new Set();
+    state.catalog = [
+      { id: 'p', name: 'Crown', handle: 'crown', variantParent: true, available: true, tags: [] },
+      { id: 'p::1', name: 'Crown', handle: 'crown', isVariant: true, parentId: 'p', parentHandle: 'crown', formLabel: 'Purple', available: true, tags: [] },
+      { id: 'p::2', name: 'Crown', handle: 'crown', isVariant: true, parentId: 'p', parentHandle: 'crown', formLabel: 'Peach', available: true, tags: [] },
+    ];
+  `, app.ctx);
+  const ids = app.call('filteredCatalog').map((i) => i.id).sort();
+  assert.deepEqual(ids, ['p::1', 'p::2']);                       // parent excluded, children shown
+});
+
+test('renderCatalogCard shows the form-label badge for a variant', () => {
+  const variant = { id: 'p::1', name: 'Crown', handle: 'crown', isVariant: true,
+    parentId: 'x', parentHandle: 'crown', formLabel: 'Purple', available: true, tags: [],
+    image: 'https://cdn.shopify.com/x/p.jpg' };
+  const html = app.call('renderCatalogCard', variant, new Map(), new Map());
+  assert.equal(/badge-form/.test(html), true);
+  assert.equal(/Purple/.test(html), true);
+});
+
 test('isLoyaltyReward flags reward-only items (case-insensitive, exact tag)', () => {
   assert.equal(call('isLoyaltyReward', { tags: ['Fairy Tale Plushies', 'Loyalty Reward'], name: 'x' }), true);
   assert.equal(call('isLoyaltyReward', { tags: ['loyalty reward'], name: 'x' }), true);

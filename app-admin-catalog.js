@@ -498,7 +498,7 @@ async function submitDisputeStatementForm(e) {
 // picker modal so the user can see what they're checking off.
 function matchBundleComponents(bundleCat) {
   const accessories = Array.isArray(bundleCat.accessories) ? bundleCat.accessories : [];
-  const lookup = state.catalog.filter((c) => !c.isBundle);
+  const lookup = state.catalog.filter((c) => !c.isBundle && !c.variantParent);
   return accessories.map((acc) => {
     const label = typeof acc === 'string' ? acc : acc.name;
     const key = typeof acc === 'string' ? acc.toLowerCase() : (acc.key || label.toLowerCase());
@@ -640,10 +640,10 @@ async function openCatalogDetailModal(cid) {
   // If the parent (a Shopify row) hasn't been refreshed live yet, none
   // of those fields are populated — so the variant looks empty too. We
   // trigger the same on-demand refresh in that case.
-  const parentEmpty = raw.isCustom && raw.parentHandle
-    && !state.catalog.some((c) => c.handle === raw.parentHandle && !c.isCustom && c.bodyHtml);
+  const parentEmpty = (raw.isCustom || raw.isVariant) && raw.parentHandle
+    && !state.catalog.some((c) => c.handle === raw.parentHandle && !c.isCustom && !c.isVariant && c.bodyHtml);
   if (!state._catalogRefreshAttempted
-      && ((!raw.bodyHtml && !raw.isCustom) || parentEmpty)) {
+      && ((!raw.bodyHtml && !raw.isCustom && !raw.isVariant) || parentEmpty)) {
     state._catalogRefreshAttempted = true;
     refreshCatalogLive().then(() => {
       // If the modal is still open, repaint with the now-populated row.
@@ -655,7 +655,7 @@ async function openCatalogDetailModal(cid) {
   }
   const item = resolveCatalogItem(raw);
   const display = cleanCatalogName(item.name);
-  const formLabel = item.isCustom && item.formLabel ? item.formLabel : '';
+  const formLabel = (item.isCustom || item.isVariant) && item.formLabel ? item.formLabel : '';
   const thumb = item.isCustom ? item.image : (shopifyImageVariant(item.image, 800) || item.image);
   const { owned, wished } = catalogIdMap();
   const isOwned = owned.has(item.id);

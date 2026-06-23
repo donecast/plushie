@@ -216,7 +216,9 @@ async function addFromCatalog(catalogId, kind, { customize = false } = {}) {
 
   const base = {
     id: crypto.randomUUID(),
-    name: cleanCatalogName(cat.name),
+    // Variants share the product name; fold the variant label into the
+    // snapshot so the owned row is self-describing (e.g. "Flower Crown — Purple").
+    name: cleanCatalogName(cat.name) + (cat.isVariant && cat.formLabel ? ` — ${cat.formLabel}` : ''),
     photo,
     catalogId: cat.id,
     catalogHandle: cat.handle,
