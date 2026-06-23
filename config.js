@@ -21,7 +21,7 @@ window.IMG_PROXY_BASE = 'https://plush-crypt-img-proxy.scott-e08.workers.dev/';
 // the legacy Supabase Storage path active. When set, uploads route
 // to R2 via this Worker and reads use the same base URL. No trailing
 // slash. e.g. 'https://plush-crypt-r2.scott-e08.workers.dev'.
-window.R2_BASE = '';
+window.R2_BASE = 'https://plush-crypt-pics.scott-e08.workers.dev';
 
 // VAPID public key for Web Push. The browser uses this as the
 // applicationServerKey when subscribing; the matching PRIVATE key lives

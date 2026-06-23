@@ -17,12 +17,16 @@
 //                paths: <user_uuid>/<rand>.jpg
 //
 // Auth model (v1, pragmatic):
-//   * Uploads + deletes require an Authorization: Bearer <jwt>
-//     header. We DON'T verify the JWT signature in v1 — just check
-//     that something looks like a JWT is present, which is enough
-//     to stop random internet spam since the URL isn't documented
-//     anywhere a bot would crawl. If abuse appears we tighten this
-//     to full HS256 verification with the Supabase JWT secret.
+//   * Uploads + deletes + prefix-list require an Authorization:
+//     Bearer <jwt> header. We DON'T verify the JWT signature in v1 —
+//     just check that something looks like a JWT is present, which is
+//     enough to stop random internet spam since the URL isn't
+//     documented anywhere a bot would crawl. If abuse appears we
+//     tighten this to full HS256 verification with the Supabase JWT
+//     secret.
+//   * List (GET ...?list) requires a non-empty prefix, so a caller
+//     can only enumerate inside a folder whose (UUID) id it already
+//     knows — no blanket bucket listing.
 //   * Reads (GET) are public. Random UUID paths are the access
 //     control — same trust model the existing Supabase signed URLs
 //     used with their 1-hour tokens.
@@ -77,6 +81,27 @@ export default {
                  : bucketName === 'social' ? env.SOCIAL
                  : env.CATALOG;
     if (!bucket) return text(`bucket ${bucketName} not bound in Worker config`, 500);
+
+    // List keys under a prefix: GET /<bucket>/<prefix>?list → { keys }.
+    // Auth-gated like mutations, and a non-empty prefix is required (the
+    // path guard above already enforces it) so the random-UUID access
+    // model isn't defeated by blanket bucket enumeration — a caller must
+    // already know a folder id (itself a UUID) to list inside it.
+    if (method === 'GET' && url.searchParams.has('list')) {
+      const authz = request.headers.get('authorization') || '';
+      if (!/^bearer\s+\S+\.\S+\.\S+\s*$/i.test(authz)) return text('auth required', 401);
+      const keys = [];
+      let cursor;
+      do {
+        const listing = await bucket.list({ prefix: key, cursor, limit: 1000 });
+        for (const o of listing.objects) keys.push(o.key);
+        cursor = listing.truncated ? listing.cursor : undefined;
+      } while (cursor);
+      return new Response(JSON.stringify({ keys }), {
+        status: 200,
+        headers: { ...Object.fromEntries(corsHeaders()), 'content-type': 'application/json' },
+      });
+    }
 
     if (method === 'GET' || method === 'HEAD') {
       const obj = await bucket.get(key);
