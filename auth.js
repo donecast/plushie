@@ -205,6 +205,7 @@ async function runAuthGate(onReady) {
     login:    overlay.querySelector('[data-step="login"]'),
     sent:     overlay.querySelector('[data-step="sent"]'),
     username: overlay.querySelector('[data-step="username"]'),
+    name:     overlay.querySelector('[data-step="name"]'),
     consent:  overlay.querySelector('[data-step="consent"]'),
   };
 
@@ -271,6 +272,14 @@ async function runAuthGate(onReady) {
         // toggle in Settings stays visible (and can be switched back off).
         demoEligible: realInsider,
       };
+
+      // Real-name gate (see db/0042). A first name is required for everyone
+      // — trade safety and moderation. New and existing users without one
+      // must provide it before the app unlocks. A last initial is enough
+      // here; a full last name is only required to list items for trade.
+      const names = await data.getMyNameFields();
+      if (!names || !String(names.first_name || '').trim()) { show('name'); return; }
+
       updateUserBadge();
       hide();
       onReady();
@@ -337,6 +346,32 @@ async function runAuthGate(onReady) {
       } else {
         errEl.textContent = msg || 'Couldn’t save username.';
       }
+      errEl.classList.remove('hidden');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Continue';
+    }
+  });
+
+  // Name form: first name required, last name optional here (an initial is
+  // fine). On success re-evaluate to release the gate.
+  document.getElementById('auth-name-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const first = document.getElementById('auth-first-name').value.trim();
+    const last  = document.getElementById('auth-last-name').value.trim();
+    const errEl = document.getElementById('auth-name-error');
+    errEl.classList.add('hidden');
+    if (!first) {
+      errEl.textContent = 'Please enter your first name.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    const btn = e.target.querySelector('button[type=submit]');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      await data.setMyName({ firstName: first, lastName: last });
+      await evaluate();
+    } catch (err) {
+      errEl.textContent = err.message || 'Couldn’t save your name.';
       errEl.classList.remove('hidden');
     } finally {
       btn.disabled = false; btn.textContent = 'Continue';

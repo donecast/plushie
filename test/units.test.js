@@ -312,3 +312,25 @@ test('normalizeAccessories drops features/specs and merges duplicate phrasings',
   ]);
   assert.deepEqual(call('normalizeAccessories', null), []);
 });
+
+test('hasFullLastName requires at least two letters (a bare initial fails)', () => {
+  assert.equal(call('hasFullLastName', 'Smith'), true);
+  assert.equal(call('hasFullLastName', 'Ng'), true);
+  assert.equal(call('hasFullLastName', 'S'), false);
+  assert.equal(call('hasFullLastName', 'S.'), false);
+  assert.equal(call('hasFullLastName', ''), false);
+  assert.equal(call('hasFullLastName', null), false);
+  assert.equal(call('hasFullLastName', "O'Brien"), true);
+});
+
+test('formatDisplayName honours the visibility choice (mirrors public_display_name)', () => {
+  assert.equal(call('formatDisplayName', 'Scott', 'Miller', 'full'), 'Scott Miller');
+  assert.equal(call('formatDisplayName', 'Scott', 'Miller', 'first_initial'), 'Scott M.');
+  assert.equal(call('formatDisplayName', 'Scott', 'Miller', 'hidden'), '');
+  // No last name: initial mode and full mode both fall back to first only.
+  assert.equal(call('formatDisplayName', 'Scott', '', 'first_initial'), 'Scott');
+  assert.equal(call('formatDisplayName', 'Scott', '', 'full'), 'Scott');
+  // No first name: nothing to show.
+  assert.equal(call('formatDisplayName', '', 'Miller', 'full'), '');
+  assert.equal(call('formatDisplayName', '  Scott ', ' miller ', 'first_initial'), 'Scott M.');
+});

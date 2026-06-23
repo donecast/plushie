@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=91" />
+  <link rel="stylesheet" href="./styles.css?v=92" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -912,6 +912,9 @@
               <li>Added the <strong>Distressed White Rabbit</strong> — the long-gone, Alice-era original — to the catalog archive.</li>
               <li>Plushies that come in multiple variants (like the Skelly Bun Flower Crown's Purple / Peach / Skelly Bows) now show up as <strong>separate, trackable cards</strong> — each with its own photo — so you can collect and wish for the exact one you want.</li>
               <li class="changelog-gated">Admins can now choose which of a plush's store photos is its cover, right from "Edit details" — handy when the first photo isn't the most flattering.</li>
+              <li>We now ask for your <strong>name</strong> when you sign in — first name required, last initial is fine to start. You control how it appears on your public profile in <strong>Account → Name</strong>: first name + last initial (the default), your full name, or hidden.</li>
+              <li>For safer trading, listing an item for trade now requires your <strong>full last name</strong>, and your trade partner can see it on the shipping screen so packages reach the right person.</li>
+              <li class="changelog-gated">Admin Users table now shows each collector's name, collection / wish-list / for-trade counts, and last-seen date; feedback is de-emphasised and the net column is gone.</li>
             </ul>
             <p class="changelog-fixes">Misc bug fixes.</p>
           </div>
@@ -1075,6 +1078,24 @@
         <p id="auth-username-error" class="auth-error hidden"></p>
       </div>
 
+      <div class="auth-step hidden" data-step="name">
+        <div class="auth-mark">🪪</div>
+        <h1 class="auth-title">Your name</h1>
+        <p class="auth-sub">We ask for your real name to keep trading safe. Your first name is required; a last initial is fine for now. Your full last name is only needed when you list something for trade. You choose what shows on your public profile in Account.</p>
+        <form id="auth-name-form">
+          <label class="field">
+            <span class="field-label">First name</span>
+            <input type="text" id="auth-first-name" required maxlength="60" autocomplete="given-name" />
+          </label>
+          <label class="field">
+            <span class="field-label">Last name <span class="dim">(an initial is OK)</span></span>
+            <input type="text" id="auth-last-name" maxlength="60" autocomplete="family-name" />
+          </label>
+          <button type="submit" class="btn primary">Continue</button>
+        </form>
+        <p id="auth-name-error" class="auth-error hidden"></p>
+      </div>
+
       <div class="auth-step hidden" data-step="consent">
         <div class="auth-mark">📜</div>
         <h1 class="auth-title">A quick update</h1>
@@ -1120,6 +1141,32 @@
           <button class="btn-ghost" id="acct-save-email">Save</button>
         </div>
         <p class="account-hint">Changing your email sends a confirmation link to the new address. The old address keeps working until you confirm.</p>
+      </section>
+
+      <section class="account-section">
+        <h3>Name</h3>
+        <p class="account-hint">Your real name keeps trading safe. Admins and your trade partners always see your full name. A full last name is required to list items for trade.</p>
+        <div class="account-row">
+          <label class="field">
+            <span>First name</span>
+            <input type="text" id="acct-first-name" maxlength="60" autocomplete="given-name" />
+          </label>
+          <label class="field">
+            <span>Last name <span class="dim">(initial OK; full name needed to trade)</span></span>
+            <input type="text" id="acct-last-name" maxlength="60" autocomplete="family-name" />
+          </label>
+        </div>
+        <label class="field">
+          <span>Show on my public profile</span>
+          <select id="acct-name-visibility">
+            <option value="first_initial">First name + last initial (e.g. “Alex M.”)</option>
+            <option value="full">Full name (e.g. “Alex Morgan”)</option>
+            <option value="hidden">Don’t show my name</option>
+          </select>
+        </label>
+        <div class="account-row right">
+          <button class="btn-ghost" id="acct-save-name">Save name</button>
+        </div>
       </section>
 
       <section class="account-section">
@@ -1277,20 +1324,20 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./config.js?v=53"></script>
-  <script src="./auth.js?v=57"></script>
+  <script src="./auth.js?v=58"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=69"></script>
+  <script src="./data.js?v=70"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=96"></script>
-  <script src="./app-catalog.js?v=96"></script>
-  <script src="./app-collection.js?v=96"></script>
-  <script src="./app-ui.js?v=96"></script>
-  <script src="./app-trade.js?v=96"></script>
-  <script src="./app-account.js?v=96"></script>
-  <script src="./app-admin.js?v=96"></script>
-  <script src="./app-admin-catalog.js?v=96"></script>
-  <script src="./app-social.js?v=96"></script>
+  <script src="./app-core.js?v=97"></script>
+  <script src="./app-catalog.js?v=97"></script>
+  <script src="./app-collection.js?v=97"></script>
+  <script src="./app-ui.js?v=97"></script>
+  <script src="./app-trade.js?v=97"></script>
+  <script src="./app-account.js?v=97"></script>
+  <script src="./app-admin.js?v=97"></script>
+  <script src="./app-admin-catalog.js?v=97"></script>
+  <script src="./app-social.js?v=97"></script>
 </body>
 </html>

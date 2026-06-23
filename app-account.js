@@ -182,6 +182,14 @@ async function openAccountModal() {
   state._acctAvatarBlob = null;
   document.getElementById('acct-bio').value = state._myBio || '';
   renderSocialLinkFields(state._mySocialLinks || {});
+
+  // Name + public-name visibility. Loaded from profile_private (self-only).
+  try {
+    const n = await data.getMyNameFields();
+    document.getElementById('acct-first-name').value = n?.first_name || '';
+    document.getElementById('acct-last-name').value = n?.last_name || '';
+    document.getElementById('acct-name-visibility').value = n?.name_visibility || 'first_initial';
+  } catch (e) { console.warn('load name fields', e); }
   document.getElementById('acct-avatar').value = '';
   document.getElementById('acct-avatar-name').textContent = '';
   syncAcctAvatarPreview();
@@ -449,6 +457,22 @@ function collectSocialLinks() {
   return out;
 }
 
+async function saveAccountName() {
+  const firstName = document.getElementById('acct-first-name').value.trim();
+  const lastName  = document.getElementById('acct-last-name').value.trim();
+  const visibility = document.getElementById('acct-name-visibility').value;
+  if (!firstName) { toast('First name is required.'); return; }
+  try {
+    await data.setMyName({ firstName, lastName, visibility });
+    // Refresh the cached public display name so the profile header updates.
+    await loadMyProfileCache();
+    toast('Name saved.');
+  } catch (err) {
+    console.error('saveAccountName', err);
+    toast('Could not save your name.');
+  }
+}
+
 async function saveAccountProfile() {
   const bio = document.getElementById('acct-bio').value.trim();
   const socialLinks = collectSocialLinks();
@@ -519,7 +543,10 @@ async function openAddressModal(tradeId) {
 
   if (mine && other) {
     const el = document.getElementById('address-their');
-    el.innerHTML = `<h3>Their address (ship here)</h3><pre>${escapeHtml(other.address)}</pre>`;
+    // Surface the partner's full name for safe shipping (either party in a
+    // trade is allowed to see it; see db/0042 trade_party_name).
+    const fullName = await data.tradePartnerName(tradeId, otherId);
+    el.innerHTML = `<h3>Their address (ship here)</h3>${fullName ? `<p class="ship-to-name">${escapeHtml(fullName)}</p>` : ''}<pre>${escapeHtml(other.address)}</pre>`;
     el.classList.remove('hidden');
   } else if (mine) {
     document.getElementById('address-pending').classList.remove('hidden');

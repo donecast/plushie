@@ -46,14 +46,18 @@ function renderAdmin() {
 
 function renderAdminUserList() {
   const rows = state.adminUsers.map((u) => {
-    const f = u.feedback || { good_count: 0, meh_count: 0, bad_count: 0, net_score: 0, total_count: 0 };
+    const f = u.feedback || { good_count: 0, meh_count: 0, bad_count: 0, total_count: 0 };
     const me = u.id === window.currentUser.id;
+    const dateCell = (iso) => iso ? new Date(iso).toLocaleDateString() : '—';
     return `
       <tr data-uid="${u.id}" class="admin-row">
         <td><strong>@${escapeHtml(u.username)}</strong>${me ? ' <span class="dim">(you)</span>' : ''}${u.is_admin ? ' <span class="role-tag">admin</span>' : ''}</td>
-        <td class="dim">${u.created_at ? new Date(u.created_at).toLocaleDateString() : ''}</td>
-        <td><span class="fb-num fb-good">${f.good_count}</span> · <span class="fb-num fb-meh">${f.meh_count}</span> · <span class="fb-num fb-bad">${f.bad_count}</span></td>
-        <td>${f.net_score}</td>
+        <td>${u.full_name ? escapeHtml(u.full_name) : '<span class="dim">—</span>'}</td>
+        <td class="admin-num">${u.collection_count ?? 0}</td>
+        <td class="admin-num">${u.wishlist_count ?? 0}</td>
+        <td class="admin-num">${u.for_trade_count ?? 0}</td>
+        <td class="dim">${dateCell(u.last_seen_at)}</td>
+        <td class="admin-fb dim"><span class="fb-good">${f.good_count}</span>·<span class="fb-meh">${f.meh_count}</span>·<span class="fb-bad">${f.bad_count}</span></td>
         <td><button data-admin-action="open" data-uid="${u.id}">Inspect →</button></td>
       </tr>
     `;
@@ -123,7 +127,7 @@ function renderAdminUserList() {
     </section>
     <h2 class="trader-head"><span>Users</span></h2>
     <table class="admin-table">
-      <thead><tr><th>Username</th><th>Joined</th><th>Feedback (g/m/b)</th><th>Net</th><th></th></tr></thead>
+      <thead><tr><th>Username</th><th>Name</th><th>Coll.</th><th>Wish</th><th>Trade</th><th>Last seen</th><th class="dim">Fb (g/m/b)</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
@@ -235,13 +239,13 @@ function renderAdminUserView() {
       <button data-admin-action="back">← Back to users</button>
     </div>
     <h2 class="trader-head"><span>@${escapeHtml(user.username)}</span>
+      ${user.full_name ? `<span class="dim">${escapeHtml(user.full_name)}</span>` : ''}
       <span class="dim">${snapshot.collection?.name ?? '(no collection)'}</span>
     </h2>
-    <div class="feedback-summary">
+    <div class="feedback-summary feedback-summary-dim">
       <div class="fb-cell"><span class="fb-num fb-good">${f.good_count || 0}</span><span class="fb-label">good</span></div>
       <div class="fb-cell"><span class="fb-num fb-meh">${f.meh_count || 0}</span><span class="fb-label">meh</span></div>
       <div class="fb-cell"><span class="fb-num fb-bad">${f.bad_count || 0}</span><span class="fb-label">bad</span></div>
-      <div class="fb-cell"><span class="fb-num">${f.net_score || 0}</span><span class="fb-label">net</span></div>
       <div class="fb-cell"><span class="fb-num">${f.total_count || 0}</span><span class="fb-label">total</span></div>
     </div>
 
