@@ -190,3 +190,11 @@ begin
 end;
 $$;
 grant execute on function admin_user_overview() to authenticated;
+
+-- ─── 7. Lock the accessors to signed-in users ──────────────────────────
+-- These are SECURITY DEFINER and the app is auth-only, so strip the
+-- implicit PUBLIC/anon EXECUTE grant (the explicit grants above stand).
+revoke execute on function public_display_name(uuid)    from anon, public;
+revoke execute on function trade_party_name(uuid, uuid) from anon, public;
+revoke execute on function touch_last_seen()            from anon, public;
+revoke execute on function admin_user_overview()        from anon, public;
