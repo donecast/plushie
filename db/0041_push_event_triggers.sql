@@ -20,13 +20,17 @@
 -- Safe to re-run (idempotent). Paste into the Supabase SQL Editor.
 --
 -- ── ONE-TIME SETUP (run once, with YOUR real values) ───────────────────
--- The triggers read the project URL and service-role key from Supabase
--- Vault so the key never lives in this committed file. In the SQL Editor:
+-- The triggers read the project URL and a privileged key from Supabase
+-- Vault so nothing secret lives in this committed file. Use the NEW Supabase
+-- secret key (sb_secret_…, from Settings → API Keys), NOT the deprecated
+-- service-role key — and store that SAME value as the send-push edge-function
+-- secret SEND_PUSH_KEY, so the function recognises the trigger as trusted.
+-- In the SQL Editor:
 --
 --   select vault.create_secret(
 --     'https://<your-project-ref>.supabase.co', 'project_url');
 --   select vault.create_secret(
---     '<your-service-role-key>',                'service_role_key');
+--     'sb_secret_…',                            'send_push_key');
 --
 -- (Re-running create_secret with an existing name errors; use
 --  vault.update_secret(id, new_value) to rotate. List with:
@@ -63,17 +67,20 @@ begin
     return;
   end if;
 
-  select decrypted_secret into v_url from vault.decrypted_secrets where name = 'project_url'      limit 1;
-  select decrypted_secret into v_key from vault.decrypted_secrets where name = 'service_role_key' limit 1;
+  select decrypted_secret into v_url from vault.decrypted_secrets where name = 'project_url'   limit 1;
+  select decrypted_secret into v_key from vault.decrypted_secrets where name = 'send_push_key' limit 1;
   if v_url is null or v_key is null then
     return;  -- not configured yet; stay harmless
   end if;
 
+  -- send the key as both Authorization (our own auth check) and apikey (so
+  -- the gateway accepts the opaque sb_secret_ key, which isn't a JWT).
   perform net.http_post(
     url     := v_url || '/functions/v1/send-push',
     headers := jsonb_build_object(
       'Content-Type',  'application/json',
-      'Authorization', 'Bearer ' || v_key
+      'Authorization', 'Bearer ' || v_key,
+      'apikey',        v_key
     ),
     body    := jsonb_build_object(
       'user_ids', jsonb_build_array(target),
