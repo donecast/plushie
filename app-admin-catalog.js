@@ -703,7 +703,7 @@ async function openCatalogDetailModal(cid) {
         <div class="cd-actions">
           ${status !== 'coming_soon' && status !== 'fyc' ? `<button class="btn-have" data-action="cat-have" data-cid="${item.id}">🖤 Have</button>` : ''}
           ${!isWished ? `<button class="btn-want" data-action="cat-want" data-cid="${item.id}">🕯 Want</button>` : ''}
-          ${productUrl && !isLoyaltyReward(item) ? `<a class="btn-buy" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener">Buy ↗</a>` : ''}
+          ${productUrl && !isLoyaltyReward(item) && status !== 'retired' ? `<a class="btn-buy" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener">Buy ↗</a>` : ''}
           ${window.currentUser?.isAdmin
             ? (item.isCustom
                 ? `<button class="btn-ghost" data-action="cat-admin-edit" data-cid="${item.id}">✎ Edit entry</button>`

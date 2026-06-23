@@ -104,6 +104,34 @@ test('renderCatalogMeta omits the dollar price for loyalty rewards (not for sale
   assert.equal(/\$40/.test(call('renderCatalogMeta', normal)), true);
 });
 
+test('renderCatalogCard hides the Buy button for retired items', () => {
+  const owned = new Map(), wished = new Map();
+  const retired   = { id: 'r', name: 'Old Plush', handle: 'old', available: false, retired: true, tags: [] };
+  const available = { id: 'v', name: 'New Plush', handle: 'new', available: true, retired: false, tags: [] };
+  assert.equal(/btn-buy/.test(app.call('renderCatalogCard', retired, owned, wished)), false);
+  assert.equal(/btn-buy/.test(app.call('renderCatalogCard', available, owned, wished)), true);
+});
+
+test('filteredCatalog hides FYC by default, shows it only when the FYC filter is on', () => {
+  const vm = require('node:vm');
+  const setup = (statusArr) => vm.runInContext(`
+    state.collection = []; state.wishlist = [];
+    state.query = ''; state.catalogFilter = 'all'; state.catalogTheme = 'all';
+    state.catalogColor = 'all'; state.catalogUnowned = false; state.catalogOriginal = false;
+    state.catalogSort = 'name_asc';
+    state.catalogStatuses = new Set(${JSON.stringify(statusArr)});
+    state.catalog = [
+      { id: 'a', name: 'Normal Plush',  available: true, tags: [] },
+      { id: 'b', name: 'Concept Plush', available: true, tags: ['fyc'] },
+    ];
+  `, app.ctx);
+  const ids = () => app.call('filteredCatalog').map((i) => i.id).sort();
+
+  setup([]);            assert.deepEqual(ids(), ['a']);        // default feed: FYC hidden
+  setup(['available']); assert.deepEqual(ids(), ['a']);        // other filter: FYC still hidden
+  setup(['fyc']);       assert.deepEqual(ids(), ['b']);        // FYC filter on: only FYC shows
+});
+
 test('parseQuery splits positive/negative bare tokens and quoted phrases', () => {
   assert.deepEqual(call('parseQuery', '"big bad" -wolf cat'), [
     { neg: false, text: 'big bad' },
