@@ -11,8 +11,7 @@ one global scope and have no import/export, so load order in `index.html`
 is load-bearing — `app-social.js` boots the app and must stay last). Backend is **Supabase** (auth via email magic
 links, Postgres with RLS, Storage). Photos route through **Cloudflare
 R2/Workers**; hosting is Cloudflare Pages + GitHub Pages from `main`
-(custom domain `plushcrypt.com`; GitHub repo is **`donecast/Plush-Crypt`** —
-the old `donecast/plushie` name still redirects). DB changes are hand-applied
+(custom domain `plushcrypt.com`; GitHub repo is **`donecast/plushie`**). DB changes are hand-applied
 SQL in `db/00NN_*.sql` (run in the Supabase SQL editor).
 
 ## ⚠️ Standing direction: we will ship native apps via Capacitor
