@@ -29,6 +29,17 @@ const auth = {
     if (error) throw error;
   },
 
+  // Verify the 6-digit code from the same sign-in email. This is the escape
+  // hatch for installed (Home Screen) PWAs and in-app browsers: tapping the
+  // magic link opens a SEPARATE browser context, so the session never lands
+  // back in the app and the user is stuck in a re-request loop. Typing the
+  // code signs in directly in THIS context. Needs the Supabase "Magic Link"
+  // email template to include the code token ({{ .Token }}).
+  async verifyEmailCode(email, token) {
+    const { error } = await sb.auth.verifyOtp({ email, token, type: 'email' });
+    if (error) throw error;
+  },
+
   async signOut() {
     await sb.auth.signOut();
   },
@@ -284,6 +295,7 @@ async function runAuthGate(onReady) {
 
   // Login form: send magic link. The submit button stays disabled until both
   // the email field is non-empty and the Terms/Privacy checkbox is ticked.
+  let sentEmail = '';   // remembered for the code-verify step on the 'sent' screen
   const submitBtn = document.getElementById('auth-submit');
   const emailInput = document.getElementById('auth-email');
   const agreeBox = document.getElementById('auth-agree');
@@ -300,6 +312,7 @@ async function runAuthGate(onReady) {
     submitBtn.disabled = true; submitBtn.textContent = 'Sending…';
     try {
       await auth.sendMagicLink(email);
+      sentEmail = email;
       document.getElementById('auth-sent-email').textContent = email;
       show('sent');
     } catch (err) {
@@ -311,6 +324,39 @@ async function runAuthGate(onReady) {
   });
 
   document.getElementById('auth-back').addEventListener('click', () => show('login'));
+
+  // Code-verify form (the 'sent' screen): the PWA / in-app-browser escape
+  // hatch. Verifies the 6-digit code straight into THIS context, so an
+  // installed Home Screen app signs in without the link bouncing elsewhere.
+  // On success the SIGNED_IN event re-runs evaluate() and unlocks the app.
+  const codeForm = document.getElementById('auth-code-form');
+  if (codeForm) {
+    const codeInput = document.getElementById('auth-code');
+    const codeErr = document.getElementById('auth-code-error');
+    codeForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const token = (codeInput.value || '').trim();
+      codeErr.classList.add('hidden');
+      if (!/^\d{6}$/.test(token)) {
+        codeErr.textContent = 'Enter the 6-digit code from the email.';
+        codeErr.classList.remove('hidden');
+        return;
+      }
+      const btn = codeForm.querySelector('button[type=submit]');
+      btn.disabled = true; btn.textContent = 'Verifying…';
+      try {
+        await auth.verifyEmailCode(sentEmail, token);
+        // SIGNED_IN fires → evaluate() releases the gate.
+      } catch (err) {
+        codeErr.textContent = /expired|invalid|token|otp/i.test(err.message || '')
+          ? 'That code is wrong or expired. Check the latest email.'
+          : (err.message || 'Couldn’t verify that code.');
+        codeErr.classList.remove('hidden');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Verify code';
+      }
+    });
+  }
 
   // Username form
   document.getElementById('auth-username-form').addEventListener('submit', async (e) => {

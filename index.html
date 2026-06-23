@@ -912,6 +912,7 @@
               <li>Added the <strong>Distressed White Rabbit</strong> — the long-gone, Alice-era original — to the catalog archive.</li>
               <li>Plushies that come in multiple variants (like the Skelly Bun Flower Crown's Purple / Peach / Skelly Bows) now show up as <strong>separate, trackable cards</strong> — each with its own photo — so you can collect and wish for the exact one you want.</li>
               <li class="changelog-gated">Admins can now choose which of a plush's store photos is its cover, right from "Edit details" — handy when the first photo isn't the most flattering.</li>
+              <li>Signing in now offers a <strong>6-digit code</strong> as well as the email link — so if you've added the app to your Home Screen, you can type the code to sign in instead of getting bounced to a browser.</li>
             </ul>
             <p class="changelog-fixes">Misc bug fixes.</p>
           </div>
@@ -1057,7 +1058,17 @@
       <div class="auth-step hidden" data-step="sent">
         <div class="auth-mark">✉</div>
         <h1 class="auth-title">Check your inbox</h1>
-        <p class="auth-sub">A link is on its way to <strong><span id="auth-sent-email"></span></strong>. Tap it on this device to come right back.</p>
+        <p class="auth-sub">We emailed <strong><span id="auth-sent-email"></span></strong> a sign-in link <em>and</em> a 6-digit code.</p>
+        <form id="auth-code-form">
+          <label class="field">
+            <span class="field-label">Enter your 6-digit code</span>
+            <input type="text" id="auth-code" inputmode="numeric" autocomplete="one-time-code"
+                   pattern="[0-9]*" maxlength="6" placeholder="123456" />
+          </label>
+          <button type="submit" class="btn primary">Verify code</button>
+        </form>
+        <p id="auth-code-error" class="auth-error hidden"></p>
+        <p class="auth-hint">On a phone with the app added to your Home Screen, the link can open a different browser and strand you here — typing the code signs you in right where you are. Or just tap the link on this device.</p>
         <button class="btn" id="auth-back" type="button">Use a different email</button>
       </div>
 
@@ -1277,7 +1288,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./config.js?v=53"></script>
-  <script src="./auth.js?v=57"></script>
+  <script src="./auth.js?v=58"></script>
   <script src="./db.js?v=51"></script>
   <script src="./data.js?v=69"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
