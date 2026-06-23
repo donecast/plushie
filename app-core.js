@@ -719,6 +719,16 @@ function normalizeShopifyProduct(p) {
   const available = variants.some((v) => v.available);
   const priceNums = variants.map((v) => parseFloat(v.price)).filter((n) => !isNaN(n));
   const tags = p.tags || [];
+  const lcTags = tags.map((t) => t.toLowerCase());
+  const comingSoon = lcTags.includes('coming soon') || lcTags.includes('tba');
+  // PD explicitly tags truly-retired designs 'retired'. They also tag
+  // final-stock legacy runs 'last chance' — once those sell out they're
+  // gone for good, so a sold-out 'last chance' item is effectively retired.
+  // Guard on !comingSoon so a restocking item (tagged 'coming soon'/'TBA')
+  // never reads as retired, and leave still-buyable 'last chance' items as
+  // available so we don't hide something you can still purchase.
+  const retired = lcTags.includes('retired')
+    || (!available && !comingSoon && lcTags.includes('last chance'));
   const parsed = parseBodyHtml(p.body_html, p.title);
   const item = {
     id: String(p.id),
@@ -728,7 +738,7 @@ function normalizeShopifyProduct(p) {
     image: p.images?.[0]?.src || null,
     price: priceNums.length ? Math.min(...priceNums) : null,
     available,
-    retired: tags.some((t) => t.toLowerCase() === 'retired'),
+    retired,
     createdAt: p.created_at,
     publishedAt: p.published_at,
     tags,
