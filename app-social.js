@@ -83,7 +83,7 @@ function scheduleSocialCheck() {
 
 function updateSocialBadge() {
   const n = state.socPendingCount || 0;
-  for (const id of ['social-badge', 'soc-friends-badge']) {
+  for (const id of ['coven-badge', 'soc-friends-badge']) {
     const b = document.getElementById(id);
     if (!b) continue;
     b.textContent = n;
@@ -352,6 +352,22 @@ function renderFriends() {
 function renderMyProfileTab() {
   // Reuse the profile renderer pointed at myself, but with edit affordances.
   const el = document.getElementById('soc-me');
+  renderProfileInto(el, {
+    profile: { id: window.currentUser.id, username: window.currentUser.username, bio: state._myBio, avatarUrl: state._myAvatarUrl, socialLinks: state._mySocialLinks },
+    posts: state._myPosts || [],
+    top8: state._myTop8 || [],
+    isMe: true,
+  });
+  el.insertAdjacentHTML('beforeend', renderBlockedManager());
+}
+
+// My Crypt masthead — the merged identity surface's header. Same content as
+// the old Social → My Crypt tab (profile + Top 8 + edit affordances + blocked
+// manager), rendered above the collection / wish list body on the Crypt tab.
+// Reads the same state._my* cache that loadMyProfileCache() populates.
+function renderCryptMasthead() {
+  const el = document.getElementById('crypt-masthead');
+  if (!el || !window.currentUser) return;
   renderProfileInto(el, {
     profile: { id: window.currentUser.id, username: window.currentUser.username, bio: state._myBio, avatarUrl: state._myAvatarUrl, socialLinks: state._mySocialLinks },
     posts: state._myPosts || [],
@@ -867,6 +883,29 @@ function wireSocialEvents() {
   document.getElementById('social-view').addEventListener('click', onSocialClick);
   document.getElementById('social-modal').addEventListener('click', onSocialModalClick);
 
+  // The My Crypt masthead lives outside #social-view but reuses the same
+  // delegated profile handlers (edit profile, edit Top 8, view a profile,
+  // like/comment on your own posts, graceful image fallback).
+  const cryptMast = document.getElementById('crypt-masthead');
+  if (cryptMast) {
+    cryptMast.addEventListener('click', onSocialClick);
+    cryptMast.addEventListener('submit', (e) => {
+      const f = e.target.closest('[data-soc-action="submit-comment"]');
+      if (f) { e.preventDefault(); submitCommentForm(f); return; }
+      const ef = e.target.closest('[data-soc-action="submit-comment-edit"]');
+      if (ef) { e.preventDefault(); submitCommentEdit(ef); }
+    });
+    cryptMast.addEventListener('error', (e) => {
+      const img = e.target;
+      if (img.tagName !== 'IMG' || img.dataset.fellBack) return;
+      img.dataset.fellBack = '1';
+      const slot = img.closest('.soc-top8-photo');
+      if (slot) { slot.innerHTML = '<span class="no-photo">🖤</span>'; return; }
+      const photo = img.closest('.soc-post-photo');
+      if (photo) { photo.remove(); }
+    }, true);
+  }
+
   // Search (debounced) on the friends sub-tab.
   document.getElementById('social-view').addEventListener('input', async (e) => {
     if (e.target.id !== 'soc-search-input') return;
@@ -1252,7 +1291,7 @@ async function boot() {
   // repaint when ready (also fires friend-request notifications + badge).
   loadSocialData().then(() => {
     updateSocialBadge();
-    if (state.tab === 'social') renderSocial();
+    if (state.tab === 'home') renderSocial();
   });
   scheduleSocialCheck();  // keep polling for new requests while the app is open
   updateNotifyButton();

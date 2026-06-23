@@ -3152,8 +3152,11 @@ body.locked { overflow: hidden; }
 .user-badge .user-name { letter-spacing: 0; }
 .user-badge .user-caret { font-size: 0.7rem; opacity: 0.7; }
 
+.user-badge-wrap { position: relative; }
 .user-menu {
-  position: fixed;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
   z-index: 950;
   background: var(--surface);
   border: 1px solid var(--hairline-2);
@@ -3179,6 +3182,25 @@ body.locked { overflow: hidden; }
 .user-menu .menu-item:hover { background: var(--canvas); color: var(--rose-2); }
 .user-menu .menu-item.danger { color: var(--danger-1); font-weight: 700; }
 .user-menu .menu-item.danger:hover { background: var(--danger-soft); color: var(--danger-1); }
+
+/* ─── Coven (friends/requests) ambient header icon ────────── */
+/* The round .icon-btn anchors a corner count badge (the count that used to
+   sit on the old Social tab). */
+.icon-btn { position: relative; }
+#coven-btn .tab-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  padding: 0 4px;
+  border: 2px solid var(--canvas);
+}
+
+/* ─── My Crypt masthead ────────────────────────────── */
+/* The profile (avatar/bio/Top 8/reputation) renders into #crypt-masthead
+   above the shared sub-tab strip on the Crypt tab. renderProfileInto() brings
+   its own internal styles; this just spaces it from the strip below. */
+.crypt-masthead:not(:empty) { margin-bottom: 16px; }
 
 /* ─── Admin ────────────────────────────── */
 .admin-table {

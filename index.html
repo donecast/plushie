@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=91" />
+  <link rel="stylesheet" href="./styles.css?v=92" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -65,21 +65,28 @@
         <h1>The Plush Crypt</h1>
       </div>
       <div class="header-actions">
-        <button id="user-badge" class="user-badge hidden" title="Account">
-          <span class="user-name">@user</span>
-          <span class="user-caret">▾</span>
-        </button>
+        <button id="coven-btn" class="icon-btn hidden" title="Coven" aria-label="Coven and friend requests">👥<span id="coven-badge" class="tab-badge hidden" aria-live="polite">0</span></button>
         <button id="theme-btn" class="icon-btn" title="Toggle light/dark" aria-label="Toggle light or dark theme">🌙</button>
         <button id="notify-btn" class="icon-btn" title="Enable notifications" aria-label="Enable notifications">🔔</button>
+        <div class="user-badge-wrap">
+          <button id="user-badge" class="user-badge hidden" title="Account" aria-haspopup="menu" aria-expanded="false">
+            <span class="user-name">@user</span>
+            <span class="user-caret">▾</span>
+          </button>
+          <div id="user-menu" class="user-menu hidden" role="menu" aria-label="Account menu">
+            <button type="button" class="menu-item" role="menuitem" data-go="crypt">🦇 View my crypt</button>
+            <button type="button" class="menu-item" role="menuitem" data-go="account">⚙️ Account &amp; settings</button>
+            <button type="button" class="menu-item hidden" role="menuitem" data-go="admin" id="menu-admin">🛡️ Admin</button>
+            <button type="button" class="menu-item danger" role="menuitem" data-go="signout">⤓ Sign out</button>
+          </div>
+        </div>
       </div>
     </div>
-    <nav class="tabs">
-      <button class="tab active" data-tab="social">Social <span id="social-badge" class="tab-badge hidden">0</span></button>
-      <button class="tab" data-tab="catalog">Catalog</button>
-      <button class="tab" data-tab="collection">My Collection</button>
-      <button class="tab" data-tab="wishlist">Wish List</button>
-      <button class="tab" data-tab="trade">Trade <span id="trade-badge" class="tab-badge hidden">0</span></button>
-      <button class="tab hidden" id="admin-tab" data-tab="admin">Admin</button>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="home" role="tab" aria-selected="true">Home</button>
+      <button class="tab" data-tab="catalog" role="tab" aria-selected="false">Catalog</button>
+      <button class="tab" data-tab="crypt" role="tab" aria-selected="false">My Crypt</button>
+      <button class="tab" data-tab="trade" role="tab" aria-selected="false">Trade <span id="trade-badge" class="tab-badge hidden">0</span></button>
     </nav>
   </header>
 
@@ -222,29 +229,36 @@
     </div>
     <div id="active-filters" class="active-filters"></div>
 
-    <section id="collection-view" class="view">
-      <!-- Sub-tabs: collection items split by category — Plushes, Minis,
-           Accessories, Other — plus Pens (folded in from the old top-level
-           tab). Clothing lives in the Plushes/Minis closet, by scale.
-           State key is colSubTab. -->
-      <nav id="collection-subtabs" class="subtabs subtabs-collection">
-        <button class="subtab active" data-col-subtab="plushes">
-          Plushes <span class="dim" id="col-subtab-count-plushes"></span>
-        </button>
-        <button class="subtab" data-col-subtab="minis">
-          Minis <span class="dim" id="col-subtab-count-minis"></span>
-        </button>
-        <button class="subtab" data-col-subtab="accessories">
-          Accessories <span class="dim" id="col-subtab-count-accessories"></span>
-        </button>
-        <button class="subtab" data-col-subtab="other">
-          Other <span class="dim" id="col-subtab-count-other"></span>
-        </button>
-        <button class="subtab" data-col-subtab="pens">
-          Pens <span class="dim" id="col-subtab-count-pens"></span>
-        </button>
-      </nav>
+    <!-- My Crypt — your profile masthead renders here when the Crypt tab is
+         active; the sub-tab strip + collection/wishlist bodies live below. -->
+    <div id="crypt-masthead" class="crypt-masthead hidden"></div>
 
+    <!-- My Crypt sub-tabs: collection categories (Plushes/Minis/Accessories/
+         Other), Pens, plus Wish List (folded in from the old top-level tab).
+         Clothing lives in the Plushes/Minis closet, by scale. State key is
+         colSubTab. Moved out of #collection-view so it also drives Wish List. -->
+    <nav id="collection-subtabs" class="subtabs subtabs-collection hidden" role="tablist" aria-label="My Crypt sections">
+      <button class="subtab active" data-col-subtab="plushes">
+        Plushes <span class="dim" id="col-subtab-count-plushes"></span>
+      </button>
+      <button class="subtab" data-col-subtab="minis">
+        Minis <span class="dim" id="col-subtab-count-minis"></span>
+      </button>
+      <button class="subtab" data-col-subtab="accessories">
+        Accessories <span class="dim" id="col-subtab-count-accessories"></span>
+      </button>
+      <button class="subtab" data-col-subtab="other">
+        Other <span class="dim" id="col-subtab-count-other"></span>
+      </button>
+      <button class="subtab" data-col-subtab="pens">
+        Pens <span class="dim" id="col-subtab-count-pens"></span>
+      </button>
+      <button class="subtab" data-col-subtab="wishlist">
+        Wish List <span class="dim" id="col-subtab-count-wishlist"></span>
+      </button>
+    </nav>
+
+    <section id="collection-view" class="view hidden">
       <div id="collection-sub-items" class="subview">
         <div id="collection-grid" class="grid grid-list"></div>
         <div id="collection-empty" class="empty hidden">
@@ -306,11 +320,6 @@
     </section>
 
     <section id="social-view" class="view hidden">
-      <nav class="subtabs">
-        <button class="subtab active" data-soc-subtab="feed">Feed</button>
-        <button class="subtab" data-soc-subtab="friends">Friends <span id="soc-friends-badge" class="tab-badge hidden">0</span></button>
-        <button class="subtab" data-soc-subtab="me">My Crypt</button>
-      </nav>
       <div id="soc-feed"    class="subview"></div>
       <div id="soc-friends" class="subview hidden"></div>
       <div id="soc-me"      class="subview hidden"></div>
@@ -908,6 +917,7 @@
           <div class="changelog-day">
             <h3 class="changelog-date">June 23, 2026</h3>
             <ul>
+              <li>The crypt has fewer, clearer doors. The top bar is now <strong>Home · Catalog · My Crypt · Trade</strong>. Your feed is <strong>Home</strong>; your collection, wish list, and profile now live together under <strong>My Crypt</strong>; and your <strong>Coven</strong> (friends &amp; requests) moved to the 👥 icon up top, next to the bell. Everything you had is still here — just easier to find. 🦇</li>
               <li>Retired plushies now read as <strong>Retired</strong> in the catalog. Final-run "last chance" designs that have sold out are marked as gone for good, so the archive reflects what's truly retired — not just temporarily out of stock.</li>
               <li>Added the <strong>Distressed White Rabbit</strong> — the long-gone, Alice-era original — to the catalog archive.</li>
               <li>Plushies that come in multiple variants (like the Skelly Bun Flower Crown's Purple / Peach / Skelly Bows) now show up as <strong>separate, trackable cards</strong> — each with its own photo — so you can collect and wish for the exact one you want.</li>
@@ -1294,14 +1304,14 @@
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=96"></script>
-  <script src="./app-catalog.js?v=96"></script>
-  <script src="./app-collection.js?v=96"></script>
-  <script src="./app-ui.js?v=96"></script>
-  <script src="./app-trade.js?v=96"></script>
-  <script src="./app-account.js?v=96"></script>
-  <script src="./app-admin.js?v=96"></script>
-  <script src="./app-admin-catalog.js?v=96"></script>
-  <script src="./app-social.js?v=96"></script>
+  <script src="./app-core.js?v=97"></script>
+  <script src="./app-catalog.js?v=97"></script>
+  <script src="./app-collection.js?v=97"></script>
+  <script src="./app-ui.js?v=97"></script>
+  <script src="./app-trade.js?v=97"></script>
+  <script src="./app-account.js?v=97"></script>
+  <script src="./app-admin.js?v=97"></script>
+  <script src="./app-admin-catalog.js?v=97"></script>
+  <script src="./app-social.js?v=97"></script>
 </body>
 </html>

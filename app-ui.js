@@ -627,12 +627,17 @@ function loadFilters() {
     // Legacy migration: 'pens' was a top-level tab pre-v52; users who had
     // it saved should land on Collection → Pens sub-tab instead so they
     // don't see an empty / non-existent tab.
-    if (state.tab === 'pens') { state.tab = 'collection'; state.colSubTab = 'pens'; }
+    if (state.tab === 'pens') { state.tab = 'crypt'; state.colSubTab = 'pens'; }
+    // IA v2: 'Social' → 'home'; 'My Collection' + 'Wish List' merged into the
+    // 'crypt' tab (Wish List becomes a sub-tab). Map any saved value forward.
+    if (state.tab === 'social') state.tab = 'home';
+    if (state.tab === 'collection') state.tab = 'crypt';
+    if (state.tab === 'wishlist') { state.tab = 'crypt'; state.colSubTab = 'wishlist'; }
     // The collection sub-tabs were split from 'plushies'/'pens' into
-    // plushes/minis/accessories/other/pens. Map the old plushies value and
-    // guard against any unknown stored value.
+    // plushes/minis/accessories/other/pens (+ wishlist in v2). Map the old
+    // plushies value and guard against any unknown stored value.
     if (state.colSubTab === 'plushies') state.colSubTab = 'plushes';
-    if (!['plushes', 'minis', 'accessories', 'other', 'pens'].includes(state.colSubTab)) {
+    if (!['plushes', 'minis', 'accessories', 'other', 'pens', 'wishlist'].includes(state.colSubTab)) {
       state.colSubTab = 'plushes';
     }
     // Sync the search input value so the visible UI matches the restored state.
@@ -653,9 +658,14 @@ function wireEvents() {
         state.tradeSubTab = 'browse';   // always land on Browse (item 21)
         await loadTradeData();          // refresh from server on enter
       }
-      if (state.tab === 'social') {
+      if (state.tab === 'home') {
         state.socProfile = null;       // always land on the feed, not a stale profile
+        state.socSubTab = 'feed';
         await loadSocialData();
+      }
+      if (state.tab === 'crypt') {
+        // My Crypt's masthead reads the my-profile cache; refresh it on enter.
+        await loadMyProfileCache();
       }
       if (state.tab === 'admin') {
         state.adminUserView = null;
@@ -915,7 +925,55 @@ function wireEvents() {
     el.addEventListener('click', closeMiniProfile)
   );
 
-  document.getElementById('user-badge').addEventListener('click', openAccountModal);
+  // Account dropdown under the user badge (replaces the old direct-to-modal
+  // click). Houses View my crypt / Account / Admin (is_admin only) / Sign out.
+  const userBadge = document.getElementById('user-badge');
+  const userMenu = document.getElementById('user-menu');
+  const closeUserMenu = () => {
+    userMenu.classList.add('hidden');
+    userBadge.setAttribute('aria-expanded', 'false');
+  };
+  userBadge.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = userMenu.classList.contains('hidden');
+    userMenu.classList.toggle('hidden', !open);
+    userBadge.setAttribute('aria-expanded', open ? 'true' : 'false');
+    // Admin entry mirrors the old hidden admin tab's is_admin gate.
+    document.getElementById('menu-admin').classList.toggle('hidden', !window.currentUser?.isAdmin);
+  });
+  document.addEventListener('click', (e) => {
+    if (userMenu.classList.contains('hidden')) return;
+    if (!userMenu.contains(e.target) && !userBadge.contains(e.target)) closeUserMenu();
+  });
+  userMenu.addEventListener('click', async (e) => {
+    const item = e.target.closest('[data-go]');
+    if (!item) return;
+    closeUserMenu();
+    const go = item.dataset.go;
+    if (go === 'account') { openAccountModal(); return; }
+    if (go === 'signout') { handleSignOut(); return; }
+    // crypt | admin — switch tabs the same way a .tab click would.
+    tabScroll.set(state.tab, window.scrollY);
+    state.tab = go;
+    if (go === 'crypt') await loadMyProfileCache();
+    if (go === 'admin') { state.adminUserView = null; await loadAdminUsers(); }
+    render();
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    saveFilters();
+  });
+
+  // Coven (friends / requests) — ambient header icon. Lands on Home and opens
+  // the friends surface (the old Social → Friends sub-tab).
+  document.getElementById('coven-btn').addEventListener('click', async () => {
+    tabScroll.set(state.tab, window.scrollY);
+    state.tab = 'home';
+    state.socProfile = null;
+    await loadSocialData();
+    state.socSubTab = 'friends';
+    render();
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    saveFilters();
+  });
 
   // Catalog item create + suggest photo + admin queue modals.
   document.querySelectorAll('[data-close-catalog-item]').forEach((el) =>

@@ -702,19 +702,32 @@ function render() {
   // Pens used to be a top-level tab; it's now a sub-tab of Collection.
   // We treat a Pens sub-view selection like 'tab is collection, but
   // showing the pens checklist'. The flags below derive from both.
-  const onPens = tab === 'collection' && state.colSubTab === 'pens';
+  // 'crypt' is the merged identity surface: profile masthead + the collection
+  // sub-tabs + Wish List (folded in from its old top-level tab). The flags
+  // below derive from the tab + which sub-tab is active.
+  const onCrypt = tab === 'crypt';
+  const onWish  = onCrypt && state.colSubTab === 'wishlist';
+  const onPens  = onCrypt && state.colSubTab === 'pens';
+  const onCol   = onCrypt && !onWish;   // collection grid (also hosts the Pens sub-view)
 
-  document.getElementById('collection-view').classList.toggle('hidden', tab !== 'collection');
-  document.getElementById('wishlist-view').classList.toggle('hidden', tab !== 'wishlist');
+  // Profile masthead + the shared sub-tab strip show whenever we're on Crypt.
+  document.getElementById('crypt-masthead').classList.toggle('hidden', !onCrypt);
+  document.getElementById('collection-subtabs').classList.toggle('hidden', !onCrypt);
+
+  document.getElementById('collection-view').classList.toggle('hidden', !onCol);
+  document.getElementById('wishlist-view').classList.toggle('hidden', !onWish);
   document.getElementById('catalog-view').classList.toggle('hidden', tab !== 'catalog');
   document.getElementById('trade-view').classList.toggle('hidden', tab !== 'trade');
-  document.getElementById('social-view').classList.toggle('hidden', tab !== 'social');
+  document.getElementById('social-view').classList.toggle('hidden', tab !== 'home');
   document.getElementById('admin-view').classList.toggle('hidden', tab !== 'admin');
-  // Admin tab visibility is gated by the current user being is_admin.
-  document.getElementById('admin-tab').classList.toggle('hidden', !window.currentUser?.isAdmin);
 
-  // Collection sub-tabs and sub-views.
-  if (tab === 'collection') {
+  // My Crypt: render the profile masthead, light the active sub-tab, and pick
+  // the collection grid vs. the Pens checklist sub-view.
+  if (onCrypt) {
+    renderCryptMasthead();
+    // Wish List sub-tab count (the category counts are set in the onCol block).
+    const wlc = document.getElementById('col-subtab-count-wishlist');
+    if (wlc) wlc.textContent = state.wishlist.length ? `· ${state.wishlist.length}` : '';
     document.querySelectorAll('#collection-subtabs .subtab').forEach((s) =>
       s.classList.toggle('active', s.dataset.colSubtab === state.colSubTab)
     );
@@ -724,22 +737,22 @@ function render() {
 
   // Toolbar visibility: Plushies sub-tab gets the search + filters;
   // Pens sub-tab hides them. Other tabs untouched.
-  document.getElementById('collection-filters').classList.toggle('hidden', tab !== 'collection' || onPens);
-  document.getElementById('wishlist-actions').classList.toggle('hidden', tab !== 'wishlist');
+  document.getElementById('collection-filters').classList.toggle('hidden', !onCol || onPens);
+  document.getElementById('wishlist-actions').classList.toggle('hidden', !onWish);
   document.getElementById('catalog-filters').classList.toggle('hidden', tab !== 'catalog');
 
   // Search bar makes sense on item lists, not on the checklist/trade/social tabs.
-  document.getElementById('search').classList.toggle('hidden', onPens || tab === 'trade' || tab === 'admin' || tab === 'social');
+  document.getElementById('search').classList.toggle('hidden', onPens || tab === 'trade' || tab === 'admin' || tab === 'home');
   // Active-filters bar belongs to the catalog.
   document.getElementById('active-filters').classList.toggle('hidden', tab !== 'catalog');
   // The plain count-label now only shows for non-catalog tabs (catalog has its own bar).
-  document.getElementById('count-label').classList.toggle('hidden', tab === 'catalog' || onPens || tab === 'social');
+  document.getElementById('count-label').classList.toggle('hidden', tab === 'catalog' || onPens || tab === 'home');
 
   document.querySelectorAll('.tab').forEach((t) =>
     t.classList.toggle('active', t.dataset.tab === tab)
   );
 
-  if (tab === 'collection') {
+  if (onCol) {
     syncCollectionChips();
     // Map every attached accessory to the plush wearing it (computed from
     // the whole collection so attachments survive search/filters), then
@@ -826,7 +839,7 @@ function render() {
     document.getElementById('col-subtab-count-pens').textContent = `· ${pensBadge}`;
     // When Pens sub-tab is showing, the count-label is hidden (handled
     // above via the onPens flag); no need to set it here.
-  } else if (tab === 'wishlist') {
+  } else if (onWish) {
     syncWishlistChips();
     const items = filteredWishlist();
     document.getElementById('wishlist-grid').innerHTML = items.map((i) => renderCard(i, 'wishlist')).join('');
@@ -850,7 +863,7 @@ function render() {
     document.getElementById('count-label').textContent = state.adminUserView
       ? `Inspecting @${state.adminUserView.user.username}`
       : `${state.adminUsers.length} user${state.adminUsers.length === 1 ? '' : 's'}`;
-  } else if (tab === 'social') {
+  } else if (tab === 'home') {
     renderSocial();
   }
   updateTradeBadge();

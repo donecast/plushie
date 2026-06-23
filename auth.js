@@ -424,11 +424,14 @@ async function runAuthGate(onReady) {
 function updateUserBadge() {
   const badge = document.getElementById('user-badge');
   if (!badge) return;
+  const coven = document.getElementById('coven-btn');
   if (window.currentUser?.username) {
     badge.classList.remove('hidden');
     badge.querySelector('.user-name').textContent = '@' + window.currentUser.username;
+    if (coven) coven.classList.remove('hidden');
   } else {
     badge.classList.add('hidden');
+    if (coven) coven.classList.add('hidden');
   }
 }
 

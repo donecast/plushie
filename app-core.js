@@ -11,8 +11,8 @@
 
 // ─── State ────────────────────────────────────────────────────────────
 const state = {
-  tab: 'social',              // landing tab — 'social' | 'catalog' | 'collection' | 'wishlist' | 'trade' | 'admin'
-  colSubTab: 'plushes',       // collection sub-tab: 'plushes' | 'minis' | 'accessories' | 'other' | 'pens'
+  tab: 'home',                // landing tab — 'home' (feed) | 'catalog' | 'crypt' | 'trade' | 'admin'
+  colSubTab: 'plushes',       // My Crypt sub-tab: 'plushes' | 'minis' | 'accessories' | 'other' | 'pens' | 'wishlist'
   filter: 'all',              // collection: all | active | retired
   colCategory: 'all',         // legacy category chip (superseded by sub-tabs; kept inert)
   colDupes: false,            // collection: only quantity > 1
