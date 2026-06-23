@@ -86,6 +86,23 @@ test('itemStatus reflects the lifecycle precedence (retired > coming soon > fyc 
   assert.equal(call('itemStatus', { available: true, tags: [], name: 'x' }), 'available');
 });
 
+test('normalizeShopifyProduct derives retired from the retired tag and sold-out "last chance"', () => {
+  const sold = (tags) => ({ id: 1, title: 'X', handle: 'x', variants: [{ price: '45', available: false }], tags });
+  const live = (tags) => ({ id: 2, title: 'Y', handle: 'y', variants: [{ price: '45', available: true }], tags });
+  // PD's explicit 'retired' tag always wins, regardless of stock.
+  assert.equal(call('normalizeShopifyProduct', live(['Retired'])).retired, true);
+  // Sold-out + 'last chance' = retiring for good.
+  assert.equal(call('normalizeShopifyProduct', sold(['last chance'])).retired, true);
+  // Still-buyable 'last chance' is NOT retired (don't hide a purchasable item).
+  assert.equal(call('normalizeShopifyProduct', live(['last chance'])).retired, false);
+  // A restocking item (coming soon / TBA) never reads as retired, even if
+  // it's momentarily sold out and tagged 'last chance'.
+  assert.equal(call('normalizeShopifyProduct', sold(['last chance', 'coming soon'])).retired, false);
+  assert.equal(call('normalizeShopifyProduct', sold(['last chance', 'TBA'])).retired, false);
+  // Plain sold-out with no legacy signal stays out-of-stock, not retired.
+  assert.equal(call('normalizeShopifyProduct', sold([])).retired, false);
+});
+
 test('isLoyaltyReward flags reward-only items (case-insensitive, exact tag)', () => {
   assert.equal(call('isLoyaltyReward', { tags: ['Fairy Tale Plushies', 'Loyalty Reward'], name: 'x' }), true);
   assert.equal(call('isLoyaltyReward', { tags: ['loyalty reward'], name: 'x' }), true);
