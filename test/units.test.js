@@ -86,6 +86,24 @@ test('itemStatus reflects the lifecycle precedence (retired > coming soon > fyc 
   assert.equal(call('itemStatus', { available: true, tags: [], name: 'x' }), 'available');
 });
 
+test('isLoyaltyReward flags reward-only items (case-insensitive, exact tag)', () => {
+  assert.equal(call('isLoyaltyReward', { tags: ['Fairy Tale Plushies', 'Loyalty Reward'], name: 'x' }), true);
+  assert.equal(call('isLoyaltyReward', { tags: ['loyalty reward'], name: 'x' }), true);
+  assert.equal(call('isLoyaltyReward', { tags: ['Plush'], name: 'x' }), false);
+  assert.equal(call('isLoyaltyReward', { tags: [], name: 'x' }), false);
+  assert.equal(call('isLoyaltyReward', { name: 'x' }), false);
+  // Reward items arrive as available:false, so they still read as sold_out
+  // at the status layer — the green "Rewards" badge is a render-time swap.
+  assert.equal(call('itemStatus', { available: false, tags: ['Loyalty Reward'], name: 'x' }), 'sold_out');
+});
+
+test('renderCatalogMeta omits the dollar price for loyalty rewards (not for sale)', () => {
+  const reward = { id: 'r', name: 'Reward Plush', price: 250, tags: ['Loyalty Reward'], createdAt: '2025-03-13' };
+  const normal = { id: 'n', name: 'Regular Plush', price: 40, tags: ['Plush'], createdAt: '2025-03-13' };
+  assert.equal(/\$250/.test(call('renderCatalogMeta', reward)), false);
+  assert.equal(/\$40/.test(call('renderCatalogMeta', normal)), true);
+});
+
 test('parseQuery splits positive/negative bare tokens and quoted phrases', () => {
   assert.deepEqual(call('parseQuery', '"big bad" -wolf cat'), [
     { neg: false, text: 'big bad' },
