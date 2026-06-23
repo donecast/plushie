@@ -20,7 +20,9 @@ function formatDate(iso) {
   if (!iso) return '';
   const d = new Date(iso);
   if (isNaN(d)) return '';
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  // Date-only ISO strings parse as UTC midnight; render in UTC too so the
+  // calendar day is stable regardless of the viewer's timezone.
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
 // Parse one AND-group of a search string into positive / negative terms.
