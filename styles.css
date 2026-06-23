@@ -1044,6 +1044,14 @@ main {
   color: var(--rose-2);
   border: 1px solid var(--rose-edge);
 }
+/* Loyalty-reward items: green, not the red "Sold Out" — they're redeemed
+   with points rather than being out of stock. */
+.badge-reward {
+  background: var(--success-bg);
+  color: var(--success-strong);
+  border: 1px solid var(--success-border);
+  text-shadow: none;
+}
 
 .card-body {
   padding: 16px 16px 14px;

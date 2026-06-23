@@ -352,7 +352,9 @@ function renderCatalogCard(rawItem, owned, wished) {
   if (status === 'retired') badges.push(`<span class="badge badge-retired">Retired</span>`);
   else if (status === 'coming_soon') badges.push(`<span class="badge badge-soon">Coming Soon</span>`);
   else if (status === 'fyc') badges.push(`<span class="badge badge-fyc" title="For Your Consideration — under consideration, doesn't exist yet">FYC</span>`);
-  else if (status === 'sold_out') badges.push(`<span class="badge badge-oos">Sold Out</span>`);
+  else if (status === 'sold_out') badges.push(isLoyaltyReward(item)
+    ? `<span class="badge badge-reward" title="Loyalty reward — redeem with loyalty points, not for direct purchase">Rewards</span>`
+    : `<span class="badge badge-oos">Sold Out</span>`);
   if (isMiniPlushie(item)) badges.push(`<span class="badge badge-mini">Mini</span>`);
   if (item.isBundle) {
     badges.push(`<span class="badge badge-bundle" title="Bundle — multiple items. Click Have to pick which ones you own.">Bundle</span>`);

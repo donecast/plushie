@@ -695,7 +695,9 @@ async function openCatalogDetailModal(cid) {
         <p class="dim">
           ${isOwned ? '<span class="card-status owned">✓ Owned</span> ' : ''}
           ${isWished ? '<span class="card-status wished">★ Wished</span> ' : ''}
-          ${status === 'sold_out' ? '<span class="badge badge-oos">Sold Out</span> ' : ''}
+          ${status === 'sold_out' ? (isLoyaltyReward(item)
+            ? '<span class="badge badge-reward" title="Loyalty reward — redeem with loyalty points, not for direct purchase">Rewards</span> '
+            : '<span class="badge badge-oos">Sold Out</span> ') : ''}
           ${status === 'retired' ? '<span class="badge badge-retired">Retired</span> ' : ''}
         </p>
         <div class="cd-actions">

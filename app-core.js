@@ -500,6 +500,14 @@ function isFYC(item) {
   return (item.tags || []).some((t) => t.toLowerCase() === 'fyc');
 }
 
+// Loyalty-reward items aren't for sale — they're redeemed with loyalty
+// points. They come from Shopify as available:false (so itemStatus reports
+// 'sold_out'), but we surface them with a green "Rewards" badge instead of
+// the red "Sold Out" pill.
+function isLoyaltyReward(item) {
+  return (item.tags || []).some((t) => t.toLowerCase() === 'loyalty reward');
+}
+
 function isBuyableNow(item) {
   return !!item.available && !isComingSoon(item) && !isFYC(item) && !item.retired;
 }
