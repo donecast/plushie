@@ -691,7 +691,7 @@ async function openCatalogDetailModal(cid) {
       <div class="cd-head-text">
         <div class="card-eyebrow">${escapeHtml(item.type || 'plush')}${item.releaseYear ? ` · ${item.releaseYear}` : ''}</div>
         <h2>${escapeHtml(display)}${formLabel ? ` <span class="card-form-label">${escapeHtml(formLabel)}</span>` : ''}</h2>
-        ${item.price != null ? `<p class="cd-price">$${Number(item.price).toFixed(2)}</p>` : ''}
+        ${item.price != null && !isLoyaltyReward(item) ? `<p class="cd-price">$${Number(item.price).toFixed(2)}</p>` : ''}
         <p class="dim">
           ${isOwned ? '<span class="card-status owned">✓ Owned</span> ' : ''}
           ${isWished ? '<span class="card-status wished">★ Wished</span> ' : ''}
@@ -703,7 +703,7 @@ async function openCatalogDetailModal(cid) {
         <div class="cd-actions">
           ${status !== 'coming_soon' && status !== 'fyc' ? `<button class="btn-have" data-action="cat-have" data-cid="${item.id}">🖤 Have</button>` : ''}
           ${!isWished ? `<button class="btn-want" data-action="cat-want" data-cid="${item.id}">🕯 Want</button>` : ''}
-          ${productUrl ? `<a class="btn-buy" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener">Buy ↗</a>` : ''}
+          ${productUrl && !isLoyaltyReward(item) ? `<a class="btn-buy" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener">Buy ↗</a>` : ''}
           ${window.currentUser?.isAdmin
             ? (item.isCustom
                 ? `<button class="btn-ghost" data-action="cat-admin-edit" data-cid="${item.id}">✎ Edit entry</button>`

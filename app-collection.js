@@ -316,7 +316,8 @@ function sortCatalog(items, mode) {
 
 function renderCatalogMeta(item) {
   const parts = [];
-  if (item.price != null) parts.push(`<span>$${Number(item.price).toFixed(2)}</span>`);
+  // Loyalty rewards aren't for sale, so a dollar price is misleading — omit it.
+  if (item.price != null && !isLoyaltyReward(item)) parts.push(`<span>$${Number(item.price).toFixed(2)}</span>`);
   // Prefer an explicit release_year (admin-set on customs) over the
   // createdAt fallback so retired/Patreon-era plushies show their
   // actual release date, not when they were added to the catalog.
@@ -374,7 +375,8 @@ function renderCatalogCard(rawItem, owned, wished) {
   const canHave = !(status === 'coming_soon' || status === 'fyc');
   const haveBtn  = canHave  ? `<button class="btn-have" data-action="cat-have" data-cid="${item.id}">🖤 Have</button>` : '';
   const wantBtn  = !isWished ? `<button class="btn-want" data-action="cat-want" data-cid="${item.id}">🕯 Want</button>` : '';
-  const linkBtn  = productUrl ? `<a class="btn-buy" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener" title="Open product page">Buy</a>` : '';
+  // No Buy for loyalty rewards — they're redeemed with points, not purchasable.
+  const linkBtn  = (productUrl && !isLoyaltyReward(item)) ? `<a class="btn-buy" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener" title="Open product page">Buy</a>` : '';
   // "Suggest a photo" appears when the item has no image. We thread
   // the target id through dataset so the handler knows whether to
   // attach it to a Shopify id or a catalog_items uuid. Hidden when

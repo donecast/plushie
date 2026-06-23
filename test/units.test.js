@@ -97,6 +97,13 @@ test('isLoyaltyReward flags reward-only items (case-insensitive, exact tag)', ()
   assert.equal(call('itemStatus', { available: false, tags: ['Loyalty Reward'], name: 'x' }), 'sold_out');
 });
 
+test('renderCatalogMeta omits the dollar price for loyalty rewards (not for sale)', () => {
+  const reward = { id: 'r', name: 'Reward Plush', price: 250, tags: ['Loyalty Reward'], createdAt: '2025-03-13' };
+  const normal = { id: 'n', name: 'Regular Plush', price: 40, tags: ['Plush'], createdAt: '2025-03-13' };
+  assert.equal(/\$250/.test(call('renderCatalogMeta', reward)), false);
+  assert.equal(/\$40/.test(call('renderCatalogMeta', normal)), true);
+});
+
 test('parseQuery splits positive/negative bare tokens and quoted phrases', () => {
   assert.deepEqual(call('parseQuery', '"big bad" -wolf cat'), [
     { neg: false, text: 'big bad' },
