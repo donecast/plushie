@@ -269,6 +269,10 @@ function filteredCatalog() {
     // theme / category as the parent.
     const it = resolveCatalogItem(raw);
     if (cat !== 'all' && catalogCategory(it) !== cat) return false;
+    // FYC ("for your consideration") items are unconfirmed concepts that look
+    // unfinished, so they're hidden from every feed/search by default. They
+    // surface only when the viewer explicitly enables the FYC status filter.
+    if (itemStatus(it) === 'fyc' && !statuses.has('fyc')) return false;
     if (statuses.size > 0 && !statuses.has(itemStatus(it))) return false;
     if (state.catalogUnowned && owned.has(it.id)) return false;
     if (state.catalogOriginal) {
@@ -378,7 +382,8 @@ function renderCatalogCard(rawItem, owned, wished) {
   const haveBtn  = canHave  ? `<button class="btn-have" data-action="cat-have" data-cid="${item.id}">🖤 Have</button>` : '';
   const wantBtn  = !isWished ? `<button class="btn-want" data-action="cat-want" data-cid="${item.id}">🕯 Want</button>` : '';
   // No Buy for loyalty rewards — they're redeemed with points, not purchasable.
-  const linkBtn  = (productUrl && !isLoyaltyReward(item)) ? `<a class="btn-buy" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener" title="Open product page">Buy</a>` : '';
+  // No Buy for loyalty rewards (points-only) or retired items (no longer sold).
+  const linkBtn  = (productUrl && !isLoyaltyReward(item) && status !== 'retired') ? `<a class="btn-buy" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener" title="Open product page">Buy</a>` : '';
   // "Suggest a photo" appears when the item has no image. We thread
   // the target id through dataset so the handler knows whether to
   // attach it to a Shopify id or a catalog_items uuid. Hidden when
