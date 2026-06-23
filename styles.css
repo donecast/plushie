@@ -2852,6 +2852,22 @@ body.cl-insider .changelog-gated strong { color: #2f6fed; }
   font-style: italic;
   font-size: 0.88rem;
 }
+/* Demo-mode toggle: checkbox left, label + hint stacked to its right.
+   Stays a row on mobile (the generic .account-row goes column there). */
+.demo-mode-row {
+  align-items: flex-start;
+  cursor: pointer;
+  margin-bottom: 0;
+}
+.demo-mode-row > input[type="checkbox"] {
+  margin: 2px 0 0;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+.demo-mode-copy { display: flex; flex-direction: column; }
+.demo-mode-copy .account-hint { margin-top: 2px; }
 
 .feedback-summary {
   display: grid;
@@ -3556,6 +3572,7 @@ body.locked { overflow: hidden; }
   /* Account modal sections */
   .account-row { flex-direction: column; align-items: stretch; gap: 6px; }
   .account-row.right { flex-direction: row; justify-content: flex-end; }
+  .demo-mode-row { flex-direction: row; align-items: flex-start; gap: 10px; }
   .feedback-summary { grid-template-columns: repeat(5, 1fr); gap: 4px; }
   .fb-cell { padding: 8px 4px; }
   .fb-num { font-size: 1.05rem; }

@@ -1981,7 +1981,41 @@ data.loadAppSettings = async function () {
 // explicit; add a name here to comp someone before billing exists.
 data.ALWAYS_GRANTED_USERNAMES = ['redrambler'];
 
+// ─── Demo mode ───────────────────────────────────────────────────────
+// A purely client-side, per-device recording aid. When ON, the signed-in
+// account presents as an ordinary collector: every feature that isn't
+// publicly available is hidden — gated perks (custom clothing), gated
+// photo uploads, admin tooling, and the blue "insider" change-log notes —
+// so an insider (e.g. redrambler) can record instructional videos that
+// only show what regular members see.
+//
+// It is deliberately the lightest possible mechanism: a single
+// localStorage flag. It writes NOTHING to the database, changes nothing
+// for any other user, and is fully reversible — flipping it back off (or
+// clearing site data) restores everything exactly. Auth re-derives the
+// real identity from the profile on every boot, and toggling reloads the
+// page so all gates re-evaluate cleanly with no half-applied UI state.
+data.DEMO_MODE_KEY = 'plushcrypt.demoMode';
+data.isDemoMode = function () {
+  try { return localStorage.getItem(data.DEMO_MODE_KEY) === '1'; }
+  catch { return false; }
+};
+data.setDemoMode = function (on) {
+  try {
+    if (on) localStorage.setItem(data.DEMO_MODE_KEY, '1');
+    else localStorage.removeItem(data.DEMO_MODE_KEY);
+  } catch { /* storage disabled (private mode) — non-fatal */ }
+};
+
 data.featureEnabled = function (key, defaultValue = true) {
+  // Demo mode hides not-yet-public, gated features so recordings only show
+  // what ordinary collectors have. These two keys gate insider perks; the
+  // allowlist/admin overrides below would otherwise keep them on for
+  // redrambler, so short-circuit them here.
+  if (data.isDemoMode() &&
+      (key === 'feature.custom_clothing' || key === 'feature.user_photo_uploads')) {
+    return false;
+  }
   // Per-user photo uploads: profiles.photo_uploads_enabled, with an
   // unconditional admin override. The global app_settings row from
   // 0017 is no longer consulted for this key — toggling now happens
