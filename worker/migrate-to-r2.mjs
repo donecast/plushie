@@ -140,7 +140,9 @@ async function signed(bucket, key) {
   });
   if (!r.ok) throw new Error(`sign ${r.status}`);
   const j = await r.json();
-  return SUPABASE_URL + j.signedURL;
+  // Supabase returns signedURL as '/object/sign/...'; the REST API lives
+  // under '/storage/v1', so prepend it or the download 404s.
+  return SUPABASE_URL + '/storage/v1' + j.signedURL;
 }
 
 function contentTypeFor(key) {
