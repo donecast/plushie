@@ -1499,26 +1499,35 @@ data.adminUpdateCatalogItem = async function (id, patch) {
 data.listCatalogOverrides = async function () {
   const { data: rows, error } = await sb
     .from('catalog_overrides')
-    .select('handle, lore, symbolism, accessories');
+    .select('handle, lore, symbolism, accessories, image');
   if (error) { console.warn('catalog overrides load skipped', error); return []; }
   return rows || [];
 };
 
-// Admin upsert. patch carries { lore, symbolism, accessories } — any
-// field null/omitted means "no override, inherit live". When all three
-// are empty the row is deleted instead so the table stays tidy and the
+// Admin upsert. patch carries { lore, symbolism, accessories, image } — any
+// field null/omitted means "no override, inherit live". When every field
+// is empty the row is deleted instead so the table stays tidy and the
 // item reverts cleanly to the live feed.
 data.adminUpsertCatalogOverride = async function (handle, patch) {
   const lore = patch.lore || null;
   const symbolism = patch.symbolism || null;
   const accessories = (Array.isArray(patch.accessories) && patch.accessories.length)
     ? patch.accessories : null;
-  if (lore === null && symbolism === null && accessories === null) {
+  // `image` is optional: when the caller omits the key entirely (the photo
+  // picker couldn't load), we leave the existing column untouched — the upsert
+  // simply doesn't include it, so a prior cover override survives. When the key
+  // is present, '' / null clears it.
+  const hasImage = Object.prototype.hasOwnProperty.call(patch, 'image');
+  const image = patch.image || null;
+  // Delete the row only when we know the full picture is empty — i.e. the image
+  // key was provided (so we're sure there's no cover override to preserve).
+  if (lore === null && symbolism === null && accessories === null && hasImage && image === null) {
     const { error } = await sb.from('catalog_overrides').delete().eq('handle', handle);
     if (error) throw error;
     return null;
   }
   const row = { handle, lore, symbolism, accessories, updated_by: window.currentUser.id };
+  if (hasImage) row.image = image;
   const { data: saved, error } = await sb
     .from('catalog_overrides')
     .upsert(row, { onConflict: 'handle' })

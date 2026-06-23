@@ -281,7 +281,7 @@ function openCatalogOverrideModal(cid) {
     return;
   }
   if (!item.handle) { toast("This item has no handle to attach an edit to."); return; }
-  state.catalogOverride = { handle: item.handle, cid };
+  state.catalogOverride = { handle: item.handle, cid, imagePickerReady: false };
 
   document.getElementById('catalog-override-form').reset();
   document.getElementById('co-error').classList.add('hidden');
@@ -314,6 +314,69 @@ function openCatalogOverrideModal(cid) {
   document.getElementById('catalog-detail-modal').classList.add('hidden');
   document.getElementById('catalog-override-modal').classList.remove('hidden');
   setTimeout(() => document.getElementById('co-lore').focus(), 50);
+
+  // The cover-photo picker needs the product's full image list, which the
+  // runtime catalog doesn't carry (it keeps only the first image). Fetch it
+  // live and reveal the dropdown once it's ready; if the fetch fails the
+  // field just stays hidden and the rest of the editor works unchanged.
+  populateCoverPhotoPicker(item);
+}
+
+// Strip the '?v=' cache token so two URLs for the same image compare equal
+// even when Shopify re-versions the asset.
+function imageUrlBase(url) {
+  return String(url || '').split('?')[0];
+}
+
+function updateCoverPhotoPreview() {
+  const select = document.getElementById('co-image');
+  const preview = document.getElementById('co-image-preview');
+  const imgs = state.catalogOverride?.images || [];
+  // Empty value === "store default" === photo 1.
+  const url = select.value || imgs[0] || '';
+  if (url) preview.src = shopifyImageVariant(url, 96) || url;
+  else preview.removeAttribute('src');
+}
+
+async function populateCoverPhotoPicker(item) {
+  const field = document.getElementById('co-image-field');
+  const select = document.getElementById('co-image');
+  field.classList.add('hidden');
+  select.innerHTML = '';
+  const handle = item.handle;
+  if (!handle) return;
+  let images = [];
+  try {
+    const r = await fetch(`${PRODUCT_URL_BASE}${encodeURIComponent(handle)}.json`, { mode: 'cors' });
+    if (!r.ok) throw new Error(`status ${r.status}`);
+    const json = await r.json();
+    images = (json.product?.images || [])
+      .slice()
+      .sort((a, b) => (a.position || 0) - (b.position || 0))
+      .map((im) => im.src)
+      .filter(Boolean);
+  } catch (e) {
+    console.warn('cover photo list unavailable', e);
+    return;
+  }
+  // The admin may have closed/switched modals while we were fetching.
+  if (!state.catalogOverride || state.catalogOverride.handle !== handle) return;
+  // Nothing to choose between with 0–1 photos.
+  if (images.length < 2) return;
+  state.catalogOverride.images = images;
+  images.forEach((src, i) => {
+    const opt = document.createElement('option');
+    // Photo 1 is the store default — store null (inherit) for it.
+    opt.value = i === 0 ? '' : src;
+    opt.textContent = i === 0 ? 'Photo 1 (store default)' : `Photo ${i + 1}`;
+    select.appendChild(opt);
+  });
+  // Preselect whatever's currently showing (the applied override, or photo 1).
+  const matchIdx = images.findIndex((src) => imageUrlBase(src) === imageUrlBase(item.image));
+  select.value = matchIdx > 0 ? images[matchIdx] : '';
+  updateCoverPhotoPreview();
+  field.classList.remove('hidden');
+  state.catalogOverride.imagePickerReady = true;
 }
 
 async function submitCatalogOverrideForm(e) {
@@ -331,12 +394,18 @@ async function submitCatalogOverrideForm(e) {
     .map((s) => canonicalizeAccessoryName(s))
     .filter(Boolean)
     .map((name) => ({ name, key: accessoryKey(name) }));
+  const patch = { lore, symbolism, accessories };
+  // Cover photo: '' = store default (inherit), otherwise the picked image URL.
+  // Only touch the image column when the picker actually loaded — if its live
+  // image list was unavailable (offline / CORS) we leave any existing cover
+  // override untouched rather than silently clearing it.
+  if (ctx.imagePickerReady) patch.image = document.getElementById('co-image').value.trim() || null;
 
   const submit = document.getElementById('co-submit');
   submit.disabled = true;
   submit.textContent = 'Saving…';
   try {
-    await data.adminUpsertCatalogOverride(ctx.handle, { lore, symbolism, accessories });
+    await data.adminUpsertCatalogOverride(ctx.handle, patch);
     toast('Catalog details saved.');
     document.getElementById('catalog-override-modal').classList.add('hidden');
     // Do NOT call loadCatalog() here: it reloads catalog.json, which
@@ -349,7 +418,7 @@ async function submitCatalogOverrideForm(e) {
     // memory so we still never drop the parsed data.
     const refreshed = await refreshCatalogLive();
     if (!refreshed) {
-      applyCatalogOverrides(state.catalog, [{ handle: ctx.handle, lore, symbolism, accessories }]);
+      applyCatalogOverrides(state.catalog, [{ handle: ctx.handle, ...patch }]);
       if (state.tab === 'catalog') render();
     }
     // Repaint the detail modal if it's still open behind this one.
