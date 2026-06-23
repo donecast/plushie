@@ -223,7 +223,9 @@ function isCharm(item) {
 // that filters are real and lets the user clear them one at a time.
 function renderActiveFilters(shownCount) {
   const bar = document.getElementById('active-filters');
-  const total = state.catalog.length;
+  // Exclude umbrella variant-parents — they're hidden from the grid, so the
+  // "N of M products" denominator should count the browsable rows only.
+  const total = state.catalog.filter((c) => !c.variantParent).length;
   if (total === 0) {
     bar.innerHTML = '<span class="active-count">Loading catalog…</span>';
     return;
@@ -580,7 +582,7 @@ async function loadCatalog() {
     const r = await fetch('./catalog.json?v=69', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
-    const shopify = (json.products || []).filter(isPlushieCollectible);
+    const shopify = expandVariants((json.products || []).filter(isPlushieCollectible));
     state.catalog = await mergeCustomCatalog(shopify);
   } catch (e) {
     console.warn('catalog load failed', e);
@@ -676,8 +678,14 @@ async function mergeCustomCatalog(shopifyProducts) {
 // from Shopify body_html, variants inherit for free without re-creation.
 // Pure function — does not mutate the input.
 function resolveCatalogItem(item) {
-  if (!item || !item.isCustom || !item.parentHandle) return item;
-  const parent = state.catalog.find((c) => c.handle === item.parentHandle && !c.isCustom);
+  if (!item || (!item.isCustom && !item.isVariant) || !item.parentHandle) return item;
+  // Feed-derived variants share their parent's handle (they live under one
+  // Shopify product), so a handle lookup would match siblings/self — resolve
+  // by the exact parent id instead. Curated customs (no parentId) keep the
+  // by-handle lookup against the real, non-variant parent.
+  const parent = item.parentId
+    ? state.catalog.find((c) => c.id === item.parentId)
+    : state.catalog.find((c) => c.handle === item.parentHandle && !c.isCustom && !c.isVariant);
   if (!parent) return item;
   return {
     ...item,
@@ -752,6 +760,74 @@ function normalizeShopifyProduct(p) {
   // Only plushes/bundles carry accessories, and the raw parse needs
   // de-noising (features, specs, duplicates) before it's a checklist.
   item.accessories = categoryHasAccessories(item) ? normalizeAccessories(parsed.accessories) : [];
+  // Stash the raw option/variant data expandVariants() needs. Kept under a
+  // private key so it never leaks into render/search; expandVariants strips
+  // it off the parent before returning.
+  item._raw = { options: p.options || [], variants: p.variants || [] };
   return item;
+}
+
+// Option names whose multiple values represent genuinely distinct
+// collectibles (a different colour/form), as opposed to a purchase choice
+// like a hang-tag or size. Extend this set as PD introduces new ones.
+const COLLECTIBLE_OPTION_NAMES = new Set(
+  ['type', 'color', 'colour', 'style', 'design', 'character', 'form', 'face', 'bunny', 'fur'],
+);
+
+// Auto-expand a Shopify product that ships in multiple collectible variants
+// (e.g. Skelly Bun Flower Crown → Purple / Peach / Skelly Bows) into one
+// trackable sub-item per variant, nested under the product via the existing
+// parentHandle/formLabel model. The umbrella product stays in the list but
+// is flagged `variantParent` so the grid hides it (filteredCatalog) while
+// children inherit its lore/accessories via resolveCatalogItem — and any
+// collection row still keyed to the product id keeps resolving to it.
+//
+// Returns a new array; non-expanding items pass through unchanged (minus the
+// private _raw stash). Idempotent on inputs that carry no _raw (e.g. the
+// catalog.json cold-load snapshot), so it's safe to call at every build site.
+function expandVariants(items) {
+  const out = [];
+  for (const item of items) {
+    const raw = item._raw;
+    delete item._raw;
+    const options = (raw && raw.options) || [];
+    const variants = (raw && raw.variants) || [];
+    // Eligible only when there's exactly one multi-value option and its name
+    // marks a collectible distinction. Anything else (single option, size,
+    // hang-tag, default-title) stays a single card.
+    const multi = options.filter((o) => Array.isArray(o.values) && o.values.length > 1);
+    const collectible = multi.length === 1
+      && COLLECTIBLE_OPTION_NAMES.has((multi[0].name || '').trim().toLowerCase());
+    const realVariants = variants.filter((v) => v && v.title && v.title !== 'Default Title');
+    if (!collectible || realVariants.length < 2) {
+      out.push(item);
+      continue;
+    }
+    item.variantParent = true;
+    out.push(item);
+    for (const v of realVariants) {
+      const priceNum = parseFloat(v.price);
+      out.push({
+        id: `${item.id}::${v.id}`,
+        name: item.name,                 // formLabel renders the distinction
+        handle: item.handle,             // Buy points at the parent product
+        parentHandle: item.handle,
+        parentId: item.id,
+        formLabel: v.title,              // the option value, e.g. 'Purple'
+        isVariant: true,
+        type: item.type,
+        image: (v.featured_image && v.featured_image.src) || item.image,
+        price: isNaN(priceNum) ? item.price : priceNum,
+        available: !!v.available,
+        retired: item.retired,           // retirement is product-level
+        createdAt: item.createdAt,
+        publishedAt: item.publishedAt,
+        tags: item.tags,
+        accessories: [],                 // inherited from parent at resolve time
+        isBundle: false,
+      });
+    }
+  }
+  return out;
 }
 

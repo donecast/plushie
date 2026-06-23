@@ -628,7 +628,7 @@ async function refreshCatalogLive() {
     return false;
   }
   if (all.length === 0) return false;
-  const shopify = all.filter(isPlushieCollectible);
+  const shopify = expandVariants(all.filter(isPlushieCollectible));
   state.catalog = await mergeCustomCatalog(shopify);
   await idb.setMeta('last_live_refresh', Date.now());
   if (state.tab === 'catalog') render();

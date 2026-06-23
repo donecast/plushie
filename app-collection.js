@@ -264,6 +264,11 @@ function filteredCatalog() {
   const statuses = state.catalogStatuses;
   const theme = state.catalogTheme;
   const items = state.catalog.filter((raw) => {
+    // A product auto-expanded into per-variant children: hide the now-
+    // redundant umbrella card. The parent stays in state.catalog so
+    // resolveCatalogItem can read its metadata and any collection row still
+    // keyed to the product id keeps resolving to it.
+    if (raw.variantParent) return false;
     // Resolve so variants inherit parent's type / tags / status when
     // they don't override — keeps them filterable under the same
     // theme / category as the parent.
@@ -366,7 +371,7 @@ function renderCatalogCard(rawItem, owned, wished) {
   if (item.isBundle) {
     badges.push(`<span class="badge badge-bundle" title="Bundle — multiple items. Click Have to pick which ones you own.">Bundle</span>`);
   }
-  if (item.isCustom && item.formLabel) {
+  if ((item.isCustom || item.isVariant) && item.formLabel) {
     badges.push(`<span class="badge badge-form" title="Form variant">${escapeHtml(item.formLabel)}</span>`);
   }
 
@@ -389,7 +394,10 @@ function renderCatalogCard(rawItem, owned, wished) {
   // attach it to a Shopify id or a catalog_items uuid. Hidden when
   // the user_photo_uploads feature flag is off (admins still see it).
   const canSuggestPhotos = window.currentUser?.isAdmin || data.featureEnabled('feature.user_photo_uploads');
-  const suggestBtn = (!thumb && canSuggestPhotos)
+  // Variants carry a synthetic id with no Shopify product / catalog_items
+  // row to attach a suggestion to (and they always inherit a photo), so the
+  // suggest-photo affordance is suppressed for them.
+  const suggestBtn = (!thumb && canSuggestPhotos && !item.isVariant)
     ? `<button class="btn-suggest" data-action="cat-suggest-photo" data-cid="${item.id}" data-target-kind="${item.isCustom ? 'custom' : 'shopify'}">🤍 Suggest a photo</button>`
     : '';
   // Admins can edit any catalog item. Custom rows get the full editor;
@@ -411,7 +419,7 @@ function renderCatalogCard(rawItem, owned, wished) {
         ${badges.length ? `<div class="badge-stack">${badges.join('')}</div>` : ''}
       </div>
       <div class="card-body">
-        <h3 class="card-name card-name-clickable" data-action="cat-detail" data-cid="${item.id}">${escapeHtml(display)}${item.isCustom && item.formLabel ? ` <span class="card-form-label">${escapeHtml(item.formLabel)}</span>` : ''}</h3>
+        <h3 class="card-name card-name-clickable" data-action="cat-detail" data-cid="${item.id}">${escapeHtml(display)}${(item.isCustom || item.isVariant) && item.formLabel ? ` <span class="card-form-label">${escapeHtml(item.formLabel)}</span>` : ''}</h3>
         ${renderCatalogMeta(item)}
         ${suggestBtn}
       </div>
