@@ -74,6 +74,9 @@ function openCatalogItemModal(mode = 'admin', editId = null) {
     }
   }
 
+  // Close the catalog detail modal if we were launched from it (the
+  // "✎ Edit entry" button), so this editor isn't stacked behind it.
+  document.getElementById('catalog-detail-modal').classList.add('hidden');
   document.getElementById('catalog-item-modal').classList.remove('hidden');
   setTimeout(() => document.getElementById('ci-name').focus(), 50);
 }
@@ -306,6 +309,9 @@ function openCatalogOverrideModal(cid) {
     ? (item.accessories || []).map((a) => a.name || a).join('\n')
     : '';
 
+  // Close the catalog detail modal we were launched from so the editor
+  // isn't hidden behind it (the post-save flow returns to the grid).
+  document.getElementById('catalog-detail-modal').classList.add('hidden');
   document.getElementById('catalog-override-modal').classList.remove('hidden');
   setTimeout(() => document.getElementById('co-lore').focus(), 50);
 }
