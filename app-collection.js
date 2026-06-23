@@ -710,9 +710,11 @@ function render() {
   const onPens  = onCrypt && state.colSubTab === 'pens';
   const onCol   = onCrypt && !onWish;   // collection grid (also hosts the Pens sub-view)
 
-  // Profile masthead + the shared sub-tab strip show whenever we're on Crypt.
+  // Profile masthead (slim header, top) + sub-tab strip + the crypt footer
+  // (Top 8 + your posts, below the collection) all show whenever we're on Crypt.
   document.getElementById('crypt-masthead').classList.toggle('hidden', !onCrypt);
   document.getElementById('collection-subtabs').classList.toggle('hidden', !onCrypt);
+  document.getElementById('crypt-footer').classList.toggle('hidden', !onCrypt);
 
   document.getElementById('collection-view').classList.toggle('hidden', !onCol);
   document.getElementById('wishlist-view').classList.toggle('hidden', !onWish);
@@ -725,6 +727,7 @@ function render() {
   // the collection grid vs. the Pens checklist sub-view.
   if (onCrypt) {
     renderCryptMasthead();
+    renderCryptFooter();
     // Wish List sub-tab count (the category counts are set in the onCol block).
     const wlc = document.getElementById('col-subtab-count-wishlist');
     if (wlc) wlc.textContent = state.wishlist.length ? `· ${state.wishlist.length}` : '';

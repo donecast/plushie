@@ -3196,11 +3196,18 @@ body.locked { overflow: hidden; }
   border: 2px solid var(--canvas);
 }
 
-/* ─── My Crypt masthead ────────────────────────────── */
-/* The profile (avatar/bio/Top 8/reputation) renders into #crypt-masthead
-   above the shared sub-tab strip on the Crypt tab. renderProfileInto() brings
-   its own internal styles; this just spaces it from the strip below. */
+/* ─── My Crypt masthead + footer ────────────────────────────── */
+/* Collection-first My Crypt: a slim identity header renders into #crypt-masthead
+   at the top (above the sub-tab strip), while the social/identity extras (Top 8
+   + your posts + blocked manager) render into #crypt-footer BELOW the collection
+   grid. renderProfileInto()/renderCryptFooter() bring their own internal styles;
+   these rules just space the two blocks from the collection between them. */
 .crypt-masthead:not(:empty) { margin-bottom: 16px; }
+.crypt-footer:not(:empty) {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border-rose-faint);
+}
 
 /* ─── Admin ────────────────────────────── */
 .admin-table {
