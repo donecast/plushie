@@ -3987,3 +3987,13 @@ body.locked { overflow: hidden; }
 @media (max-width: 560px) {
   .grid-list.closet-grid { grid-template-columns: 1fr; justify-content: stretch; }
 }
+
+/* Catalog override: cover-photo picker (admin "Edit details" modal). */
+.co-image-row { display: flex; align-items: center; gap: 10px; }
+.co-image-row select { flex: 1; }
+.co-image-preview {
+  width: 48px; height: 48px; flex: none;
+  object-fit: cover; border-radius: 8px;
+  background: var(--surface-2, rgba(0,0,0,0.06));
+}
+.co-image-preview:not([src]), .co-image-preview[src=""] { visibility: hidden; }

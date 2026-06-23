@@ -942,6 +942,7 @@ function wireEvents() {
     el.addEventListener('click', () => document.getElementById('catalog-override-modal').classList.add('hidden'))
   );
   document.getElementById('catalog-override-form').addEventListener('submit', submitCatalogOverrideForm);
+  document.getElementById('co-image').addEventListener('change', updateCoverPhotoPreview);
   // Public 'Suggest a plushie' button on the catalog toolbar.
   document.getElementById('suggest-plushie-btn')?.addEventListener('click', () => openCatalogItemModal('user'));
   // Photo source tabs (admin-only) + user picker autocomplete + plushie thumb click.

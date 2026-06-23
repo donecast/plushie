@@ -567,28 +567,12 @@ async function loadAll() {
   state.wishlist = (await data.list('wishlist')).sort(byNewest);
 }
 
-// Products where Shopify's first image (images[0], our default cover) isn't
-// the most representative — map the product handle to the exact image URL we'd
-// rather show. Applied wherever the catalog is built (the static catalog.json
-// load below + the live Shopify refresh in normalizeShopifyProduct), so the
-// override re-asserts every load even after catalog.json is regenerated
-// upstream. Add a one-line entry per exception.
-const CATALOG_IMAGE_OVERRIDES = {
-  // Insomnia Moth Rabbit — the default first photo undersells it; use the 4th.
-  'plushie-dreadfuls-insomnia-moth-rabbit-plush-stuffed-animal':
-    'https://cdn.shopify.com/s/files/1/0306/6745/files/plushie-dreadfuls-insomnia-moth-rabbit-plush-stuffed-animal-357.jpg?v=1754993899',
-};
-
 async function loadCatalog() {
   try {
     const r = await fetch('./catalog.json?v=69', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
     const shopify = (json.products || []).filter(isPlushieCollectible);
-    for (const p of shopify) {
-      const override = CATALOG_IMAGE_OVERRIDES[p.handle];
-      if (override) p.image = override;
-    }
     state.catalog = await mergeCustomCatalog(shopify);
   } catch (e) {
     console.warn('catalog load failed', e);
@@ -624,6 +608,8 @@ function applyCatalogOverrides(shopifyProducts, overrides) {
     if (Array.isArray(ov.accessories) && ov.accessories.length) {
       item.accessories = categoryHasAccessories(item) ? normalizeAccessories(ov.accessories) : [];
     }
+    // A picked cover photo replaces Shopify's default first image.
+    if (ov.image) item.image = ov.image;
     item.hasOverride = true;
   }
 }
@@ -731,7 +717,7 @@ function normalizeShopifyProduct(p) {
     name: p.title,
     handle: p.handle,
     type: p.product_type || '',
-    image: CATALOG_IMAGE_OVERRIDES[p.handle] || p.images?.[0]?.src || null,
+    image: p.images?.[0]?.src || null,
     price: priceNums.length ? Math.min(...priceNums) : null,
     available,
     retired: tags.some((t) => t.toLowerCase() === 'retired'),
