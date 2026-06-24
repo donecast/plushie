@@ -2072,7 +2072,19 @@ body.cl-insider .changelog-gated strong { color: #2f6fed; }
 /* Trade marker rendered inline in the card body (next to the name) rather than
    overlaid on the photo — keeps "Offering" off the thumbnail. */
 .card-trade-mark { margin: 4px 0 2px; line-height: 1; }
-.grid-compact .card-trade-mark { margin: 2px 0 0; }
+/* In the dense compact row, a third line would make this row taller than its
+   neighbours. Instead, pin the marker right-justified in the body's empty
+   space, vertically centred — it fits without adding height. The :has() rule
+   reserves just enough right padding so the title/subtitle never run under it. */
+.grid-compact .card-body { position: relative; }
+.grid-compact .card-body:has(.card-trade-mark) { padding-right: 96px; }
+.grid-compact .card-trade-mark {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
+}
 
 .trader-group, .my-items-section, .trades-section { margin-bottom: 28px; }
 
