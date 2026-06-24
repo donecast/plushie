@@ -774,7 +774,7 @@ function renderCryptVitals() {
   if (state.pensOwned && state.pensOwned.forEach) state.pensOwned.forEach((n) => { if (n > 0) pensOwned++; });
 
   const wlAll = state.wishlist || [];
-  const top = (typeof sortWishlist === 'function' ? sortWishlist(wlAll.slice(), 'manual') : wlAll).slice(0, 4);
+  const top = (typeof sortWishlist === 'function' ? sortWishlist(wlAll.slice(), 'manual') : wlAll).slice(0, 5);
   const wishHtml = top.length ? `
     <div class="vitals-missing">
       <div class="vitals-sub"><span>Top of your wish list</span></div>
