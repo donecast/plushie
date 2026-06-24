@@ -262,7 +262,8 @@ async function saveUsername() {
   if (!confirm(`Change your username to @${u}?\n\nYou won't be able to change it again for 30 days.`)) return;
   try {
     await data.updateUsername(u);
-    document.querySelector('#user-badge .user-name').textContent = '@' + u;
+    if (window.currentUser) window.currentUser.username = u;
+    updateUserBadge();
     toast('Username updated. Locked for 30 days.');
     syncUsernameCooldownHint();
   } catch (err) {

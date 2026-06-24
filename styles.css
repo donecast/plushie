@@ -3167,24 +3167,38 @@ body.locked { overflow: hidden; }
 }
 
 /* ─── User badge & menu ────────────────────────────── */
+/* Account button is now just the user's avatar (a circle). It opens the
+   account popover; account + settings collapse into it. */
 .user-badge {
-  background: var(--surface);
-  border: 1px solid var(--hairline-2);
-  color: var(--ink-2);
-  font-family: var(--sans);
-  font-weight: 700;
-  font-size: 0.86rem;
-  padding: 7px 14px;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 0;
   border-radius: 999px;
   cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  transition: all 0.12s ease;
+  line-height: 0;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
-.user-badge:hover { border-color: var(--rose-edge); color: var(--rose-2); background: var(--blush); }
-.user-badge .user-name { letter-spacing: 0; }
-.user-badge .user-caret { font-size: 0.7rem; opacity: 0.7; }
+.user-badge:hover, .user-badge[aria-expanded="true"] {
+  border-color: var(--rose-edge);
+  box-shadow: 0 0 0 2px var(--blush);
+}
+.user-avatar {
+  display: block;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.user-avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.user-avatar-fallback {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  font-size: 1rem;
+  background: var(--blush);
+}
 
 .user-badge-wrap { position: relative; }
 .user-menu {
@@ -3847,7 +3861,7 @@ body.rails-on .rail-right.rail-right--active { display: block; }
   .header-inner { padding: 12px 14px 4px; gap: 8px; }
   .brand { gap: 10px; }
   .header-actions { gap: 6px; }
-  .user-badge { padding: 5px 10px; font-size: 0.85rem; }
+  .user-badge { padding: 0; }
   .icon-btn { padding: 6px; font-size: 1rem; }
 
   /* Tabs: scrollable strip, smaller padding */

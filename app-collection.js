@@ -893,6 +893,8 @@ function render() {
     t.classList.toggle('active', on);
     t.setAttribute('aria-selected', on ? 'true' : 'false');
   });
+  // Keep the header avatar button current (username + avatar).
+  if (typeof updateUserBadge === 'function') updateUserBadge();
 
   // Rails layout (insider): keep the left nav lit + the right contextual rail
   // in sync with the active tab. No-ops visually unless body.rails-on is set.
