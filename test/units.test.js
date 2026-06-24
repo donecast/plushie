@@ -191,12 +191,15 @@ test('filteredCatalog hides the variant umbrella parent, shows its children', ()
   assert.deepEqual(ids, ['p::1', 'p::2']);                       // parent excluded, children shown
 });
 
-test('renderCatalogCard shows the form-label badge for a variant', () => {
+test('renderCatalogCard shows the variant form-label as text after the name, not a photo badge', () => {
   const variant = { id: 'p::1', name: 'Crown', handle: 'crown', isVariant: true,
     parentId: 'x', parentHandle: 'crown', formLabel: 'Purple', available: true, tags: [],
     image: 'https://cdn.shopify.com/x/p.jpg' };
   const html = app.call('renderCatalogCard', variant, new Map(), new Map());
-  assert.equal(/badge-form/.test(html), true);
+  // The variant reads only as the gold form-label text after the name; it is no
+  // longer badged on the photo (badge-form removed).
+  assert.equal(/badge-form/.test(html), false);
+  assert.equal(/card-form-label/.test(html), true);
   assert.equal(/Purple/.test(html), true);
 });
 
