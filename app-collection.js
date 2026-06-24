@@ -772,7 +772,7 @@ function applyFeatureFlags() {
   // right-context rails (see styles.css; off => display:contents, unchanged).
   const railsOn = data.featureEnabled('feature.side_rails', false);
   document.body.classList.toggle('rails-on', railsOn);
-  if (railsOn) renderRailIdentity();
+  if (railsOn) { renderRailIdentity(); loadCatalogEvents(); }
   // Admin lives in the left rail too, but only for admins.
   document.querySelector('.rail-tab-admin')?.classList.toggle('hidden', !window.currentUser?.isAdmin);
 }
@@ -874,6 +874,7 @@ function render() {
     );
     renderRailIdentity();
     renderRightRail();
+    renderRailStirrings();
   }
 
   if (onCol) {
