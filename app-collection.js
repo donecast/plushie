@@ -25,6 +25,28 @@ function formatDate(iso) {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
+// ─── Real-name helpers (mirror db/0045 server-side logic) ──────────────
+// A "full" last name is more than a bare initial: at least two letters.
+// Used to gate listing an item for trade (the DB enforces the same rule).
+function hasFullLastName(last) {
+  return (String(last ?? '').match(/\p{L}/gu) || []).length >= 2;
+}
+
+// Build the public display name for a profile from its raw fields and the
+// owner's visibility choice. Returns '' when there's nothing to show
+// (no first name, or the owner opted out). Mirrors public_display_name().
+//   'full'          → "First Last"
+//   'first_initial' → "First L."   (the default)
+//   'hidden'        → ''
+function formatDisplayName(first, last, visibility) {
+  first = String(first ?? '').trim();
+  last = String(last ?? '').trim();
+  if (!first || visibility === 'hidden') return '';
+  if (visibility === 'full' && last) return `${first} ${last}`;
+  if (last) return `${first} ${last[0].toUpperCase()}.`;
+  return first;
+}
+
 // Parse one AND-group of a search string into positive / negative terms.
 // Supports:
 //   foo bar      → must contain "foo" AND "bar"
@@ -251,7 +273,7 @@ async function persistManualWishOrder(orderedIds) {
   } catch (e) {
     console.error('saveWishlistOrder', e);
     toast(/sort_order/i.test(e?.message || '')
-      ? 'Run the latest migration (db/0042_wishlist_sort.sql) — the sort_order column is missing.'
+      ? 'Run the latest migration (db/0045_wishlist_sort.sql) — the sort_order column is missing.'
       : 'Could not save the new wish-list order.');
   }
 }

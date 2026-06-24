@@ -124,6 +124,17 @@ async function markForTrade(item, kind) {
     return;
   }
 
+  // Safety gate: listing anything for trade requires a full last name (the
+  // DB enforces this too — see db/0045). Send them to Account to add it.
+  if (kind === 'offering') {
+    const names = await data.getMyNameFields();
+    if (!hasFullLastName(names?.last_name)) {
+      toast('Add your full last name in Account before listing items for trade.');
+      openAccountModal();
+      return;
+    }
+  }
+
   // Offerings are gated on actually owning the item — find your collection
   // row for this catalog product and use its quantity as the ceiling.
   let owned = 0;

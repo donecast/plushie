@@ -1288,15 +1288,90 @@ data.updateEmail = async function (email) {
 // see only their own data even if they call these.
 
 data.adminListUsers = async function () {
-  const { data: rows, error } = await sb
-    .from('profiles')
-    .select('id, username, is_admin, created_at, photo_uploads_enabled, custom_clothing_enabled')
-    .order('created_at', { ascending: false });
+  // One round trip: per-user counts (collection / wish list / for trade),
+  // last seen, full name, and feedback tallies. Falls back to the old
+  // profiles+summary path if migration 0045 hasn't been applied yet.
+  try {
+    const { data: rows, error } = await sb.rpc('admin_user_overview');
+    if (error) throw error;
+    return (rows || []).map((r) => ({
+      id: r.id,
+      username: r.username,
+      is_admin: r.is_admin,
+      created_at: r.created_at,
+      last_seen_at: r.last_seen_at,
+      full_name: r.full_name,
+      collection_count: r.collection_count,
+      wishlist_count: r.wishlist_count,
+      for_trade_count: r.for_trade_count,
+      feedback: {
+        good_count: r.good_count, meh_count: r.meh_count,
+        bad_count: r.bad_count, total_count: r.total_count,
+      },
+    }));
+  } catch (err) {
+    if (!/admin_user_overview|does not exist|schema cache|function|404/i.test(err.message || '')) throw err;
+    console.warn('[adminListUsers] admin_user_overview missing; run migration 0045. Falling back.');
+    const { data: rows, error } = await sb
+      .from('profiles')
+      .select('id, username, is_admin, created_at, photo_uploads_enabled, custom_clothing_enabled')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    const { data: fb } = await sb.from('user_feedback_summary').select('*');
+    const byId = new Map((fb || []).map((f) => [f.user_id, f]));
+    return rows.map((r) => ({ ...r, feedback: byId.get(r.id) || null }));
+  }
+};
+
+// ─── Real names (db/0045: profile_private + security-definer accessors) ──
+// Self reads/writes its own raw fields directly (RLS gates the row);
+// everyone else reaches a name only through the display/partner RPCs.
+data.getMyNameFields = async function () {
+  const { data: row, error } = await sb
+    .from('profile_private')
+    .select('first_name, last_name, name_visibility')
+    .eq('id', window.currentUser.id)
+    .maybeSingle();
+  if (error) { console.warn('getMyNameFields', error); return null; }
+  return row || { first_name: '', last_name: '', name_visibility: 'first_initial' };
+};
+
+data.setMyName = async function ({ firstName, lastName, visibility }) {
+  const first = (firstName || '').trim();
+  if (!first) throw new Error('first_name_required');
+  const patch = {
+    id: window.currentUser.id,
+    first_name: first,
+    last_name: (lastName || '').trim() || null,
+  };
+  if (visibility) patch.name_visibility = visibility;
+  const { error } = await sb.from('profile_private').upsert(patch);
   if (error) throw error;
-  // Enrich with feedback summary
-  const { data: fb } = await sb.from('user_feedback_summary').select('*');
-  const byId = new Map((fb || []).map((f) => [f.user_id, f]));
-  return rows.map((r) => ({ ...r, feedback: byId.get(r.id) || null }));
+};
+
+// Best-effort heartbeat written once per app boot.
+data.touchLastSeen = async function () {
+  try { await sb.rpc('touch_last_seen'); }
+  catch (err) { console.warn('touchLastSeen', err); }
+};
+
+// Visibility-aware public name for any profile (null if hidden / unset).
+data.publicDisplayName = async function (userId) {
+  try {
+    const { data: name, error } = await sb.rpc('public_display_name', { p_user: userId });
+    if (error) throw error;
+    return name || null;
+  } catch (err) { console.warn('publicDisplayName', err); return null; }
+};
+
+// Full name of the other party in a trade (shipping safety). Null unless
+// the caller is a participant in that trade.
+data.tradePartnerName = async function (tradeId, userId) {
+  try {
+    const { data: name, error } = await sb.rpc('trade_party_name', { p_trade: tradeId, p_user: userId });
+    if (error) throw error;
+    return name || null;
+  } catch (err) { console.warn('tradePartnerName', err); return null; }
 };
 
 data.adminUserSnapshot = async function (userId) {
@@ -2379,6 +2454,8 @@ data.getSocialProfile = async function (userId) {
     ...row,
     socialLinks: row.social_links || {},
     avatarUrl: row.avatar_path ? await data.socialPhotoUrl(row.avatar_path) : null,
+    // Visibility-aware public name (null when the owner opted out).
+    displayName: await data.publicDisplayName(userId),
   };
 };
 

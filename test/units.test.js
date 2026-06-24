@@ -315,3 +315,41 @@ test('normalizeAccessories drops features/specs and merges duplicate phrasings',
   ]);
   assert.deepEqual(call('normalizeAccessories', null), []);
 });
+
+test('hasFullLastName requires at least two letters (a bare initial fails)', () => {
+  assert.equal(call('hasFullLastName', 'Smith'), true);
+  assert.equal(call('hasFullLastName', 'Ng'), true);
+  assert.equal(call('hasFullLastName', 'S'), false);
+  assert.equal(call('hasFullLastName', 'S.'), false);
+  assert.equal(call('hasFullLastName', ''), false);
+  assert.equal(call('hasFullLastName', null), false);
+  assert.equal(call('hasFullLastName', "O'Brien"), true);
+});
+
+test('formatDisplayName honours the visibility choice (mirrors public_display_name)', () => {
+  assert.equal(call('formatDisplayName', 'Scott', 'Miller', 'full'), 'Scott Miller');
+  assert.equal(call('formatDisplayName', 'Scott', 'Miller', 'first_initial'), 'Scott M.');
+  assert.equal(call('formatDisplayName', 'Scott', 'Miller', 'hidden'), '');
+  // No last name: initial mode and full mode both fall back to first only.
+  assert.equal(call('formatDisplayName', 'Scott', '', 'first_initial'), 'Scott');
+  assert.equal(call('formatDisplayName', 'Scott', '', 'full'), 'Scott');
+  // No first name: nothing to show.
+  assert.equal(call('formatDisplayName', '', 'Miller', 'full'), '');
+  assert.equal(call('formatDisplayName', '  Scott ', ' miller ', 'first_initial'), 'Scott M.');
+});
+
+test('buildUsersCsv emits a header + one RFC-4180 row per user, dates as YYYY-MM-DD', () => {
+  const csv = call('buildUsersCsv', [
+    { username: 'alex', full_name: 'Alex Morgan', created_at: '2026-01-15T10:00:00Z',
+      last_seen_at: '2026-06-20T08:30:00Z', collection_count: 12, wishlist_count: 3,
+      for_trade_count: 1, feedback: { good_count: 5, meh_count: 0, bad_count: 1, total_count: 6 } },
+    // Name with a comma must be quoted; missing dates/feedback tolerated.
+    { username: 'bee', full_name: 'Bee, Jr.', created_at: null, last_seen_at: null,
+      collection_count: 0, wishlist_count: 0, for_trade_count: 0 },
+  ]);
+  const lines = csv.split('\r\n');
+  assert.equal(lines[0], 'Username,Name,Joined,Last seen,Collection,Wishlist,For trade,Good,Meh,Bad,Total feedback');
+  assert.equal(lines[1], 'alex,Alex Morgan,2026-01-15,2026-06-20,12,3,1,5,0,1,6');
+  assert.equal(lines[2], 'bee,"Bee, Jr.",,,0,0,0,0,0,0,0');
+  assert.equal(call('buildUsersCsv', []), 'Username,Name,Joined,Last seen,Collection,Wishlist,For trade,Good,Meh,Bad,Total feedback');
+});

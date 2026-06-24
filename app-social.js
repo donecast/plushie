@@ -353,7 +353,7 @@ function renderMyProfileTab() {
   // Reuse the profile renderer pointed at myself, but with edit affordances.
   const el = document.getElementById('soc-me');
   renderProfileInto(el, {
-    profile: { id: window.currentUser.id, username: window.currentUser.username, bio: state._myBio, avatarUrl: state._myAvatarUrl, socialLinks: state._mySocialLinks },
+    profile: { id: window.currentUser.id, username: window.currentUser.username, displayName: state._myDisplayName, bio: state._myBio, avatarUrl: state._myAvatarUrl, socialLinks: state._mySocialLinks },
     posts: state._myPosts || [],
     top8: state._myTop8 || [],
     isMe: true,
@@ -511,6 +511,7 @@ function renderProfileInto(el, { profile, posts = [], top8 = [], friendship, isM
       ${socAvatar(profile.avatarUrl, profile.username, 'soc-avatar-lg')}
       <div class="soc-profile-id">
         <h2>@${escapeHtml(profile.username)}</h2>
+        ${profile.displayName ? `<p class="soc-realname">${escapeHtml(profile.displayName)}</p>` : ''}
         ${profile.bio ? `<p class="soc-bio">${linkifyMentions(profile.bio)}</p>` : (isMe ? `<p class="soc-bio soc-bio-empty">Add a bio to tell the crypt about yourself…</p>` : '')}
         ${renderSocialLinks(profile.socialLinks)}
         <div class="soc-profile-actions">${relBtns}</div>
@@ -1008,6 +1009,7 @@ async function loadMyProfileCache() {
       data.getTopPlushes(window.currentUser.id),
     ]);
     state._myBio = profile?.bio || '';
+    state._myDisplayName = profile?.displayName || null;
     state._myAvatarUrl = profile?.avatarUrl || null;
     state._mySocialLinks = profile?.socialLinks || {};
     state._myPosts = posts;
@@ -1354,6 +1356,8 @@ wireLegalModal();
 // Gate the app behind sign-in + profile. The auth overlay handles its own UI;
 // once both exist, runAuthGate's callback fires and the app boots normally.
 runAuthGate(() => {
+  // Record this visit for the admin "last seen" column. Fire-and-forget.
+  data.touchLastSeen?.();
   boot().catch((e) => {
     console.error(e);
     toast('Something went wrong loading the app.');

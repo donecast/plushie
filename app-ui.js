@@ -1442,6 +1442,7 @@ function wireEvents() {
   document.getElementById('acct-save-email').addEventListener('click', saveEmail);
   document.getElementById('acct-save-address').addEventListener('click', saveDefaultAddress);
   document.getElementById('acct-save-profile').addEventListener('click', saveAccountProfile);
+  document.getElementById('acct-save-name').addEventListener('click', saveAccountName);
   document.getElementById('acct-avatar').addEventListener('change', async (e) => {
     const file = e.target.files?.[0];
     if (!file) { state._acctAvatarBlob = null; syncAcctAvatarPreview(); return; }
