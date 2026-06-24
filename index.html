@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=108" />
+  <link rel="stylesheet" href="./styles.css?v=109" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -360,6 +360,18 @@
     <!-- Right rail: the contextual companion. Mirrors the stage — today only My
          Crypt has a face (Crypt Vitals), filled by renderRightRail(). -->
     <aside id="rail-right" class="rail rail-right" aria-label="Context"></aside>
+
+    <!-- Mobile bottom navigation. On phones (≤860px, where the rails fold away)
+         this fixed icon bar replaces the top tab strip — thumb-reachable, like a
+         native app. It lives inside .app-shell so its [data-tab] clicks route
+         through the same delegated handler the rails use (single source). Hidden
+         on wider screens, where the top tabs / left rail handle nav. -->
+    <nav class="bottom-nav" role="tablist" aria-label="Primary">
+      <button class="bottom-tab active" data-tab="home" role="tab" aria-selected="true"><span class="bn-ico">🏚️</span><span class="bn-label">Home</span></button>
+      <button class="bottom-tab" data-tab="catalog" role="tab" aria-selected="false"><span class="bn-ico">📖</span><span class="bn-label">Catalog</span></button>
+      <button class="bottom-tab" data-tab="crypt" role="tab" aria-selected="false"><span class="bn-ico">🦇</span><span class="bn-label">My Crypt</span></button>
+      <button class="bottom-tab" data-tab="trade" role="tab" aria-selected="false"><span class="bn-ico">↺</span><span class="bn-label">Trade</span><span id="bn-trade-badge" class="tab-badge hidden">0</span></button>
+    </nav>
   </div>
 
   <!-- Add / Edit modal -->
@@ -998,6 +1010,7 @@
               <li class="changelog-gated">Admin: the <strong>Users table</strong> is roomier and full-width with clear fonts — each collector's name, collection / wish-list / for-trade counts, signup date, and last-seen, plus a <strong>Download CSV</strong> button; feedback de-emphasised and the net column dropped.</li>
               <li>Catalog and collection grids now <strong>fill the full width</strong> of the screen — no more wasted empty space on the right.</li>
               <li>Long links in posts and comments now <strong>wrap to fit</strong> instead of running off the edge of the screen.</li>
+              <li>On phones, the main navigation now sits in a <strong>bottom tab bar</strong> — Home · Catalog · My Crypt · Trade — so it's easy to reach with your thumb.</li>
             </ul>
             <p class="changelog-fixes">Misc bug fixes.</p>
           </div>
@@ -1436,14 +1449,14 @@
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=117"></script>
-  <script src="./app-catalog.js?v=117"></script>
-  <script src="./app-collection.js?v=117"></script>
-  <script src="./app-ui.js?v=117"></script>
-  <script src="./app-trade.js?v=117"></script>
-  <script src="./app-account.js?v=117"></script>
-  <script src="./app-admin.js?v=117"></script>
-  <script src="./app-admin-catalog.js?v=117"></script>
-  <script src="./app-social.js?v=117"></script>
+  <script src="./app-core.js?v=118"></script>
+  <script src="./app-catalog.js?v=118"></script>
+  <script src="./app-collection.js?v=118"></script>
+  <script src="./app-ui.js?v=118"></script>
+  <script src="./app-trade.js?v=118"></script>
+  <script src="./app-account.js?v=118"></script>
+  <script src="./app-admin.js?v=118"></script>
+  <script src="./app-admin-catalog.js?v=118"></script>
+  <script src="./app-social.js?v=118"></script>
 </body>
 </html>

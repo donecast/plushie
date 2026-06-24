@@ -887,6 +887,12 @@ function render() {
   document.querySelectorAll('.tab').forEach((t) =>
     t.classList.toggle('active', t.dataset.tab === tab)
   );
+  // Mobile bottom nav mirrors the active tab (same data-tab values).
+  document.querySelectorAll('.bottom-tab').forEach((t) => {
+    const on = t.dataset.tab === tab;
+    t.classList.toggle('active', on);
+    t.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
 
   // Rails layout (insider): keep the left nav lit + the right contextual rail
   // in sync with the active tab. No-ops visually unless body.rails-on is set.
