@@ -3347,6 +3347,18 @@ body.rails-on .rail-right.rail-right--active { display: block; }
 }
 .rail-detail-edit:hover { background: var(--rose-2); }
 
+/* Catalog detail inside the rail: the modal's two-column header is too wide for
+   a ~300px rail, so stack it and show the whole picture (contain, not crop). */
+.rail-catalog-detail .cd-head { display: block; margin-bottom: 14px; }
+.rail-catalog-detail .cd-photo { aspect-ratio: auto; max-height: 300px; margin-bottom: 12px; }
+.rail-catalog-detail .cd-photo img { object-fit: contain; height: auto; max-height: 300px; }
+.rail-catalog-detail .cd-head-text h2 { font-size: 1.2rem; }
+.rail-catalog-detail .cd-actions { flex-wrap: wrap; gap: 8px; }
+.rail-catalog-detail .cd-actions button,
+.rail-catalog-detail .cd-actions a { flex: 1 1 auto; text-align: center; }
+.rail-catalog-detail .cd-section h3 { font-size: .9rem; }
+.rail-catalog-detail .cd-symbolism img { max-width: 100%; height: auto; }
+
 /* Medium: drop the right rail, collapse the left rail to icons. */
 @media (max-width: 1180px) {
   body.rails-on .app-shell { grid-template-columns: 72px minmax(0, 1fr); max-width: 1120px; }

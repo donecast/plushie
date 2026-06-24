@@ -42,7 +42,8 @@ const state = {
   catQuery: '',
   wishQuery: '',
   editingId: null,
-  railDetailId: null,         // item shown in the right-rail master-detail panel (rails layout)
+  railDetailId: null,         // collection/wishlist item shown in the right-rail master-detail
+  railCatalogId: null,        // catalog item shown in the right-rail master-detail (richer detail)
   collection: [],
   wishlist: [],
   catalog: [],                // loaded from catalog.json

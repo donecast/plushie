@@ -109,7 +109,15 @@ async function onCardClickInner(btn) {
   } else if (action === 'cat-want') {
     await addFromCatalog(cid, 'wishlist');
   } else if (action === 'cat-detail') {
-    openCatalogDetailModal(cid);
+    // Catalog detail goes to the right rail on the wide layout, modal otherwise.
+    if (railRightVisible()) {
+      state.railDetailId = null;
+      state.railCatalogId = cid;
+      maybeRefreshCatalogDetail(cid);
+      renderRightRail();
+    } else {
+      openCatalogDetailModal(cid);
+    }
   } else if (action === 'cat-suggest-photo') {
     const targetKind = btn.dataset.targetKind || 'shopify';
     const target = state.catalog.find((c) => c.id === cid);
@@ -721,8 +729,23 @@ function renderRightRail() {
     if (!detailItem) state.railDetailId = null;   // item gone (deleted) — drop it
   }
   let html = '';
-  if (detailItem) html = renderRailItemDetail(detailItem);
-  else if (state.tab === 'crypt') html = renderCryptVitals();
+  if (detailItem) {
+    html = renderRailItemDetail(detailItem);
+  } else if (state.railCatalogId) {
+    // Catalog master-detail (the richer Lore / Set Includes / Have-Want-Buy view).
+    const body = typeof catalogDetailBodyHtml === 'function' ? catalogDetailBodyHtml(state.railCatalogId) : null;
+    if (body == null) state.railCatalogId = null;
+    else html = `
+      <section class="vitals-card rail-detail rail-catalog-detail">
+        <div class="rail-detail-head">
+          <h2 class="rail-head">Details</h2>
+          <button class="rail-detail-close" data-rail-action="close-detail" type="button" aria-label="Close details">×</button>
+        </div>
+        ${body}
+      </section>`;
+  } else if (state.tab === 'crypt') {
+    html = renderCryptVitals();
+  }
   if (el._railHtml === html) return;  // identical — skip repaint (avoids thumb flicker)
   el._railHtml = html;
   el.innerHTML = html;
@@ -879,17 +902,23 @@ function wireEvents() {
   });
   // Right-rail master-detail controls (Edit → full modal, Close → back to Vitals).
   const railRightEl = document.getElementById('rail-right');
-  if (railRightEl) railRightEl.addEventListener('click', (e) => {
-    const a = e.target.closest('[data-rail-action]');
-    if (!a) return;
-    if (a.dataset.railAction === 'close-detail') {
-      state.railDetailId = null;
-      renderRightRail();
-    } else if (a.dataset.railAction === 'edit-detail') {
-      const item = state.collection.find((x) => x.id === a.dataset.id);
-      if (item) openModal('collection', item);
-    }
-  });
+  if (railRightEl) {
+    railRightEl.addEventListener('click', (e) => {
+      const a = e.target.closest('[data-rail-action]');
+      if (!a) return;
+      if (a.dataset.railAction === 'close-detail') {
+        state.railDetailId = null;
+        state.railCatalogId = null;
+        renderRightRail();
+      } else if (a.dataset.railAction === 'edit-detail') {
+        const item = state.collection.find((x) => x.id === a.dataset.id);
+        if (item) openModal('collection', item);
+      }
+    });
+    // Catalog detail in the rail carries the normal card actions (Have / Want /
+    // Buy / admin edit) — route them through the same handler the cards use.
+    railRightEl.addEventListener('click', onCardClick);
+  }
 
   document.querySelectorAll('.tab').forEach((t) => {
     t.addEventListener('click', async () => {
@@ -897,6 +926,7 @@ function wireEvents() {
       // restore it when the user comes back.
       tabScroll.set(state.tab, window.scrollY);
       state.railDetailId = null;   // leaving the tab closes any rail master-detail
+      state.railCatalogId = null;
       state.tab = t.dataset.tab;
       if (state.tab === 'trade') {
         state.tradeSubTab = 'browse';   // always land on Browse (item 21)
@@ -931,6 +961,7 @@ function wireEvents() {
       const key = `collection:${state.colSubTab}`;
       tabScroll.set(key, window.scrollY);
       state.railDetailId = null;   // changing sub-tab closes any rail master-detail
+      state.railCatalogId = null;
       state.colSubTab = s.dataset.colSubtab;
       render();
       requestAnimationFrame(() => {

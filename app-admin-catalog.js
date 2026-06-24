@@ -631,28 +631,40 @@ async function openCatalogDetailModal(cid) {
     toast('That item is no longer in the catalog.');
     return;
   }
-  // If the catalog hasn't had a live refresh yet, the lore / symbolism
-  // / accessories fields are empty even on Shopify items. Trigger a
-  // refresh on-demand the first time the user opens a detail — the
-  // modal will paint with the empty-state copy and we'll re-render
-  // when the refresh lands.
-  // Form variants pull lore/symbolism/accessories from their parent.
-  // If the parent (a Shopify row) hasn't been refreshed live yet, none
-  // of those fields are populated — so the variant looks empty too. We
-  // trigger the same on-demand refresh in that case.
+  maybeRefreshCatalogDetail(cid);
+  const body = catalogDetailBodyHtml(cid);
+  if (body == null) return;
+  document.getElementById('cd-body').innerHTML = body;
+  document.getElementById('catalog-detail-modal').classList.remove('hidden');
+}
+
+// On-demand live refresh: the baked catalog may lack lore/symbolism/accessories
+// until the first live Shopify refresh. Trigger it the first time a detail is
+// opened, then repaint whichever surface is showing the item (modal or rail).
+function maybeRefreshCatalogDetail(cid) {
+  const raw = state.catalog.find((c) => c.id === cid);
+  if (!raw) return;
+  // Form variants pull lore/symbolism/accessories from their parent. If the
+  // parent (a Shopify row) hasn't been refreshed live yet, none of those
+  // fields are populated — so the variant looks empty too.
   const parentEmpty = (raw.isCustom || raw.isVariant) && raw.parentHandle
     && !state.catalog.some((c) => c.handle === raw.parentHandle && !c.isCustom && !c.isVariant && c.bodyHtml);
   if (!state._catalogRefreshAttempted
       && ((!raw.bodyHtml && !raw.isCustom && !raw.isVariant) || parentEmpty)) {
     state._catalogRefreshAttempted = true;
     refreshCatalogLive().then(() => {
-      // If the modal is still open, repaint with the now-populated row.
       const modal = document.getElementById('catalog-detail-modal');
-      if (modal && !modal.classList.contains('hidden')) {
-        openCatalogDetailModal(cid);
-      }
+      if (modal && !modal.classList.contains('hidden')) openCatalogDetailModal(cid);
+      else if (state.railCatalogId === cid && typeof renderRightRail === 'function') renderRightRail();
     }).catch((e) => console.warn('on-demand catalog refresh', e));
   }
+}
+
+// Builds the catalog detail inner HTML — shared by the modal (#cd-body) and the
+// right-rail master-detail panel. Returns null if the item is gone.
+function catalogDetailBodyHtml(cid) {
+  const raw = state.catalog.find((c) => c.id === cid);
+  if (!raw) return null;
   const item = resolveCatalogItem(raw);
   const display = cleanCatalogName(item.name);
   const formLabel = (item.isCustom || item.isVariant) && item.formLabel ? item.formLabel : '';
@@ -676,16 +688,12 @@ async function openCatalogDetailModal(cid) {
   const loreHtml = item.lore
     ? `<section class="cd-section"><h3>${loreHeading}</h3>${item.lore.split(/\n{2,}/).map((p) => `<p>${escapeHtml(p)}</p>`).join('')}</section>`
     : '';
-  // Symbolism: we keep some HTML from the parsed block (one image per
-  // distinct src already deduped). Sanitized lightly — strip <script>
-  // and inline event handlers — then injected as innerHTML. Source is
-  // plushiedreadfuls.com so this is low-risk, but defensive anyway.
   const symHtml = item.symbolismHtml
     ? `<section class="cd-section"><h3>Symbolism</h3><div class="cd-symbolism">${sanitizeBodyHtml(item.symbolismHtml)}</div></section>`
     : (item.symbolism ? `<section class="cd-section"><h3>Symbolism</h3><p>${escapeHtml(item.symbolism).replace(/\n/g, '<br/>')}</p></section>` : '');
   const isEmpty = !accessoriesHtml && !loreHtml && !symHtml;
 
-  document.getElementById('cd-body').innerHTML = `
+  return `
     <div class="cd-head">
       <div class="cd-photo">${thumb ? `<img src="${escapeHtml(thumb)}" alt="${escapeHtml(display)}" />` : `<span class="no-photo">🖤</span>`}</div>
       <div class="cd-head-text">
@@ -720,7 +728,6 @@ async function openCatalogDetailModal(cid) {
     ${symHtml}
     ${accessoriesHtml}
   `;
-  document.getElementById('catalog-detail-modal').classList.remove('hidden');
 }
 
 // Strip <script>, <iframe>, and inline event handlers from parsed
