@@ -714,10 +714,15 @@ function renderCryptVitals() {
     <div class="vitals-missing">
       <div class="vitals-sub"><span>Still missing</span></div>
       <div class="vitals-missing-row">
-        ${missing.map((c) => `
+        ${missing.map((c) => {
+          const src = c.image
+            ? (typeof shopifyImageVariant === 'function' ? shopifyImageVariant(c.image, 200) || c.image : c.image)
+            : '';
+          return `
           <button class="vitals-miss" data-tab="catalog" type="button" title="${escapeHtml(c.name)}">
-            ${c.image_url ? `<img src="${escapeHtml(c.image_url)}" alt="" loading="lazy" />` : '<span class="no-photo">🖤</span>'}
-          </button>`).join('')}
+            ${src ? `<img src="${escapeHtml(src)}" alt="" loading="lazy" />` : '<span class="no-photo">🖤</span>'}
+          </button>`;
+        }).join('')}
       </div>
     </div>` : '';
 
