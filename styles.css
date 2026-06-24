@@ -823,7 +823,13 @@ main {
   gap: 2px;
 }
 .grid-compact .card-name {
-  font-size: 0.92rem;
+  /* Title in Cinzel even in the dense view, so a renamed plush (gold Cinzel)
+     and an un-renamed one (ink Cinzel) read as the same family — not a jarring
+     serif-vs-Arial mix. Matches the .grid-list rule. */
+  font-family: var(--display);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  font-size: 1rem;
   -webkit-line-clamp: 1;
   line-clamp: 1;
 }
@@ -2063,6 +2069,10 @@ body.cl-insider .changelog-gated strong { color: #2f6fed; }
   color: var(--pending-text);
   border: 1px solid var(--pending-edge);
 }
+/* Trade marker rendered inline in the card body (next to the name) rather than
+   overlaid on the photo — keeps "Offering" off the thumbnail. */
+.card-trade-mark { margin: 4px 0 2px; line-height: 1; }
+.grid-compact .card-trade-mark { margin: 2px 0 0; }
 
 .trader-group, .my-items-section, .trades-section { margin-bottom: 28px; }
 

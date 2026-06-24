@@ -643,9 +643,12 @@ function renderCard(item, kind) {
     badges.push(`<span class="badge badge-qty">×${item.quantity}</span>`);
   }
 
-  // Trade markers: show if this catalog item is already in trade_items
+  // Trade markers: show if this catalog item is already in trade_items.
+  // Rendered INLINE in the body (next to the name), not as a photo overlay —
+  // on the compact list the tiny thumbnail can't hold an overlay badge without
+  // it spilling onto the picture.
   const tradeMark = tradeMarkerFor(item, kind);
-  if (tradeMark) badges.push(tradeMark);
+  const tradeMarkHtml = tradeMark ? `<div class="card-trade-mark">${tradeMark}</div>` : '';
 
   const tradeBtn = kind === 'collection'
     ? `<button data-action="offer-trade" data-id="${item.id}">↻ Trade?</button>`
@@ -716,11 +719,13 @@ function renderCard(item, kind) {
       ? `<h3 class="card-name nickname">${escapeHtml(item.nickname)}</h3>
          <p class="card-product">${escapeHtml(stripOutfitWord(item.name))}</p>`
       : `<h3 class="card-name">${escapeHtml(stripOutfitWord(item.name))}</h3>`}
+    ${tradeMarkHtml}
     ${meta.length ? `<div class="card-meta">${meta.join('')}</div>` : ''}
   `;
   const otherBody = `
     <h3 class="card-name">${escapeHtml(stripOutfitWord(item.name))}</h3>
     ${item.meaning ? `<p class="card-meaning">${escapeHtml(item.meaning)}</p>` : ''}
+    ${tradeMarkHtml}
     ${meta.length ? `<div class="card-meta">${meta.join('')}</div>` : ''}
   `;
   // Collection AND wish-list cards open their detail (right-rail master-detail on
