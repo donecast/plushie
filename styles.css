@@ -3244,12 +3244,25 @@ body.locked { overflow: hidden; }
 
 body.rails-on .app-shell {
   display: grid;
-  grid-template-columns: 224px minmax(0, 1fr) 304px;
+  /* Right-rail track is added only when a rail face is actually showing (see
+     .has-right-rail below) — otherwise the stage reclaims that width instead of
+     leaving a 304px gap on Catalog / Trade / Admin. */
+  grid-template-columns: 224px minmax(0, 1fr);
   gap: 24px;
   max-width: 1480px;
   margin: 0 auto;
   padding: 22px 22px 32px;
   align-items: start;
+}
+@media (min-width: 1181px) {
+  body.rails-on .app-shell.has-right-rail { grid-template-columns: 224px minmax(0, 1fr) 304px; }
+}
+/* Admin is a separate, full-width utility mode: not public-facing, so it drops
+   the width cap and uses clear sans type — no decorative display fonts. */
+body.rails-on.on-admin .app-shell { max-width: none; }
+.admin-view { font-family: var(--sans); }
+.admin-view h1, .admin-view h2, .admin-view h3, .admin-view h4 {
+  font-family: var(--sans); letter-spacing: 0;
 }
 body.rails-on main { max-width: none; margin: 0; padding: 0; }
 body.rails-on .tabs { display: none; }
@@ -3301,6 +3314,29 @@ body.rails-on .rail-right.rail-right--active { display: block; }
   font-size: .95rem; cursor: pointer;
 }
 .rail-compose:hover { background: var(--rose-2); }
+
+/* Stirrings — catalog change feed in the left rail */
+.rail-stirrings:not(:empty) {
+  margin-top: 14px; padding-top: 12px;
+  border-top: 1px solid var(--border-rose-faint);
+}
+.rail-stir-head {
+  font-size: .7rem; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--ink-2); opacity: .7; margin-bottom: 8px;
+}
+.rail-stir-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.rail-stir {
+  display: flex; gap: 8px; align-items: center;
+  padding: 6px 8px; border-radius: 10px; cursor: pointer;
+}
+.rail-stir:hover { background: var(--blush); }
+.rail-stir-ico { font-size: .95rem; flex: 0 0 auto; }
+.rail-stir-text { display: flex; flex-direction: column; min-width: 0; }
+.rail-stir-name {
+  font-size: .82rem; color: var(--ink-1);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rail-stir-kind { font-size: .68rem; color: var(--rose-2); }
 
 /* Right rail — Crypt Vitals */
 .rail-head { font-size: .95rem; margin: 0 0 12px; color: var(--ink-2); }
@@ -3418,6 +3454,8 @@ body.rails-on .rail-right.rail-right--active { display: block; }
   body.rails-on .rail-tab { justify-content: center; padding-left: 0; padding-right: 0; }
   body.rails-on .rail-compose { font-size: 0; padding: 12px 0; }
   body.rails-on .rail-compose::before { content: '✚'; font-size: 1.2rem; }
+  /* The Stirrings ticker needs its labels — hide it in the icon-only rail. */
+  body.rails-on .rail-stirrings { display: none; }
 }
 
 /* Narrow: rails off entirely — restore the classic centered column + top tabs. */

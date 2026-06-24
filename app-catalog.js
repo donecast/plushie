@@ -632,6 +632,7 @@ async function refreshCatalogLive() {
   state.catalog = await mergeCustomCatalog(shopify);
   await idb.setMeta('last_live_refresh', Date.now());
   if (state.tab === 'catalog') render();
+  maybeSyncCatalogEvents();   // change feed (Stirrings) — gated + throttled inside
   return true;
 }
 

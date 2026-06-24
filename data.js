@@ -1553,6 +1553,32 @@ data.adminUpsertCatalogOverride = async function (handle, patch) {
   return saved;
 };
 
+// ─── Catalog change feed ("Stirrings") ───────────────────────────────
+// Push the current store state; the DB function diffs it against the snapshot
+// and records any added/restocked/sold-out/retired transitions. Returns the
+// number of new events. Best-effort — never throws into the caller.
+data.syncCatalogEvents = async function (items) {
+  if (!Array.isArray(items) || items.length === 0) return 0;
+  try {
+    const { data: n, error } = await sb.rpc('sync_catalog_events', { items });
+    if (error) { console.warn('syncCatalogEvents', error.message || error); return 0; }
+    return n || 0;
+  } catch (e) { console.warn('syncCatalogEvents', e); return 0; }
+};
+
+// Read the most recent change-feed events, newest first.
+data.listCatalogEvents = async function (limit = 30) {
+  try {
+    const { data: rows, error } = await sb
+      .from('catalog_events')
+      .select('id, handle, name, image, kind, created_at')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) { console.warn('listCatalogEvents', error.message || error); return []; }
+    return rows || [];
+  } catch (e) { console.warn('listCatalogEvents', e); return []; }
+};
+
 // True when the current user has at least one approved catalog_items
 // submission. Trusted users' future submissions skip the queue (still
 // flagged for retroactive admin review via review_seen = false).

@@ -684,6 +684,68 @@ function loadFilters() {
   } catch { /* corrupt JSON — ignore */ }
 }
 
+// ─── Catalog change feed ("Stirrings") ───────────────────────────────
+const STIR_META = {
+  added:     { icon: '✨', label: 'New' },
+  restocked: { icon: '🔄', label: 'Restocked' },
+  sold_out:  { icon: '💔', label: 'Sold out' },
+  retired:   { icon: '🪦', label: 'Retired' },
+  unretired: { icon: '↩️', label: 'Back' },
+};
+
+// Push the current store state so the DB can record changes. Only rails users
+// (admins/allowlist) see the feed, so only their sessions drive the sync —
+// once per session is plenty, and it bounds the cost.
+async function maybeSyncCatalogEvents() {
+  if (state._stirSynced) return;
+  if (!(typeof data !== 'undefined' && data.featureEnabled && data.featureEnabled('feature.side_rails', false))) return;
+  state._stirSynced = true;
+  const items = (state.catalog || [])
+    .filter((c) => c.handle && !c.isVariant && !c.variantParent && !c.isCustom)
+    .map((c) => ({
+      handle: c.handle,
+      name: typeof cleanCatalogName === 'function' ? cleanCatalogName(c.name) : c.name,
+      image: c.image || null,
+      available: !!c.available,
+      retired: !!c.retired,
+      price: c.price ?? null,
+    }));
+  try { await data.syncCatalogEvents(items); } catch { /* best-effort */ }
+  loadCatalogEvents();
+}
+
+async function loadCatalogEvents() {
+  if (!document.body.classList.contains('rails-on')) return;
+  state._stirrings = await data.listCatalogEvents(12);
+  renderRailStirrings();
+}
+
+// Compact "what changed in the store" ticker in the left rail.
+function renderRailStirrings() {
+  const el = document.getElementById('rail-stirrings');
+  if (!el) return;
+  const events = state._stirrings || [];
+  const sig = events.map((e) => e.id).join(',');
+  if (el._sig === sig) return;   // no change — skip repaint
+  el._sig = sig;
+  if (!events.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <div class="rail-stir-head">Stirrings 🕯️</div>
+    <ul class="rail-stir-list">
+      ${events.map((e) => {
+        const m = STIR_META[e.kind] || { icon: '•', label: e.kind };
+        const name = escapeHtml(e.name || e.handle || '');
+        return `<li class="rail-stir" data-tab="catalog" role="button" title="${m.label}: ${name}">
+          <span class="rail-stir-ico">${m.icon}</span>
+          <span class="rail-stir-text">
+            <span class="rail-stir-name">${name}</span>
+            <span class="rail-stir-kind">${m.label}</span>
+          </span>
+        </li>`;
+      }).join('')}
+    </ul>`;
+}
+
 // ─── Experimental "rails" layout (insider feature.side_rails) ────────
 // The left rail is a slim identity card + vertical nav + a compose CTA; the
 // right rail is a contextual companion that mirrors the stage. Everything here
@@ -753,6 +815,9 @@ function renderRightRail() {
   el._railHtml = html;
   el.innerHTML = html;
   el.classList.toggle('rail-right--active', !!html);
+  // Collapse the reserved right-rail grid track when there's no rail content, so
+  // the stage (Catalog / Trade / Admin …) gets that width back instead of a gap.
+  document.querySelector('.app-shell')?.classList.toggle('has-right-rail', !!html);
 }
 
 // Right-rail master-detail panel for a collection item: photo, name, meaning,
@@ -896,7 +961,11 @@ function wireEvents() {
       // A data-subtab (e.g. the wishlist thumbnails) lands on that crypt sub-tab.
       if (t.dataset.subtab) state.colSubTab = t.dataset.subtab;
       const top = document.querySelector(`header .tabs .tab[data-tab="${t.dataset.tab}"]`);
-      if (top) top.click();
+      if (top) { top.click(); return; }
+      // No header tab (Admin lives in the user menu, not the top tab bar) —
+      // drive it through the matching menu item so it reuses that enter logic.
+      const menuItem = document.querySelector(`#user-menu [data-go="${t.dataset.tab}"]`);
+      if (menuItem) menuItem.click();
     });
   }
   const railCompose = document.getElementById('rail-compose');
