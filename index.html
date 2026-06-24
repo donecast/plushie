@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=104" />
+  <link rel="stylesheet" href="./styles.css?v=105" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -103,6 +103,7 @@
         <button class="rail-tab" data-tab="catalog"><span class="rail-ico">📖</span><span class="rail-label">Catalog</span></button>
         <button class="rail-tab" data-tab="crypt"><span class="rail-ico">🦇</span><span class="rail-label">My Crypt</span></button>
         <button class="rail-tab" data-tab="trade"><span class="rail-ico">↺</span><span class="rail-label">Trade</span></button>
+        <button class="rail-tab rail-tab-admin hidden" data-tab="admin"><span class="rail-ico">🛡️</span><span class="rail-label">Admin</span></button>
       </nav>
       <button id="rail-compose" class="rail-compose" type="button">✚ Summon a post</button>
     </aside>
@@ -1381,14 +1382,14 @@
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=114"></script>
-  <script src="./app-catalog.js?v=114"></script>
-  <script src="./app-collection.js?v=114"></script>
-  <script src="./app-ui.js?v=114"></script>
-  <script src="./app-trade.js?v=114"></script>
-  <script src="./app-account.js?v=114"></script>
-  <script src="./app-admin.js?v=114"></script>
-  <script src="./app-admin-catalog.js?v=114"></script>
-  <script src="./app-social.js?v=114"></script>
+  <script src="./app-core.js?v=115"></script>
+  <script src="./app-catalog.js?v=115"></script>
+  <script src="./app-collection.js?v=115"></script>
+  <script src="./app-ui.js?v=115"></script>
+  <script src="./app-trade.js?v=115"></script>
+  <script src="./app-account.js?v=115"></script>
+  <script src="./app-admin.js?v=115"></script>
+  <script src="./app-admin-catalog.js?v=115"></script>
+  <script src="./app-social.js?v=115"></script>
 </body>
 </html>

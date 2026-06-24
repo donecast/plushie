@@ -773,6 +773,8 @@ function applyFeatureFlags() {
   const railsOn = data.featureEnabled('feature.side_rails', false);
   document.body.classList.toggle('rails-on', railsOn);
   if (railsOn) renderRailIdentity();
+  // Admin lives in the left rail too, but only for admins.
+  document.querySelector('.rail-tab-admin')?.classList.toggle('hidden', !window.currentUser?.isAdmin);
 }
 
 function render() {
@@ -802,6 +804,8 @@ function render() {
   document.getElementById('trade-view').classList.toggle('hidden', tab !== 'trade');
   document.getElementById('social-view').classList.toggle('hidden', tab !== 'home');
   document.getElementById('admin-view').classList.toggle('hidden', tab !== 'admin');
+  // Admin is a distinct, full-width utility mode (no right rail, clear fonts).
+  document.body.classList.toggle('on-admin', tab === 'admin');
 
   // My Crypt: render the profile masthead, light the active sub-tab, and pick
   // the collection grid vs. the Pens checklist sub-view.

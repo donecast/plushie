@@ -753,6 +753,9 @@ function renderRightRail() {
   el._railHtml = html;
   el.innerHTML = html;
   el.classList.toggle('rail-right--active', !!html);
+  // Collapse the reserved right-rail grid track when there's no rail content, so
+  // the stage (Catalog / Trade / Admin …) gets that width back instead of a gap.
+  document.querySelector('.app-shell')?.classList.toggle('has-right-rail', !!html);
 }
 
 // Right-rail master-detail panel for a collection item: photo, name, meaning,
@@ -896,7 +899,11 @@ function wireEvents() {
       // A data-subtab (e.g. the wishlist thumbnails) lands on that crypt sub-tab.
       if (t.dataset.subtab) state.colSubTab = t.dataset.subtab;
       const top = document.querySelector(`header .tabs .tab[data-tab="${t.dataset.tab}"]`);
-      if (top) top.click();
+      if (top) { top.click(); return; }
+      // No header tab (Admin lives in the user menu, not the top tab bar) —
+      // drive it through the matching menu item so it reuses that enter logic.
+      const menuItem = document.querySelector(`#user-menu [data-go="${t.dataset.tab}"]`);
+      if (menuItem) menuItem.click();
     });
   }
   const railCompose = document.getElementById('rail-compose');
