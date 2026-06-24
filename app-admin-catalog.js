@@ -61,6 +61,7 @@ function openCatalogItemModal(mode = 'admin', editId = null) {
     document.getElementById('ci-form-label').value = row.formLabel || '';
     document.getElementById('ci-parent-handle').value = row.parentHandle || '';
     document.getElementById('ci-type').value = row.type || 'plush';
+    document.getElementById('ci-retired').value = row.retired ? 'retired' : 'active';
     document.getElementById('ci-handle').value = row.handle || '';
     document.getElementById('ci-release-year').value = row.releaseYear ?? '';
     document.getElementById('ci-tags').value = (row.tags || []).join(', ');
@@ -217,6 +218,7 @@ async function submitCatalogItemForm(e) {
         tags,
         accessories,
         release_year: releaseYear,
+        retired: document.getElementById('ci-retired').value === 'retired',
       };
       // Only overwrite image_path when the admin uploaded or picked
       // a new photo — otherwise the existing one is preserved.
