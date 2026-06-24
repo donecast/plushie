@@ -3209,6 +3209,130 @@ body.locked { overflow: hidden; }
   border-top: 1px solid var(--border-rose-faint);
 }
 
+/* ─── Experimental 3-zone "rails" layout (insider feature.side_rails) ──────
+   OFF by default: .app-shell is display:contents so <main> behaves exactly as
+   before, and the rails are display:none. body.rails-on (admins/allowlist)
+   flips it into left-nav-rail + center stage + right-context-rail, collapsing
+   gracefully to the classic top tab bar on narrow screens. */
+.app-shell { display: contents; }
+.rail { display: none; }
+
+body.rails-on .app-shell {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr) 304px;
+  gap: 24px;
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: 22px 22px 32px;
+  align-items: start;
+}
+body.rails-on main { max-width: none; margin: 0; padding: 0; }
+body.rails-on .tabs { display: none; }
+body.rails-on .rail-left { display: flex; }
+body.rails-on .rail-right.rail-right--active { display: block; }
+
+/* Both rails track the page as the stage scrolls, clearing the sticky header. */
+.rail-left, .rail-right {
+  position: sticky;
+  top: 84px;
+  align-self: start;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.rail-left { flex-direction: column; gap: 10px; }
+
+/* Identity card */
+.rail-id-card {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 10px; border-radius: 14px; background: var(--surface);
+  border: 1px solid var(--border-rose-faint); cursor: pointer; text-align: left;
+}
+.rail-id-card:hover { border-color: var(--rose-1); }
+.rail-avatar {
+  width: 40px; height: 40px; border-radius: 50%; overflow: hidden;
+  flex: 0 0 auto; display: grid; place-items: center; background: var(--blush);
+}
+.rail-avatar-img { width: 100%; height: 100%; object-fit: cover; }
+.rail-id-text { display: flex; flex-direction: column; min-width: 0; }
+.rail-id-name { font-weight: 700; color: var(--ink-2); }
+.rail-id-stat { font-size: .76rem; color: var(--rose-2); }
+
+/* Vertical nav */
+.rail-nav { display: flex; flex-direction: column; gap: 4px; }
+.rail-tab {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 11px 14px; border: none; border-radius: 12px; background: transparent;
+  color: var(--ink-1); font-size: 1rem; font-family: inherit; cursor: pointer; text-align: left;
+}
+.rail-tab:hover { background: var(--blush); }
+.rail-tab.active { background: var(--rose-1); color: #fff; font-weight: 700; }
+.rail-ico { font-size: 1.15rem; width: 1.4em; text-align: center; flex: 0 0 auto; }
+
+/* Compose CTA */
+.rail-compose {
+  margin-top: 8px; padding: 12px; border: none; border-radius: 999px;
+  background: var(--rose-1); color: #fff; font-weight: 700; font-family: inherit;
+  font-size: .95rem; cursor: pointer;
+}
+.rail-compose:hover { background: var(--rose-2); }
+
+/* Right rail — Crypt Vitals */
+.rail-head { font-size: .95rem; margin: 0 0 12px; color: var(--ink-2); }
+.vitals-card {
+  background: var(--surface); border: 1px solid var(--border-rose-faint);
+  border-radius: 16px; padding: 16px;
+}
+.vitals-big { display: flex; flex-direction: column; margin-bottom: 12px; }
+.vitals-num { font-size: 2.4rem; font-weight: 800; color: var(--rose-1); line-height: 1; }
+.vitals-big-label { font-size: .78rem; color: var(--ink-2); opacity: .8; }
+.vitals-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.vitals-chip {
+  font-size: .74rem; background: var(--blush); color: var(--ink-2);
+  padding: 3px 8px; border-radius: 999px;
+}
+.vitals-meter { margin-bottom: 14px; }
+.vitals-sub {
+  font-size: .78rem; color: var(--ink-2); opacity: .85;
+  margin-bottom: 5px; display: flex; justify-content: space-between;
+}
+.vitals-pct { font-weight: 700; color: var(--rose-1); opacity: 1; }
+.vitals-bar { height: 8px; border-radius: 999px; background: var(--blush); overflow: hidden; }
+.vitals-bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--rose-2), var(--rose-1)); }
+.vitals-meter-cap { font-size: .72rem; color: var(--ink-2); opacity: .7; margin-top: 4px; }
+.vitals-stats { display: flex; gap: 10px; margin-bottom: 2px; }
+.vitals-stat { flex: 1; background: var(--canvas); border-radius: 12px; padding: 8px; text-align: center; }
+.vitals-stat-n { display: block; font-weight: 800; color: var(--ink-2); }
+.vitals-stat-l { font-size: .72rem; color: var(--ink-2); opacity: .7; }
+.vitals-missing { margin-top: 14px; }
+.vitals-missing-row { display: flex; gap: 6px; }
+.vitals-miss {
+  width: 48px; height: 48px; border-radius: 10px; overflow: hidden; padding: 0;
+  border: 1px solid var(--border-rose-faint); background: var(--blush);
+  cursor: pointer; display: grid; place-items: center;
+}
+.vitals-miss img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Medium: drop the right rail, collapse the left rail to icons. */
+@media (max-width: 1180px) {
+  body.rails-on .app-shell { grid-template-columns: 72px minmax(0, 1fr); max-width: 1120px; }
+  body.rails-on .rail-right { display: none !important; }
+  body.rails-on .rail-label,
+  body.rails-on .rail-id-text { display: none; }
+  body.rails-on .rail-id-card,
+  body.rails-on .rail-tab { justify-content: center; padding-left: 0; padding-right: 0; }
+  body.rails-on .rail-compose { font-size: 0; padding: 12px 0; }
+  body.rails-on .rail-compose::before { content: '✚'; font-size: 1.2rem; }
+}
+
+/* Narrow: rails off entirely — restore the classic centered column + top tabs. */
+@media (max-width: 860px) {
+  body.rails-on .app-shell { display: contents; }
+  body.rails-on main { max-width: 1080px; margin: 0 auto; padding: 22px 22px 32px; }
+  body.rails-on .rail { display: none !important; }
+  body.rails-on .tabs { display: flex; }
+}
+
 /* ─── Admin ────────────────────────────── */
 .admin-table {
   width: 100%;

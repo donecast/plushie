@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=93" />
+  <link rel="stylesheet" href="./styles.css?v=94" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -89,6 +89,23 @@
       <button class="tab" data-tab="trade" role="tab" aria-selected="false">Trade <span id="trade-badge" class="tab-badge hidden">0</span></button>
     </nav>
   </header>
+
+  <!-- Experimental 3-zone "rails" layout (insider feature.side_rails). With no
+       body.rails-on class, .app-shell is display:contents and the rails are
+       display:none, so the page is the classic single centered column. For
+       admins/allowlist it becomes: left nav rail + center stage + right
+       contextual rail (collapsing back to the top tab bar on narrow screens). -->
+  <div class="app-shell">
+    <aside id="rail-left" class="rail rail-left" aria-label="Primary navigation">
+      <div id="rail-identity" class="rail-identity"></div>
+      <nav class="rail-nav" aria-label="Sections">
+        <button class="rail-tab" data-tab="home"><span class="rail-ico">🏚️</span><span class="rail-label">Home</span></button>
+        <button class="rail-tab" data-tab="catalog"><span class="rail-ico">📖</span><span class="rail-label">Catalog</span></button>
+        <button class="rail-tab" data-tab="crypt"><span class="rail-ico">🦇</span><span class="rail-label">My Crypt</span></button>
+        <button class="rail-tab" data-tab="trade"><span class="rail-ico">↺</span><span class="rail-label">Trade</span></button>
+      </nav>
+      <button id="rail-compose" class="rail-compose" type="button">✚ Summon a post</button>
+    </aside>
 
   <main>
     <!-- My Crypt leads with a compact profile header, then the section sub-tabs,
@@ -328,6 +345,11 @@
       <div id="soc-me"      class="subview hidden"></div>
     </section>
   </main>
+
+    <!-- Right rail: the contextual companion. Mirrors the stage — today only My
+         Crypt has a face (Crypt Vitals), filled by renderRightRail(). -->
+    <aside id="rail-right" class="rail rail-right" aria-label="Context"></aside>
+  </div>
 
   <!-- Add / Edit modal -->
   <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
@@ -1303,18 +1325,18 @@
   <script src="./config.js?v=53"></script>
   <script src="./auth.js?v=58"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=69"></script>
+  <script src="./data.js?v=70"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=99"></script>
-  <script src="./app-catalog.js?v=99"></script>
-  <script src="./app-collection.js?v=99"></script>
-  <script src="./app-ui.js?v=99"></script>
-  <script src="./app-trade.js?v=99"></script>
-  <script src="./app-account.js?v=99"></script>
-  <script src="./app-admin.js?v=99"></script>
-  <script src="./app-admin-catalog.js?v=99"></script>
-  <script src="./app-social.js?v=99"></script>
+  <script src="./app-core.js?v=100"></script>
+  <script src="./app-catalog.js?v=100"></script>
+  <script src="./app-collection.js?v=100"></script>
+  <script src="./app-ui.js?v=100"></script>
+  <script src="./app-trade.js?v=100"></script>
+  <script src="./app-account.js?v=100"></script>
+  <script src="./app-admin.js?v=100"></script>
+  <script src="./app-admin-catalog.js?v=100"></script>
+  <script src="./app-social.js?v=100"></script>
 </body>
 </html>

@@ -646,8 +646,127 @@ function loadFilters() {
   } catch { /* corrupt JSON — ignore */ }
 }
 
+// ─── Experimental "rails" layout (insider feature.side_rails) ────────
+// The left rail is a slim identity card + vertical nav + a compose CTA; the
+// right rail is a contextual companion that mirrors the stage. Everything here
+// is a no-op unless body.rails-on is set (admins/allowlist) — the markup lives
+// in index.html and stays display:none for everyone else.
+
+// Left rail identity card — avatar, @name, a one-line vital. Clicking it jumps
+// to My Crypt (delegated via the .app-shell [data-tab] handler).
+function renderRailIdentity() {
+  const el = document.getElementById('rail-identity');
+  if (!el || !window.currentUser) return;
+  const u = window.currentUser;
+  const avatar = state._myAvatarUrl
+    ? `<img src="${escapeHtml(state._myAvatarUrl)}" alt="" class="rail-avatar-img" />`
+    : '<span class="rail-avatar-fallback">🖤</span>';
+  const owned = (state.collection || []).length;
+  const sig = `${u.username || ''}|${state._myAvatarUrl || ''}|${owned}`;
+  if (el._idSig === sig && el.childNodes.length) return;  // skip needless repaints
+  el._idSig = sig;
+  el.innerHTML = `
+    <button class="rail-id-card" data-tab="crypt" type="button" title="View my crypt">
+      <span class="rail-avatar">${avatar}</span>
+      <span class="rail-id-text">
+        <span class="rail-id-name">@${escapeHtml(u.username || 'you')}</span>
+        <span class="rail-id-stat">${owned} ${owned === 1 ? 'bun' : 'buns'} in the crypt</span>
+      </span>
+    </button>`;
+}
+
+// Right rail dispatcher: one slot, many faces. Today only My Crypt fills it;
+// other tabs collapse the rail so the stage gets the full width.
+function renderRightRail() {
+  const el = document.getElementById('rail-right');
+  if (!el) return;
+  const html = state.tab === 'crypt' ? renderCryptVitals() : '';
+  if (el._railHtml === html) return;  // identical — skip repaint (avoids thumb flicker)
+  el._railHtml = html;
+  el.innerHTML = html;
+  el.classList.toggle('rail-right--active', !!html);
+}
+
+// Crypt Vitals — collection at a glance, computed from existing state: total
+// buns, a category split, catalogue coverage (own X of Y browsable products),
+// pens, wishlist, and a "still missing" hunt list of unowned plushes. The
+// thumbnails + the card carry data-tab so the .app-shell handler routes clicks.
+function renderCryptVitals() {
+  const col = state.collection || [];
+  const owned = col.length;
+  const by = { plushes: 0, minis: 0, accessories: 0, other: 0 };
+  for (const it of col) { const t = collectionTabOf(it); by[t] = (by[t] || 0) + 1; }
+
+  const ownedIds = new Set(col.filter((i) => i.catalogId).map((i) => i.catalogId));
+  const browsable = (state.catalog || []).filter((c) => !c.variantParent);
+  const total = browsable.length;
+  const haveCount = browsable.filter((c) => ownedIds.has(c.id)).length;
+  const pct = total ? Math.round((haveCount / total) * 100) : 0;
+
+  const pensTotal = (typeof activePens === 'function' ? activePens() : []).length;
+  let pensOwned = 0;
+  if (state.pensOwned && state.pensOwned.forEach) state.pensOwned.forEach((n) => { if (n > 0) pensOwned++; });
+
+  const missing = browsable
+    .filter((c) => !ownedIds.has(c.id) && catalogCategory(c) === 'plush' && !c.retired && c.available !== false)
+    .slice(0, 4);
+  const missHtml = missing.length ? `
+    <div class="vitals-missing">
+      <div class="vitals-sub"><span>Still missing</span></div>
+      <div class="vitals-missing-row">
+        ${missing.map((c) => `
+          <button class="vitals-miss" data-tab="catalog" type="button" title="${escapeHtml(c.name)}">
+            ${c.image_url ? `<img src="${escapeHtml(c.image_url)}" alt="" loading="lazy" />` : '<span class="no-photo">🖤</span>'}
+          </button>`).join('')}
+      </div>
+    </div>` : '';
+
+  const wl = (state.wishlist || []).length;
+  return `
+    <section class="vitals-card">
+      <h2 class="rail-head">Crypt Vitals 🕯️</h2>
+      <div class="vitals-big">
+        <span class="vitals-num">${owned}</span>
+        <span class="vitals-big-label">buns in the crypt</span>
+      </div>
+      <div class="vitals-chips">
+        <span class="vitals-chip">🧸 ${by.plushes} plush</span>
+        <span class="vitals-chip">🐭 ${by.minis} mini</span>
+        <span class="vitals-chip">🎀 ${by.accessories} acc</span>
+      </div>
+      <div class="vitals-meter">
+        <div class="vitals-sub"><span>Catalogue</span><span class="vitals-pct">${pct}%</span></div>
+        <div class="vitals-bar"><span style="width:${pct}%"></span></div>
+        <div class="vitals-meter-cap">${haveCount} of ${total} products owned</div>
+      </div>
+      <div class="vitals-stats">
+        <div class="vitals-stat"><span class="vitals-stat-n">${pensOwned}/${pensTotal}</span><span class="vitals-stat-l">pens</span></div>
+        <div class="vitals-stat"><span class="vitals-stat-n">${wl}</span><span class="vitals-stat-l">wishlist</span></div>
+      </div>
+      ${missHtml}
+    </section>`;
+}
+
 // ─── Event wiring ────────────────────────────────────────────────────
 function wireEvents() {
+  // Rails navigation is delegated: rail buttons (nav, identity card, vitals
+  // thumbnails) carry data-tab but aren't bound by the .tab loop below (some are
+  // rendered dynamically). Route them through the matching header tab so they
+  // reuse its full enter logic (data loads, scroll restore) — single source.
+  const shell = document.querySelector('.app-shell');
+  if (shell) {
+    shell.addEventListener('click', (e) => {
+      const t = e.target.closest('[data-tab]');
+      if (!t) return;
+      const top = document.querySelector(`header .tabs .tab[data-tab="${t.dataset.tab}"]`);
+      if (top) top.click();
+    });
+  }
+  const railCompose = document.getElementById('rail-compose');
+  if (railCompose) railCompose.addEventListener('click', () => {
+    if (typeof openComposer === 'function') openComposer();
+  });
+
   document.querySelectorAll('.tab').forEach((t) => {
     t.addEventListener('click', async () => {
       // Remember the scroll position of the tab we're leaving so we can

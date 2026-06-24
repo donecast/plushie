@@ -693,6 +693,13 @@ function applyFeatureFlags() {
   const canSuggest = window.currentUser?.isAdmin || data.featureEnabled('feature.user_photo_uploads');
   const suggestBtn = document.getElementById('suggest-plushie-btn');
   if (suggestBtn) suggestBtn.classList.toggle('hidden', !canSuggest);
+
+  // Insider prototype: the experimental 3-zone "rails" layout. The body class is
+  // all the CSS keys off to swap the centered column for left-nav + stage +
+  // right-context rails (see styles.css; off => display:contents, unchanged).
+  const railsOn = data.featureEnabled('feature.side_rails', false);
+  document.body.classList.toggle('rails-on', railsOn);
+  if (railsOn) renderRailIdentity();
 }
 
 function render() {
@@ -754,6 +761,16 @@ function render() {
   document.querySelectorAll('.tab').forEach((t) =>
     t.classList.toggle('active', t.dataset.tab === tab)
   );
+
+  // Rails layout (insider): keep the left nav lit + the right contextual rail
+  // in sync with the active tab. No-ops visually unless body.rails-on is set.
+  if (document.body.classList.contains('rails-on')) {
+    document.querySelectorAll('.rail-tab').forEach((t) =>
+      t.classList.toggle('active', t.dataset.tab === tab)
+    );
+    renderRailIdentity();
+    renderRightRail();
+  }
 
   if (onCol) {
     syncCollectionChips();

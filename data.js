@@ -2060,6 +2060,13 @@ data.featureEnabled = function (key, defaultValue = true) {
     if (data.ALWAYS_GRANTED_USERNAMES.includes(uname)) return true;
     return window.currentUser?.customClothingEnabled === true;
   }
+  // Insider prototype: the experimental 3-zone "rails" layout (left nav rail +
+  // right contextual rail). Admin + allowlist only for now — no public toggle.
+  if (key === 'feature.side_rails') {
+    if (window.currentUser?.isAdmin) return true;
+    const uname = (window.currentUser?.username || '').toLowerCase();
+    return data.ALWAYS_GRANTED_USERNAMES.includes(uname);
+  }
   const v = data.appSettings[key];
   if (v === undefined || v === null) return defaultValue;
   return v !== false;
