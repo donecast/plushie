@@ -3020,6 +3020,13 @@ body.cl-insider .changelog-gated strong { color: #2f6fed; }
   color: var(--gold);
   letter-spacing: 0.05em;
 }
+.ship-to-name {
+  margin: 0 0 4px;
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--ink);
+}
 .address-their pre {
   margin: 0;
   font-family: var(--sans);
@@ -3487,6 +3494,13 @@ body.rails-on .rail-right.rail-right--active { display: block; }
   text-transform: uppercase;
 }
 .admin-table tr:hover td { background: var(--border-rose-mist); }
+/* Compact, right-aligned count columns; de-emphasised feedback. */
+.admin-table .admin-num { text-align: right; font-variant-numeric: tabular-nums; }
+.admin-table .admin-fb { font-size: 0.8rem; white-space: nowrap; }
+.admin-fb .fb-good { color: var(--teal-text); }
+.admin-fb .fb-bad  { color: var(--danger-hi); }
+/* Feedback summary dialled down in the inspect view (less prominent). */
+.feedback-summary-dim { opacity: 0.7; transform: scale(0.92); transform-origin: left center; }
 .admin-table button {
   background: var(--panel-2);
   border: 1px solid var(--gold-border);
@@ -4098,6 +4112,7 @@ body.rails-on .rail-right.rail-right--active { display: block; }
 .soc-back { margin-bottom: 12px; display: inline-block; }
 .soc-profile-head { display: flex; gap: 16px; align-items: flex-start; margin-bottom: 20px; }
 .soc-profile-id h2 { margin: 0 0 4px; font-family: var(--display); }
+.soc-realname { margin: 0 0 6px; color: var(--ink-dim); font-size: 0.95rem; }
 .soc-bio { margin: 4px 0 10px; color: var(--ink-mute); line-height: 1.5; }
 .soc-bio-empty { font-style: italic; }
 .soc-profile-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
