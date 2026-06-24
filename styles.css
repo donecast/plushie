@@ -3350,14 +3350,36 @@ body.rails-on .rail-right.rail-right--active { display: block; }
 /* Catalog detail inside the rail: the modal's two-column header is too wide for
    a ~300px rail, so stack it and show the whole picture (contain, not crop). */
 .rail-catalog-detail .cd-head { display: block; margin-bottom: 14px; }
-.rail-catalog-detail .cd-photo { aspect-ratio: auto; max-height: 300px; margin-bottom: 12px; }
-.rail-catalog-detail .cd-photo img { object-fit: contain; height: auto; max-height: 300px; }
-.rail-catalog-detail .cd-head-text h2 { font-size: 1.2rem; }
+.rail-catalog-detail .cd-photo { aspect-ratio: auto; max-height: 240px; margin-bottom: 12px; }
+.rail-catalog-detail .cd-photo img { object-fit: contain; height: auto; max-height: 240px; }
 .rail-catalog-detail .cd-actions { flex-wrap: wrap; gap: 8px; }
 .rail-catalog-detail .cd-actions button,
 .rail-catalog-detail .cd-actions a { flex: 1 1 auto; text-align: center; }
-.rail-catalog-detail .cd-section h3 { font-size: .9rem; }
 .rail-catalog-detail .cd-symbolism img { max-width: 100%; height: auto; }
+
+/* Readability in the narrow rail: the modal leans on the decorative display
+   title + an italic serif for lore, which is hard to read in a tall, skinny
+   column and burns vertical space. In the rail, use the clean sans face,
+   upright, a touch smaller, with tighter rhythm — less scrolling, easier read. */
+.rail-catalog-detail .cd-head-text h2 {
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 1.1rem;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1.25;
+}
+.rail-catalog-detail .cd-section { margin: 14px 0; }
+.rail-catalog-detail .cd-section h3 { font-size: .82rem; margin-bottom: 6px; padding-bottom: 6px; }
+.rail-catalog-detail .cd-section p {
+  font-family: var(--sans);
+  font-style: normal;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin: 0 0 8px;
+}
+.rail-catalog-detail .cd-list { font-size: 0.88rem; }
+.rail-catalog-detail .cd-price { font-size: 1rem; }
 
 /* Medium: drop the right rail, collapse the left rail to icons. */
 @media (max-width: 1180px) {
