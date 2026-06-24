@@ -3390,6 +3390,13 @@ body.rails-on .rail-right.rail-right--active { display: block; }
 }
 .rail-catalog-detail .cd-list { font-size: 0.88rem; }
 .rail-catalog-detail .cd-price { font-size: 1rem; }
+/* "Expand" — pop the rail detail back out into the full-screen modal. */
+.cd-expand-btn {
+  margin-top: 10px; width: 100%; padding: 9px; border-radius: 10px;
+  border: 1px solid var(--border-rose-faint); background: transparent;
+  color: var(--ink-2); font-family: inherit; font-weight: 600; font-size: 0.85rem; cursor: pointer;
+}
+.cd-expand-btn:hover { background: var(--blush); }
 
 /* Medium: drop the right rail, collapse the left rail to icons. */
 @media (max-width: 1180px) {

@@ -118,6 +118,9 @@ async function onCardClickInner(btn) {
     } else {
       openCatalogDetailModal(cid);
     }
+  } else if (action === 'cat-expand') {
+    // Pop the rail's catalog detail back out into the full-screen modal.
+    openCatalogDetailModal(cid);
   } else if (action === 'cat-suggest-photo') {
     const targetKind = btn.dataset.targetKind || 'shopify';
     const target = state.catalog.find((c) => c.id === cid);
@@ -733,7 +736,7 @@ function renderRightRail() {
     html = renderRailItemDetail(detailItem);
   } else if (state.railCatalogId) {
     // Catalog master-detail (the richer Lore / Set Includes / Have-Want-Buy view).
-    const body = typeof catalogDetailBodyHtml === 'function' ? catalogDetailBodyHtml(state.railCatalogId) : null;
+    const body = typeof catalogDetailBodyHtml === 'function' ? catalogDetailBodyHtml(state.railCatalogId, { forRail: true }) : null;
     if (body == null) state.railCatalogId = null;
     else html = `
       <section class="vitals-card rail-detail rail-catalog-detail">

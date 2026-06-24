@@ -662,7 +662,7 @@ function maybeRefreshCatalogDetail(cid) {
 
 // Builds the catalog detail inner HTML — shared by the modal (#cd-body) and the
 // right-rail master-detail panel. Returns null if the item is gone.
-function catalogDetailBodyHtml(cid) {
+function catalogDetailBodyHtml(cid, { forRail = false } = {}) {
   const raw = state.catalog.find((c) => c.id === cid);
   if (!raw) return null;
   const item = resolveCatalogItem(raw);
@@ -718,6 +718,7 @@ function catalogDetailBodyHtml(cid) {
                 : `<button class="btn-ghost" data-action="cat-admin-override" data-cid="${item.id}">✎ Edit details</button>`)
             : ''}
         </div>
+        ${forRail ? `<button class="cd-expand-btn" data-action="cat-expand" data-cid="${item.id}">⤢ Expand</button>` : ''}
       </div>
     </div>
     ${isEmpty ? (raw.isCustom
