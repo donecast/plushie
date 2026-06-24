@@ -683,7 +683,7 @@ function renderRailIdentity() {
   const avatar = state._myAvatarUrl
     ? `<img src="${escapeHtml(state._myAvatarUrl)}" alt="" class="rail-avatar-img" />`
     : '<span class="rail-avatar-fallback">🖤</span>';
-  const owned = (state.collection || []).length;
+  const owned = (state.collection || []).filter(isBun).length;
   const sig = `${u.username || ''}|${state._myAvatarUrl || ''}|${owned}`;
   if (el._idSig === sig && el.childNodes.length) return;  // skip needless repaints
   el._idSig = sig;
@@ -765,9 +765,16 @@ function renderRailItemDetail(item) {
 // .app-shell handler routes a click straight to your wish list.
 function renderCryptVitals() {
   const col = state.collection || [];
-  const owned = col.length;
-  const by = { plushes: 0, minis: 0, accessories: 0, other: 0 };
-  for (const it of col) { const t = collectionTabOf(it); by[t] = (by[t] || 0) + 1; }
+  // Buns = plushes + minis only. Clothing/accessories/other aren't buns.
+  let plush = 0, mini = 0, acc = 0;
+  for (const it of col) {
+    if (isWearableItem(it)) continue;          // clothing isn't a bun
+    const c = itemCategory(it);
+    if (c === 'plush') plush++;
+    else if (c === 'mini') mini++;
+    else if (c === 'accessory') acc++;
+  }
+  const owned = plush + mini;
 
   const pensTotal = (typeof activePens === 'function' ? activePens() : []).length;
   let pensOwned = 0;
@@ -798,9 +805,9 @@ function renderCryptVitals() {
         <span class="vitals-big-label">buns in the crypt</span>
       </div>
       <div class="vitals-chips">
-        <span class="vitals-chip">🧸 ${by.plushes} plush</span>
-        <span class="vitals-chip">🐭 ${by.minis} mini</span>
-        <span class="vitals-chip">🎀 ${by.accessories} acc</span>
+        <span class="vitals-chip">🧸 ${plush} plush</span>
+        <span class="vitals-chip">🐭 ${mini} mini</span>
+        <span class="vitals-chip">🎀 ${acc} acc</span>
       </div>
       <div class="vitals-stats">
         <div class="vitals-stat"><span class="vitals-stat-n">${pensOwned}/${pensTotal}</span><span class="vitals-stat-l">pens</span></div>

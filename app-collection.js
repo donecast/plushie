@@ -559,6 +559,14 @@ function collectionTabOf(item) {
   return 'other';
 }
 
+// A "bun" is an actual plush — a plushie or a mini. Clothing, accessories, and
+// everything else in the crypt are NOT buns and don't count toward the tally.
+function isBun(item) {
+  if (isWearableItem(item)) return false;
+  const c = itemCategory(item);
+  return c === 'plush' || c === 'mini';
+}
+
 // A collection entry = a plush card, plus any accessories attached to it
 // shown side-by-side on the right. Plain plushes render as a bare card.
 function renderCollectionEntry(item) {
