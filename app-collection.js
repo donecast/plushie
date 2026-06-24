@@ -804,12 +804,34 @@ function render() {
   if (onCrypt) {
     renderCryptMasthead();
     renderCryptFooter();
-    // Wish List sub-tab count (the category counts are set in the onCol block).
+
+    // Sub-tab badge counts over the whole collection (unfiltered) so the chips
+    // are stable regardless of search/filters. Clothing lives in The Closet and
+    // is NOT a plush/mini, so wearables are excluded from these counts.
+    const tabCounts = { plushes: 0, minis: 0, accessories: 0, other: 0 };
+    for (const it of state.collection) {
+      if (isWearableItem(it)) continue;
+      tabCounts[collectionTabOf(it)]++;
+    }
+    for (const k of Object.keys(tabCounts)) {
+      const el = document.getElementById(`col-subtab-count-${k}`);
+      if (el) el.textContent = `· ${tabCounts[k]}`;
+    }
+    document.getElementById('col-subtab-count-pens').textContent = `· ${state.pensOwned.size}/${activePens().length}`;
     const wlc = document.getElementById('col-subtab-count-wishlist');
     if (wlc) wlc.textContent = state.wishlist.length ? `· ${state.wishlist.length}` : '';
-    document.querySelectorAll('#collection-subtabs .subtab').forEach((s) =>
-      s.classList.toggle('active', s.dataset.colSubtab === state.colSubTab)
-    );
+
+    // Light the active sub-tab, and hide any empty non-Pens sub-tab to keep the
+    // strip tight (Pens always shows — it's a checklist; the active tab never
+    // hides, so the current selection can't vanish).
+    const subCount = (key) => key === 'wishlist' ? state.wishlist.length : (tabCounts[key] ?? 0);
+    document.querySelectorAll('#collection-subtabs .subtab').forEach((s) => {
+      const key = s.dataset.colSubtab;
+      s.classList.toggle('active', key === state.colSubTab);
+      const hide = key !== 'pens' && key !== state.colSubTab && subCount(key) === 0;
+      s.classList.toggle('hidden', hide);
+    });
+
     document.getElementById('collection-sub-items').classList.toggle('hidden', state.colSubTab === 'pens');
     document.getElementById('collection-sub-pens').classList.toggle('hidden', state.colSubTab !== 'pens');
   }
@@ -917,20 +939,12 @@ function render() {
     document.getElementById('count-label').textContent =
       `${tabTotal} of ${state.collection.length} item${state.collection.length === 1 ? '' : 's'}`;
 
-    // Per-tab badge counts, computed over the whole collection (unfiltered)
-    // so the tab chips show stable totals regardless of search/filters.
-    const tabCounts = { plushes: 0, minis: 0, accessories: 0, other: 0 };
-    for (const it of state.collection) tabCounts[collectionTabOf(it)]++;
-    for (const k of Object.keys(tabCounts)) {
-      const el = document.getElementById(`col-subtab-count-${k}`);
-      if (el) el.textContent = `· ${tabCounts[k]}`;
-    }
+    // Per-tab badge counts + sub-tab visibility are handled in the onCrypt
+    // block above (they must stay correct on the Wish List / Pens sub-tabs too).
 
     // Pens sub-tab — always re-render so the counts stay current even when
     // another sub-tab is showing. renderPens() updates #pens-progress + #pens-list.
     renderPens();
-    const pensBadge = `${state.pensOwned.size}/${activePens().length}`;
-    document.getElementById('col-subtab-count-pens').textContent = `· ${pensBadge}`;
     // When Pens sub-tab is showing, the count-label is hidden (handled
     // above via the onPens flag); no need to set it here.
   } else if (onWish) {
