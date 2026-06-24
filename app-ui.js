@@ -37,7 +37,16 @@ async function onCardClickInner(btn) {
 
   if (action === 'edit' || action === 'open-detail') {
     const item = state.collection.find((x) => x.id === id);
-    if (item) openModal('collection', item);
+    if (!item) return;
+    // On the wide rails layout, a plain tap opens the item in the right-rail
+    // master-detail panel (Crypt Vitals steps aside) instead of the centered
+    // modal. The explicit Edit affordance still goes straight to the full form.
+    if (action === 'open-detail' && railRightVisible()) {
+      state.railDetailId = id;
+      renderRightRail();
+    } else {
+      openModal('collection', item);
+    }
   } else if (action === 'zoom-photo') {
     const item = state.collection.find((x) => x.id === id) || state.wishlist.find((x) => x.id === id);
     const src = item && (photoSrc(item) || catalogImageFor(item.catalogId));
@@ -688,16 +697,65 @@ function renderRailIdentity() {
     </button>`;
 }
 
-// Right rail dispatcher: one slot, many faces. Today only My Crypt fills it;
-// other tabs collapse the rail so the stage gets the full width.
+// True when the right rail is actually on screen (wide rails layout). Below the
+// 1180px breakpoint the CSS hides it, so item taps fall back to the modal.
+function railRightVisible() {
+  return document.body.classList.contains('rails-on') && window.innerWidth > 1180;
+}
+
+// Right rail dispatcher: one slot, many faces. A selected item (master-detail)
+// wins; otherwise My Crypt shows Vitals; other tabs collapse the rail.
 function renderRightRail() {
   const el = document.getElementById('rail-right');
   if (!el) return;
-  const html = state.tab === 'crypt' ? renderCryptVitals() : '';
+  let detailItem = null;
+  if (state.railDetailId) {
+    detailItem = (state.collection || []).find((x) => x.id === state.railDetailId) || null;
+    if (!detailItem) state.railDetailId = null;   // item gone (deleted) — drop it
+  }
+  let html = '';
+  if (detailItem) html = renderRailItemDetail(detailItem);
+  else if (state.tab === 'crypt') html = renderCryptVitals();
   if (el._railHtml === html) return;  // identical — skip repaint (avoids thumb flicker)
   el._railHtml = html;
   el.innerHTML = html;
   el.classList.toggle('rail-right--active', !!html);
+}
+
+// Right-rail master-detail panel for a collection item: photo, name, meaning,
+// a few facts, and Edit (full modal) / Close. Read-only summary by design —
+// the heavy edit form stays in the familiar modal.
+function renderRailItemDetail(item) {
+  const src = (typeof photoSrc === 'function' ? photoSrc(item) : null)
+    || (typeof catalogImageFor === 'function' ? catalogImageFor(item.catalogId) : '');
+  const photo = src
+    ? `<img src="${escapeHtml(src)}" alt="" class="rail-detail-photo" loading="lazy" />`
+    : '<div class="rail-detail-photo rail-detail-noimg">🖤</div>';
+  const name = item.nickname
+    ? `<h3 class="rail-detail-name">${escapeHtml(item.nickname)}</h3>
+       <p class="rail-detail-product">${escapeHtml(stripOutfitWord(item.name || ''))}</p>`
+    : `<h3 class="rail-detail-name">${escapeHtml(stripOutfitWord(item.name || ''))}</h3>`;
+  const facts = [];
+  if (item.dateCollected) facts.push(['Collected', item.dateCollected]);
+  if (item.acquiredHow)   facts.push(['How', item.acquiredHow]);
+  if ((item.quantity || 1) > 1) facts.push(['Quantity', `×${item.quantity}`]);
+  if (item.retired) facts.push(['Status', 'Retired']);
+  const factsHtml = facts.length
+    ? `<dl class="rail-detail-facts">${facts.map(([k, v]) =>
+        `<div><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(String(v))}</dd></div>`).join('')}</dl>`
+    : '';
+  return `
+    <section class="vitals-card rail-detail">
+      <div class="rail-detail-head">
+        <h2 class="rail-head">Details</h2>
+        <button class="rail-detail-close" data-rail-action="close-detail" type="button" aria-label="Close details">×</button>
+      </div>
+      ${photo}
+      ${name}
+      ${item.meaning ? `<p class="rail-detail-meaning">${escapeHtml(item.meaning)}</p>` : ''}
+      ${factsHtml}
+      <button class="rail-detail-edit" data-rail-action="edit-detail" data-id="${item.id}" type="button">Edit</button>
+    </section>`;
 }
 
 // Crypt Vitals — your collection at a glance: total buns, a category split,
@@ -786,12 +844,26 @@ function wireEvents() {
   if (railCompose) railCompose.addEventListener('click', () => {
     if (typeof openComposer === 'function') openComposer();
   });
+  // Right-rail master-detail controls (Edit → full modal, Close → back to Vitals).
+  const railRightEl = document.getElementById('rail-right');
+  if (railRightEl) railRightEl.addEventListener('click', (e) => {
+    const a = e.target.closest('[data-rail-action]');
+    if (!a) return;
+    if (a.dataset.railAction === 'close-detail') {
+      state.railDetailId = null;
+      renderRightRail();
+    } else if (a.dataset.railAction === 'edit-detail') {
+      const item = state.collection.find((x) => x.id === a.dataset.id);
+      if (item) openModal('collection', item);
+    }
+  });
 
   document.querySelectorAll('.tab').forEach((t) => {
     t.addEventListener('click', async () => {
       // Remember the scroll position of the tab we're leaving so we can
       // restore it when the user comes back.
       tabScroll.set(state.tab, window.scrollY);
+      state.railDetailId = null;   // leaving the tab closes any rail master-detail
       state.tab = t.dataset.tab;
       if (state.tab === 'trade') {
         state.tradeSubTab = 'browse';   // always land on Browse (item 21)
@@ -825,6 +897,7 @@ function wireEvents() {
     s.addEventListener('click', () => {
       const key = `collection:${state.colSubTab}`;
       tabScroll.set(key, window.scrollY);
+      state.railDetailId = null;   // changing sub-tab closes any rail master-detail
       state.colSubTab = s.dataset.colSubtab;
       render();
       requestAnimationFrame(() => {
