@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=110" />
+  <link rel="stylesheet" href="./styles.css?v=111" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -72,7 +72,8 @@
             <span class="user-avatar" id="user-avatar"><span class="user-avatar-fallback">🖤</span></span>
           </button>
           <div id="user-menu" class="user-menu hidden" role="menu" aria-label="Account menu">
-            <button type="button" class="menu-item" role="menuitem" data-go="account">⚙️ Account &amp; settings</button>
+            <button type="button" class="menu-item" role="menuitem" data-go="profile">👤 Profile</button>
+            <button type="button" class="menu-item" role="menuitem" data-go="settings">⚙️ Settings</button>
             <button type="button" class="menu-item hidden" role="menuitem" data-go="admin" id="menu-admin">🛡️ Admin</button>
             <button type="button" class="menu-item danger" role="menuitem" data-go="signout">⤓ Sign out</button>
           </div>
@@ -1010,6 +1011,7 @@
               <li>On phones, the main navigation now sits in a <strong>bottom tab bar</strong> — Home · Catalog · My Crypt · Trade — so it's easy to reach with your thumb.</li>
               <li>Your account now lives behind your <strong>profile picture</strong> in the top corner — tap it for Account &amp; settings or to sign out.</li>
               <li><strong>Notifications moved into Account &amp; settings</strong> — the top-bar bell is gone, and you can switch reminders on or off there.</li>
+              <li>Account is now <strong>two tidy screens — Profile and Settings</strong> — reachable from your profile picture, each with a close button that stays in reach (no more endless scrolling to find the ×).</li>
             </ul>
             <p class="changelog-fixes">Misc bug fixes.</p>
           </div>
@@ -1234,15 +1236,20 @@
     </div>
   </div>
 
-  <!-- Account modal -->
-  <div id="account-modal" class="modal hidden" role="dialog" aria-modal="true">
+  <!-- Profile modal (public-facing identity: handle, avatar, bio, reputation).
+       Split out of the old single account modal so each screen is small enough
+       to scroll and close; the close button lives in a sticky header. -->
+  <div id="profile-modal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-backdrop" data-close-account></div>
-    <div class="modal-card modal-card-wide">
-      <button class="modal-close" data-close-account aria-label="Close">×</button>
-      <h2>Your account</h2>
+    <div class="modal-card modal-card-wide modal-card-split">
+      <header class="modal-head">
+        <h2>Your profile</h2>
+        <button class="modal-close-inline" data-close-account aria-label="Close">×</button>
+      </header>
+      <div class="modal-body">
 
       <section class="account-section">
-        <h3>Identity</h3>
+        <h3>Username</h3>
         <div class="account-row">
           <label class="field">
             <span>Username</span>
@@ -1251,14 +1258,6 @@
           <button class="btn-ghost" id="acct-save-username">Save</button>
         </div>
         <p class="account-hint hidden" id="acct-username-cooldown"></p>
-        <div class="account-row">
-          <label class="field">
-            <span>Email</span>
-            <input type="email" id="acct-email" autocomplete="email" />
-          </label>
-          <button class="btn-ghost" id="acct-save-email">Save</button>
-        </div>
-        <p class="account-hint">Changing your email sends a confirmation link to the new address. The old address keeps working until you confirm.</p>
       </section>
 
       <section class="account-section">
@@ -1312,6 +1311,61 @@
       </section>
 
       <section class="account-section">
+        <h3>Reputation</h3>
+        <div id="acct-feedback" class="feedback-summary"></div>
+      </section>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings modal (private preferences + account actions). -->
+  <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-account></div>
+    <div class="modal-card modal-card-wide modal-card-split">
+      <header class="modal-head">
+        <h2 id="settings-title">Settings</h2>
+        <button class="modal-close-inline" data-close-account aria-label="Close">×</button>
+      </header>
+      <div class="modal-body">
+
+      <section class="account-section">
+        <h3>Email</h3>
+        <div class="account-row">
+          <label class="field">
+            <span>Email</span>
+            <input type="email" id="acct-email" autocomplete="email" />
+          </label>
+          <button class="btn-ghost" id="acct-save-email">Save</button>
+        </div>
+        <p class="account-hint">Changing your email sends a confirmation link to the new address. The old address keeps working until you confirm.</p>
+      </section>
+
+      <section class="account-section">
+        <h3>Appearance</h3>
+        <div class="account-row">
+          <label class="field">
+            <span>Theme</span>
+            <select id="acct-theme">
+              <option value="light">Light (default)</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section class="account-section">
+        <h3>Notifications</h3>
+        <label class="account-row demo-mode-row" for="acct-notify">
+          <input type="checkbox" id="acct-notify" />
+          <span class="demo-mode-copy">
+            <strong>Reminders &amp; alerts</strong>
+            <span class="account-hint">Get a nudge about trade activity, friend requests, and wish-list restocks. Turn it off any time. (On a phone, allow notifications when your browser asks.)</span>
+          </span>
+        </label>
+      </section>
+
+      <section class="account-section">
         <h3>Default shipping address <span class="addr-verified-badge hidden" id="acct-addr-verified">✓ Saved</span></h3>
         <p class="account-hint">Pre-fills your address on every trade so you don't have to type it each time. The other side only sees it once they've also entered theirs.</p>
         <div class="addr-grid">
@@ -1350,35 +1404,6 @@
         </div>
       </section>
 
-      <section class="account-section">
-        <h3>Appearance</h3>
-        <div class="account-row">
-          <label class="field">
-            <span>Theme</span>
-            <select id="acct-theme">
-              <option value="light">Light (default)</option>
-              <option value="dark">Dark</option>
-            </select>
-          </label>
-        </div>
-      </section>
-
-      <section class="account-section">
-        <h3>Notifications</h3>
-        <label class="account-row demo-mode-row" for="acct-notify">
-          <input type="checkbox" id="acct-notify" />
-          <span class="demo-mode-copy">
-            <strong>Reminders &amp; alerts</strong>
-            <span class="account-hint">Get a nudge about trade activity, friend requests, and wish-list restocks. Turn it off any time. (On a phone, allow notifications when your browser asks.)</span>
-          </span>
-        </label>
-      </section>
-
-      <section class="account-section">
-        <h3>Reputation</h3>
-        <div id="acct-feedback" class="feedback-summary"></div>
-      </section>
-
       <section class="account-section" id="acct-collections-section">
         <h3>Your collections</h3>
         <ul id="acct-collections" class="member-list"></ul>
@@ -1403,6 +1428,8 @@
           <button class="btn-danger" id="acct-signout">Sign out</button>
         </div>
       </section>
+
+      </div>
     </div>
   </div>
 
@@ -1459,14 +1486,14 @@
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=119"></script>
-  <script src="./app-catalog.js?v=119"></script>
-  <script src="./app-collection.js?v=119"></script>
-  <script src="./app-ui.js?v=119"></script>
-  <script src="./app-trade.js?v=119"></script>
-  <script src="./app-account.js?v=119"></script>
-  <script src="./app-admin.js?v=119"></script>
-  <script src="./app-admin-catalog.js?v=119"></script>
-  <script src="./app-social.js?v=119"></script>
+  <script src="./app-core.js?v=120"></script>
+  <script src="./app-catalog.js?v=120"></script>
+  <script src="./app-collection.js?v=120"></script>
+  <script src="./app-ui.js?v=120"></script>
+  <script src="./app-trade.js?v=120"></script>
+  <script src="./app-account.js?v=120"></script>
+  <script src="./app-admin.js?v=120"></script>
+  <script src="./app-admin-catalog.js?v=120"></script>
+  <script src="./app-social.js?v=120"></script>
 </body>
 </html>

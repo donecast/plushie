@@ -171,7 +171,9 @@ function switchLegalTab(which) {
   );
 }
 
-async function openAccountModal() {
+// Populate every field in both the Profile and Settings modals. Both live in
+// the DOM at once (hidden), so we fill them all and just show the one asked for.
+async function populateAccountFields() {
   document.getElementById('acct-username').value = window.currentUser?.username ?? '';
   document.getElementById('acct-email').value    = window.currentUser?.email ?? '';
   await populateAddressFields();
@@ -196,10 +198,10 @@ async function openAccountModal() {
   syncUsernameCooldownHint();
   const themeSel = document.getElementById('acct-theme');
   if (themeSel) themeSel.value = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
-  // Admin tag in the modal header so it's obvious who you're signed in as.
-  const heading = document.querySelector('#account-modal h2');
+  // Admin tag in the Settings header so it's obvious who you're signed in as.
+  const heading = document.getElementById('settings-title');
   if (heading) {
-    heading.innerHTML = 'Your account' + (window.currentUser?.isAdmin
+    heading.innerHTML = 'Settings' + (window.currentUser?.isAdmin
       ? ' <span class="role-tag">admin</span>' : '');
   }
 
@@ -244,11 +246,24 @@ async function openAccountModal() {
     if (demoChk) demoChk.checked = data.isDemoMode();
   }
 
-  document.getElementById('account-modal').classList.remove('hidden');
 }
 
+// Open the Profile screen (public identity) or the Settings screen (prefs +
+// account). Both share populateAccountFields(); we just reveal the right one.
+async function openProfileModal() {
+  await populateAccountFields();
+  document.getElementById('profile-modal').classList.remove('hidden');
+}
+async function openSettingsModal() {
+  await populateAccountFields();
+  document.getElementById('settings-modal').classList.remove('hidden');
+}
+// Back-compat alias: anything that opened "the account modal" lands on Profile.
+async function openAccountModal() { return openProfileModal(); }
+
 function closeAccountModal() {
-  document.getElementById('account-modal').classList.add('hidden');
+  document.getElementById('profile-modal')?.classList.add('hidden');
+  document.getElementById('settings-modal')?.classList.add('hidden');
 }
 
 async function saveUsername() {

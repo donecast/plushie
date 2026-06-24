@@ -1373,7 +1373,8 @@ function wireEvents() {
     if (!item) return;
     closeUserMenu();
     const go = item.dataset.go;
-    if (go === 'account') { openAccountModal(); return; }
+    if (go === 'profile') { openProfileModal(); return; }
+    if (go === 'settings') { openSettingsModal(); return; }
     if (go === 'signout') { handleSignOut(); return; }
     // crypt | admin — switch tabs the same way a .tab click would.
     tabScroll.set(state.tab, window.scrollY);
