@@ -229,6 +229,16 @@ const data = {
     if (failed) throw failed.error;
   },
 
+  // Same idea for the wish list (priority order). Tolerates the column not
+  // existing yet (pre-0042).
+  async saveWishlistOrder(orderedIds) {
+    const now = new Date().toISOString();
+    const results = await Promise.all(orderedIds.map((id, i) =>
+      sb.from('wishlist').update({ sort_order: i, updated_at: now }).eq('id', id)));
+    const failed = results.find((r) => r.error);
+    if (failed) throw failed.error;
+  },
+
   // ─── Photos (R2 via Worker, with Supabase Storage fallback) ──────
   // Routing is controlled by window.R2_BASE in config.js:
   //   * empty / unset → legacy Supabase Storage 'photos' bucket
@@ -1499,7 +1509,7 @@ data.adminUpdateCatalogItem = async function (id, patch) {
 data.listCatalogOverrides = async function () {
   const { data: rows, error } = await sb
     .from('catalog_overrides')
-    .select('handle, lore, symbolism, accessories, image');
+    .select('handle, lore, symbolism, accessories, image, category, retired');
   if (error) { console.warn('catalog overrides load skipped', error); return []; }
   return rows || [];
 };
@@ -1519,14 +1529,20 @@ data.adminUpsertCatalogOverride = async function (handle, patch) {
   // is present, '' / null clears it.
   const hasImage = Object.prototype.hasOwnProperty.call(patch, 'image');
   const image = patch.image || null;
+  // Tag overrides: category (null = inherit) and retired (true/false = force,
+  // null = inherit).
+  const category = patch.category || null;
+  const retired = (patch.retired === true || patch.retired === false) ? patch.retired : null;
   // Delete the row only when we know the full picture is empty — i.e. the image
-  // key was provided (so we're sure there's no cover override to preserve).
-  if (lore === null && symbolism === null && accessories === null && hasImage && image === null) {
+  // key was provided (so we're sure there's no cover override to preserve) AND
+  // no tag overrides remain.
+  if (lore === null && symbolism === null && accessories === null
+      && category === null && retired === null && hasImage && image === null) {
     const { error } = await sb.from('catalog_overrides').delete().eq('handle', handle);
     if (error) throw error;
     return null;
   }
-  const row = { handle, lore, symbolism, accessories, updated_by: window.currentUser.id };
+  const row = { handle, lore, symbolism, accessories, category, retired, updated_by: window.currentUser.id };
   if (hasImage) row.image = image;
   const { data: saved, error } = await sb
     .from('catalog_overrides')
@@ -2059,6 +2075,13 @@ data.featureEnabled = function (key, defaultValue = true) {
     const uname = (window.currentUser?.username || '').toLowerCase();
     if (data.ALWAYS_GRANTED_USERNAMES.includes(uname)) return true;
     return window.currentUser?.customClothingEnabled === true;
+  }
+  // Insider prototype: the experimental 3-zone "rails" layout (left nav rail +
+  // right contextual rail). Admin + allowlist only for now — no public toggle.
+  if (key === 'feature.side_rails') {
+    if (window.currentUser?.isAdmin) return true;
+    const uname = (window.currentUser?.username || '').toLowerCase();
+    return data.ALWAYS_GRANTED_USERNAMES.includes(uname);
   }
   const v = data.appSettings[key];
   if (v === undefined || v === null) return defaultValue;

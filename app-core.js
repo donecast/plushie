@@ -11,8 +11,8 @@
 
 // ─── State ────────────────────────────────────────────────────────────
 const state = {
-  tab: 'social',              // landing tab — 'social' | 'catalog' | 'collection' | 'wishlist' | 'trade' | 'admin'
-  colSubTab: 'plushes',       // collection sub-tab: 'plushes' | 'minis' | 'accessories' | 'other' | 'pens'
+  tab: 'home',                // landing tab — 'home' (feed) | 'catalog' | 'crypt' | 'trade' | 'admin'
+  colSubTab: 'plushes',       // My Crypt sub-tab: 'plushes' | 'minis' | 'accessories' | 'other' | 'pens' | 'wishlist'
   filter: 'all',              // collection: all | active | retired
   colCategory: 'all',         // legacy category chip (superseded by sub-tabs; kept inert)
   colDupes: false,            // collection: only quantity > 1
@@ -21,10 +21,13 @@ const state = {
   arranging: false,           // actively in drag-to-reorder mode (the ↕ Arrange toggle).
                               // Separate from colSort==='manual': the custom order can be
                               // *shown* without the drag grips being live.
-  colView: 'cards',           // collection layout: 'cards' (roomy) | 'compact' (dense list)
+  colView: 'compact',         // collection layout: 'cards' (roomy) | 'compact' (dense list).
+                              // Defaults to compact — the dense list is the better daily driver.
   wishCategory: 'all',
   wishInStock: false,
   wishSort: 'added_desc',
+  wishView: 'compact',        // wishlist layout: 'cards' | 'compact' (mirrors colView)
+  wishArranging: false,       // wishlist drag-to-reorder mode (mirrors `arranging`)
   catalogFilter: 'all',       // catalog category: all | plush | accessory | other
   catalogStatuses: new Set(), // empty = any; otherwise OR of: available/sold_out/coming_soon/retired/fyc
   catalogUnowned: false,      // toggle: hide ones already in collection
@@ -32,8 +35,15 @@ const state = {
   catalogTheme: 'all',        // tag value to require; 'all' = no constraint
   catalogColor: 'all',        // color tag substring match; 'all' = no constraint
   catalogSort: 'newest',      // newest | oldest | name_asc | name_desc | price_asc | price_desc
-  query: '',
+  // Search is per-section: a query typed on the collection doesn't bleed into
+  // the catalog or wish list, and each remembers its own text. (Replaces the
+  // old single `query`.)
+  colQuery: '',
+  catQuery: '',
+  wishQuery: '',
   editingId: null,
+  railDetailId: null,         // collection/wishlist item shown in the right-rail master-detail
+  railCatalogId: null,        // catalog item shown in the right-rail master-detail (richer detail)
   collection: [],
   wishlist: [],
   catalog: [],                // loaded from catalog.json
@@ -245,8 +255,8 @@ function renderActiveFilters(shownCount) {
   if (state.catalogColor && state.catalogColor !== 'all') {
     pills.push(`<button class="active-pill" data-clear="color">Color: ${escapeHtml(state.catalogColor)} ×</button>`);
   }
-  if (state.query) {
-    pills.push(`<button class="active-pill" data-clear="query">"${escapeHtml(state.query)}" ×</button>`);
+  if (state.catQuery) {
+    pills.push(`<button class="active-pill" data-clear="query">"${escapeHtml(state.catQuery)}" ×</button>`);
   }
   const countText = `<span class="active-count">${shownCount} of ${total} products</span>`;
   const clearAll = pills.length > 0
@@ -266,6 +276,7 @@ function clearTabFilters(tab) {
     state.catalogTheme = 'all';
     state.catalogColor = 'all';
     state.catalogSort = 'newest';
+    state.catQuery = '';
     syncCatalogChips();
   } else if (tab === 'collection') {
     state.filter = 'all';
@@ -274,14 +285,17 @@ function clearTabFilters(tab) {
     state.colNoBag = false;
     state.colSort = 'acquired_desc';
     state.arranging = false;
+    state.colQuery = '';
     syncCollectionChips();
   } else if (tab === 'wishlist') {
     state.wishCategory = 'all';
     state.wishInStock = false;
     state.wishSort = 'added_desc';
+    state.wishArranging = false;
+    state.wishQuery = '';
     syncWishlistChips();
   }
-  state.query = '';
+  // Clearing only touches the active section's search now.
   const s = document.getElementById('search');
   if (s) s.value = '';
   render();
@@ -295,7 +309,7 @@ function clearFilter(key) {
     state.catalogOriginal = false;
     state.catalogTheme = 'all';
     state.catalogColor = 'all';
-    state.query = '';
+    state.catQuery = '';
     document.getElementById('search').value = '';
     const themeEl = document.getElementById('cat-theme');
     if (themeEl) themeEl.value = 'all';
@@ -318,7 +332,7 @@ function clearFilter(key) {
     const colorEl = document.getElementById('cat-color');
     if (colorEl) colorEl.value = 'all';
   } else if (key === 'query') {
-    state.query = '';
+    state.catQuery = '';
     document.getElementById('search').value = '';
   }
   syncCatalogChips();
@@ -365,6 +379,14 @@ function syncWishlistChips() {
   setMultiSummary(document.getElementById('wish-extras'), state.wishInStock ? ['In stock'] : []);
   const sortEl = document.getElementById('wish-sort');
   if (sortEl) sortEl.value = state.wishSort;
+  const viewEl = document.getElementById('wish-view');
+  if (viewEl) viewEl.value = state.wishView;
+  const arrangeBtn = document.getElementById('wish-arrange');
+  if (arrangeBtn) {
+    const on = state.wishArranging;
+    arrangeBtn.classList.toggle('active', on);
+    arrangeBtn.textContent = on ? '✓ Done arranging' : '↕ Arrange';
+  }
 }
 
 // Single source of truth: state.catalogFilter, state.catalogStatuses,
@@ -456,6 +478,9 @@ const CATEGORY_OVERRIDES = [
   { test: (it) => /\b(gas|plague)\s*-?\s*mask\b/i.test(it.name || ''), category: 'clothing' },
 ];
 function categoryOverride(item) {
+  // An admin's per-item DB override (from the Edit-details overlay) wins over the
+  // hardcoded list below.
+  if (item && item.categoryOverrideTag) return item.categoryOverrideTag;
   for (const o of CATEGORY_OVERRIDES) if (o.test(item)) return o.category;
   return null;
 }
@@ -620,6 +645,12 @@ function applyCatalogOverrides(shopifyProducts, overrides) {
     }
     // A picked cover photo replaces Shopify's default first image.
     if (ov.image) item.image = ov.image;
+    // Tag overrides: re-categorise and/or force retired. categoryOverrideTag is
+    // read by categoryOverride() below; retiredOverride drives itemStatus and
+    // lets the modal prefill auto/active/retired.
+    if (ov.category) item.categoryOverrideTag = ov.category;
+    if (ov.retired === true)  { item.retired = true;  item.retiredOverride = true; }
+    if (ov.retired === false) { item.retired = false; item.retiredOverride = false; }
     item.hasOverride = true;
   }
 }

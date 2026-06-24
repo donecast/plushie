@@ -83,7 +83,7 @@ function scheduleSocialCheck() {
 
 function updateSocialBadge() {
   const n = state.socPendingCount || 0;
-  for (const id of ['social-badge', 'soc-friends-badge']) {
+  for (const id of ['coven-badge', 'soc-friends-badge']) {
     const b = document.getElementById(id);
     if (!b) continue;
     b.textContent = n;
@@ -361,6 +361,62 @@ function renderMyProfileTab() {
   el.insertAdjacentHTML('beforeend', renderBlockedManager());
 }
 
+// My Crypt masthead — the merged identity surface's header. Same content as
+// the old Social → My Crypt tab (profile + Top 8 + edit affordances + blocked
+// manager), rendered above the collection / wish list body on the Crypt tab.
+// Reads the same state._my* cache that loadMyProfileCache() populates.
+function renderCryptMasthead() {
+  const el = document.getElementById('crypt-masthead');
+  if (!el || !window.currentUser) return;
+  // render() runs on every card tap (quantity steppers, etc.). Rebuilding this
+  // header reflows the block above the grid, which fights keepScroll and snaps
+  // the page to the top. Only rebuild when the identity content changed.
+  const sig = JSON.stringify({
+    u: window.currentUser.username,
+    b: state._myBio || '',
+    a: state._myAvatarUrl || '',
+    s: state._mySocialLinks || null,
+  });
+  if (el._mastheadSig === sig && el.childNodes.length) return;
+  el._mastheadSig = sig;
+  // Collection-first: the masthead is a slim identity header only (avatar, bio,
+  // links, edit affordances). Top 8 + your posts live in the crypt FOOTER below
+  // the collection, so the collection itself is the lead of My Crypt.
+  renderProfileInto(el, {
+    profile: { id: window.currentUser.id, username: window.currentUser.username, bio: state._myBio, avatarUrl: state._myAvatarUrl, socialLinks: state._mySocialLinks },
+    isMe: true,
+    omitTop8: true,
+    omitPosts: true,
+  });
+}
+
+// My Crypt footer — the social/identity extras shown BELOW the collection grid:
+// Top 8 Buns, your posts, and the blocked-collectors manager. Reuses the same
+// delegated click/submit/error handlers as the masthead (wired in wireEvents).
+// Guarded by a content signature so it only repaints on a real change.
+function renderCryptFooter() {
+  const el = document.getElementById('crypt-footer');
+  if (!el || !window.currentUser) return;
+  const posts = state._myPosts || [];
+  const sig = JSON.stringify({
+    t: (state._myTop8 || []).map((x) => (x && (x.id ?? x.itemId)) ?? x),
+    p: posts,
+    k: (state.myBlocks || []).map((x) => x.id),
+  });
+  if (el._footerSig === sig && el.childNodes.length) return;
+  el._footerSig = sig;
+  el.innerHTML = `
+    <section class="soc-section">
+      <h2 class="soc-section-head">Top 8 Buns 🐰</h2>
+      ${renderTop8(state._myTop8 || [], true)}
+    </section>
+    <section class="soc-section">
+      <h2 class="soc-section-head">Your posts</h2>
+      ${posts.length ? posts.map(renderPostCard).join('') : `<p class="empty-note">No posts yet.</p>`}
+    </section>`;
+  el.insertAdjacentHTML('beforeend', renderBlockedManager());
+}
+
 // "Blocked collectors" manager — the only place to unblock someone whose
 // profile is otherwise hidden from you.
 function renderBlockedManager() {
@@ -407,7 +463,7 @@ async function openProfile(userId) {
   } catch (e) { console.error('openProfile', e); toast('Could not open profile.'); }
 }
 
-function renderProfileInto(el, { profile, posts, top8, friendship, isMe, withBack, unavailable }) {
+function renderProfileInto(el, { profile, posts = [], top8 = [], friendship, isMe, withBack, unavailable, omitPosts, omitTop8 }) {
   if (unavailable) {
     el.innerHTML = `
       ${withBack ? `<button class="linklike soc-back" data-soc-action="close-profile">← Back to feed</button>` : ''}
@@ -460,14 +516,14 @@ function renderProfileInto(el, { profile, posts, top8, friendship, isMe, withBac
         <div class="soc-profile-actions">${relBtns}</div>
       </div>
     </header>
-    <section class="soc-section">
+    ${omitTop8 ? '' : `<section class="soc-section">
       <h2 class="soc-section-head">Top 8 Buns 🐰</h2>
       ${top8Html}
-    </section>
-    <section class="soc-section">
+    </section>`}
+    ${omitPosts ? '' : `<section class="soc-section">
       <h2 class="soc-section-head">${isMe ? 'Your posts' : 'Posts'}</h2>
       ${posts.length ? posts.map(renderPostCard).join('') : `<p class="empty-note">No posts yet.</p>`}
-    </section>`;
+    </section>`}`;
 }
 
 function renderTop8(top8, isMe) {
@@ -867,6 +923,31 @@ function wireSocialEvents() {
   document.getElementById('social-view').addEventListener('click', onSocialClick);
   document.getElementById('social-modal').addEventListener('click', onSocialModalClick);
 
+  // The My Crypt masthead (slim header, on top) and footer (Top 8 + your posts,
+  // below the collection) live outside #social-view but reuse the same delegated
+  // profile handlers (edit profile, edit Top 8, view a profile, like/comment on
+  // your own posts, graceful image fallback).
+  for (const id of ['crypt-masthead', 'crypt-footer']) {
+    const cryptEl = document.getElementById(id);
+    if (!cryptEl) continue;
+    cryptEl.addEventListener('click', onSocialClick);
+    cryptEl.addEventListener('submit', (e) => {
+      const f = e.target.closest('[data-soc-action="submit-comment"]');
+      if (f) { e.preventDefault(); submitCommentForm(f); return; }
+      const ef = e.target.closest('[data-soc-action="submit-comment-edit"]');
+      if (ef) { e.preventDefault(); submitCommentEdit(ef); }
+    });
+    cryptEl.addEventListener('error', (e) => {
+      const img = e.target;
+      if (img.tagName !== 'IMG' || img.dataset.fellBack) return;
+      img.dataset.fellBack = '1';
+      const slot = img.closest('.soc-top8-photo');
+      if (slot) { slot.innerHTML = '<span class="no-photo">🖤</span>'; return; }
+      const photo = img.closest('.soc-post-photo');
+      if (photo) { photo.remove(); }
+    }, true);
+  }
+
   // Search (debounced) on the friends sub-tab.
   document.getElementById('social-view').addEventListener('input', async (e) => {
     if (e.target.id !== 'soc-search-input') return;
@@ -1252,7 +1333,7 @@ async function boot() {
   // repaint when ready (also fires friend-request notifications + badge).
   loadSocialData().then(() => {
     updateSocialBadge();
-    if (state.tab === 'social') renderSocial();
+    if (state.tab === 'home') renderSocial();
   });
   scheduleSocialCheck();  // keep polling for new requests while the app is open
   updateNotifyButton();

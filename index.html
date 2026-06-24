@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=91" />
+  <link rel="stylesheet" href="./styles.css?v=104" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -65,25 +65,76 @@
         <h1>The Plush Crypt</h1>
       </div>
       <div class="header-actions">
-        <button id="user-badge" class="user-badge hidden" title="Account">
-          <span class="user-name">@user</span>
-          <span class="user-caret">▾</span>
-        </button>
+        <button id="coven-btn" class="icon-btn hidden" title="Coven" aria-label="Coven and friend requests">👥<span id="coven-badge" class="tab-badge hidden" aria-live="polite">0</span></button>
         <button id="theme-btn" class="icon-btn" title="Toggle light/dark" aria-label="Toggle light or dark theme">🌙</button>
         <button id="notify-btn" class="icon-btn" title="Enable notifications" aria-label="Enable notifications">🔔</button>
+        <div class="user-badge-wrap">
+          <button id="user-badge" class="user-badge hidden" title="Account" aria-haspopup="menu" aria-expanded="false">
+            <span class="user-name">@user</span>
+            <span class="user-caret">▾</span>
+          </button>
+          <div id="user-menu" class="user-menu hidden" role="menu" aria-label="Account menu">
+            <button type="button" class="menu-item" role="menuitem" data-go="crypt">🦇 View my crypt</button>
+            <button type="button" class="menu-item" role="menuitem" data-go="account">⚙️ Account &amp; settings</button>
+            <button type="button" class="menu-item hidden" role="menuitem" data-go="admin" id="menu-admin">🛡️ Admin</button>
+            <button type="button" class="menu-item danger" role="menuitem" data-go="signout">⤓ Sign out</button>
+          </div>
+        </div>
       </div>
     </div>
-    <nav class="tabs">
-      <button class="tab active" data-tab="social">Social <span id="social-badge" class="tab-badge hidden">0</span></button>
-      <button class="tab" data-tab="catalog">Catalog</button>
-      <button class="tab" data-tab="collection">My Collection</button>
-      <button class="tab" data-tab="wishlist">Wish List</button>
-      <button class="tab" data-tab="trade">Trade <span id="trade-badge" class="tab-badge hidden">0</span></button>
-      <button class="tab hidden" id="admin-tab" data-tab="admin">Admin</button>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="home" role="tab" aria-selected="true">Home</button>
+      <button class="tab" data-tab="catalog" role="tab" aria-selected="false">Catalog</button>
+      <button class="tab" data-tab="crypt" role="tab" aria-selected="false">My Crypt</button>
+      <button class="tab" data-tab="trade" role="tab" aria-selected="false">Trade <span id="trade-badge" class="tab-badge hidden">0</span></button>
     </nav>
   </header>
 
+  <!-- Experimental 3-zone "rails" layout (insider feature.side_rails). With no
+       body.rails-on class, .app-shell is display:contents and the rails are
+       display:none, so the page is the classic single centered column. For
+       admins/allowlist it becomes: left nav rail + center stage + right
+       contextual rail (collapsing back to the top tab bar on narrow screens). -->
+  <div class="app-shell">
+    <aside id="rail-left" class="rail rail-left" aria-label="Primary navigation">
+      <div id="rail-identity" class="rail-identity"></div>
+      <nav class="rail-nav" aria-label="Sections">
+        <button class="rail-tab" data-tab="home"><span class="rail-ico">🏚️</span><span class="rail-label">Home</span></button>
+        <button class="rail-tab" data-tab="catalog"><span class="rail-ico">📖</span><span class="rail-label">Catalog</span></button>
+        <button class="rail-tab" data-tab="crypt"><span class="rail-ico">🦇</span><span class="rail-label">My Crypt</span></button>
+        <button class="rail-tab" data-tab="trade"><span class="rail-ico">↺</span><span class="rail-label">Trade</span></button>
+      </nav>
+      <button id="rail-compose" class="rail-compose" type="button">✚ Summon a post</button>
+    </aside>
+
   <main>
+    <!-- My Crypt leads with a compact profile header, then the section sub-tabs,
+         then the shared toolbar (search + filters) sitting directly above the
+         collection grid. All three are hidden on non-Crypt tabs, so Catalog &c.
+         keep the toolbar at the top as before. -->
+    <div id="crypt-masthead" class="crypt-masthead hidden"></div>
+
+    <nav id="collection-subtabs" class="subtabs subtabs-collection hidden" role="tablist" aria-label="My Crypt sections">
+      <button class="subtab active" data-col-subtab="plushes">
+        Plushes <span class="dim" id="col-subtab-count-plushes"></span>
+      </button>
+      <button class="subtab" data-col-subtab="minis">
+        Minis <span class="dim" id="col-subtab-count-minis"></span>
+      </button>
+      <button class="subtab" data-col-subtab="accessories">
+        Accessories <span class="dim" id="col-subtab-count-accessories"></span>
+      </button>
+      <button class="subtab" data-col-subtab="other">
+        Other <span class="dim" id="col-subtab-count-other"></span>
+      </button>
+      <button class="subtab" data-col-subtab="pens">
+        Pens <span class="dim" id="col-subtab-count-pens"></span>
+      </button>
+      <button class="subtab" data-col-subtab="wishlist">
+        Wish List <span class="dim" id="col-subtab-count-wishlist"></span>
+      </button>
+    </nav>
+
     <div class="toolbar">
       <input type="search" id="search" placeholder="Search the crypt…  (-exclude, &quot;exact phrase&quot;, a , b for either)" aria-label="Search" title="Search supports -exclusions, &quot;exact phrases&quot;, & for AND, and , for OR (e.g. -tote &amp; -bag, or tote, bag)" />
       <div id="collection-filters" class="filters">
@@ -131,11 +182,17 @@
           </div>
         </details>
         <select id="wish-sort" class="filter-select" aria-label="Sort wishlist">
+          <option value="manual">My order</option>
           <option value="added_desc">Newest added</option>
           <option value="added_asc">Oldest added</option>
           <option value="name_asc">Name A→Z</option>
           <option value="name_desc">Name Z→A</option>
         </select>
+        <select id="wish-view" class="filter-select" aria-label="Wish list layout">
+          <option value="cards">Card view</option>
+          <option value="compact">Compact list</option>
+        </select>
+        <button id="wish-arrange" class="filter-arrange" type="button" title="Drag your wish list into priority order">↕ Arrange</button>
         <button id="check-restocks" class="filter-action">Check restocks</button>
         <button class="filter-clear" data-clear-tab="wishlist">Clear filters</button>
       </div>
@@ -222,29 +279,7 @@
     </div>
     <div id="active-filters" class="active-filters"></div>
 
-    <section id="collection-view" class="view">
-      <!-- Sub-tabs: collection items split by category — Plushes, Minis,
-           Accessories, Other — plus Pens (folded in from the old top-level
-           tab). Clothing lives in the Plushes/Minis closet, by scale.
-           State key is colSubTab. -->
-      <nav id="collection-subtabs" class="subtabs subtabs-collection">
-        <button class="subtab active" data-col-subtab="plushes">
-          Plushes <span class="dim" id="col-subtab-count-plushes"></span>
-        </button>
-        <button class="subtab" data-col-subtab="minis">
-          Minis <span class="dim" id="col-subtab-count-minis"></span>
-        </button>
-        <button class="subtab" data-col-subtab="accessories">
-          Accessories <span class="dim" id="col-subtab-count-accessories"></span>
-        </button>
-        <button class="subtab" data-col-subtab="other">
-          Other <span class="dim" id="col-subtab-count-other"></span>
-        </button>
-        <button class="subtab" data-col-subtab="pens">
-          Pens <span class="dim" id="col-subtab-count-pens"></span>
-        </button>
-      </nav>
-
+    <section id="collection-view" class="view hidden">
       <div id="collection-sub-items" class="subview">
         <div id="collection-grid" class="grid grid-list"></div>
         <div id="collection-empty" class="empty hidden">
@@ -282,6 +317,11 @@
       </div>
     </section>
 
+    <!-- My Crypt footer: the social/identity extras (Top 8 Buns + your posts)
+         live BELOW the collection so the collection itself is the lead. Shown
+         only on the Crypt tab; rendered by renderCryptFooter(). -->
+    <div id="crypt-footer" class="crypt-footer hidden"></div>
+
     <section id="catalog-view" class="view hidden">
       <div id="catalog-grid" class="grid grid-tight"></div>
       <div id="catalog-empty" class="empty hidden">
@@ -306,16 +346,16 @@
     </section>
 
     <section id="social-view" class="view hidden">
-      <nav class="subtabs">
-        <button class="subtab active" data-soc-subtab="feed">Feed</button>
-        <button class="subtab" data-soc-subtab="friends">Friends <span id="soc-friends-badge" class="tab-badge hidden">0</span></button>
-        <button class="subtab" data-soc-subtab="me">My Crypt</button>
-      </nav>
       <div id="soc-feed"    class="subview"></div>
       <div id="soc-friends" class="subview hidden"></div>
       <div id="soc-me"      class="subview hidden"></div>
     </section>
   </main>
+
+    <!-- Right rail: the contextual companion. Mirrors the stage — today only My
+         Crypt has a face (Crypt Vitals), filled by renderRightRail(). -->
+    <aside id="rail-right" class="rail rail-right" aria-label="Context"></aside>
+  </div>
 
   <!-- Add / Edit modal -->
   <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
@@ -599,6 +639,13 @@
             <option value="other">Other</option>
           </select>
         </label>
+        <label class="field">
+          <span>Availability</span>
+          <select id="ci-retired">
+            <option value="active" selected>Active</option>
+            <option value="retired">Retired</option>
+          </select>
+        </label>
 
         <!-- Photo source picker. End users see only the upload field;
              admins also see a 'Pick from a user's collection' tab that
@@ -687,6 +734,30 @@
           <span>Set includes <em class="dim">— one per line, what's in the box</em></span>
           <textarea id="co-accessories" rows="4" maxlength="1500" placeholder="Vertigo Rabbit&#10;Tote bag&#10;Sticker"></textarea>
         </label>
+        <!-- Manual tag overrides: re-categorise mislabeled items (e.g. clothing
+             that Shopify types as 'accessory') and force retired/active. -->
+        <div class="co-tag-row">
+          <label class="field">
+            <span>Category <em class="dim">— override the catalog</em></span>
+            <select id="co-category">
+              <option value="auto">Auto (from catalog)</option>
+              <option value="plush">Plush</option>
+              <option value="mini">Mini</option>
+              <option value="clothing">Clothing</option>
+              <option value="accessory">Accessory</option>
+              <option value="bundle">Bundle</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Availability <em class="dim">— override retired</em></span>
+            <select id="co-retired">
+              <option value="auto">Auto (from catalog)</option>
+              <option value="active">Active</option>
+              <option value="retired">Retired</option>
+            </select>
+          </label>
+        </div>
         <div class="form-actions">
           <button type="button" class="btn-ghost" data-close-catalog-override>Cancel</button>
           <button type="submit" class="btn-primary" id="co-submit">Save</button>
@@ -906,8 +977,24 @@
 
         <div class="changelog">
           <div class="changelog-day">
+            <h3 class="changelog-date">June 24, 2026</h3>
+            <ul>
+              <li><strong>My Crypt now leads with your collection.</strong> A slim profile header sits up top, then your collection is front and center; your <strong>Top 8 Buns</strong> and posts moved just below it. 🦇</li>
+              <li>Your collection and wish list now open in a tidy <strong>compact list</strong> by default, and the wish list has its own Card / Compact toggle.</li>
+              <li>The <strong>wish list is now orderable</strong> — drag (or use ▲▼ Arrange) to put your most-wanted right at the top.</li>
+              <li><strong>Each section remembers its own search.</strong> What you type on the collection no longer follows you into the catalog or wish list — and it's still waiting when you come back.</li>
+              <li>Catalog cards show the <strong>whole name</strong> now (no more "…"), and a plush's variant reads as the little gold label after its name instead of a tag on the photo.</li>
+              <li>A plush you've wished for that's since been <strong>retired</strong> now reads "Retired" rather than "Out of Stock".</li>
+              <li class="changelog-gated">Experimental wide-screen <strong>side rails</strong>: a left navigation rail plus a right "Crypt Vitals" + item-detail panel that finally use the empty margins on big screens. Folds back to the normal layout on narrow windows.</li>
+              <li class="changelog-gated">Admin: <strong>Category</strong> and <strong>Availability (Retired)</strong> can now be set by hand on any catalog item — store-fed or backfilled — so a mislabeled or retired plush is a two-click fix instead of a code change.</li>
+            </ul>
+            <p class="changelog-fixes">Misc bug fixes.</p>
+          </div>
+
+          <div class="changelog-day">
             <h3 class="changelog-date">June 23, 2026</h3>
             <ul>
+              <li>The crypt has fewer, clearer doors. The top bar is now <strong>Home · Catalog · My Crypt · Trade</strong>. Your feed is <strong>Home</strong>; your collection, wish list, and profile now live together under <strong>My Crypt</strong>; and your <strong>Coven</strong> (friends &amp; requests) moved to the 👥 icon up top, next to the bell. Everything you had is still here — just easier to find. 🦇</li>
               <li>Retired plushies now read as <strong>Retired</strong> in the catalog. Final-run "last chance" designs that have sold out are marked as gone for good, so the archive reflects what's truly retired — not just temporarily out of stock.</li>
               <li>Added the <strong>Distressed White Rabbit</strong> — the long-gone, Alice-era original — to the catalog archive.</li>
               <li>Plushies that come in multiple variants (like the Skelly Bun Flower Crown's Purple / Peach / Skelly Bows) now show up as <strong>separate, trackable cards</strong> — each with its own photo — so you can collect and wish for the exact one you want.</li>
@@ -1290,18 +1377,18 @@
   <script src="./config.js?v=53"></script>
   <script src="./auth.js?v=58"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=69"></script>
+  <script src="./data.js?v=73"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=96"></script>
-  <script src="./app-catalog.js?v=96"></script>
-  <script src="./app-collection.js?v=96"></script>
-  <script src="./app-ui.js?v=96"></script>
-  <script src="./app-trade.js?v=96"></script>
-  <script src="./app-account.js?v=96"></script>
-  <script src="./app-admin.js?v=96"></script>
-  <script src="./app-admin-catalog.js?v=96"></script>
-  <script src="./app-social.js?v=96"></script>
+  <script src="./app-core.js?v=114"></script>
+  <script src="./app-catalog.js?v=114"></script>
+  <script src="./app-collection.js?v=114"></script>
+  <script src="./app-ui.js?v=114"></script>
+  <script src="./app-trade.js?v=114"></script>
+  <script src="./app-account.js?v=114"></script>
+  <script src="./app-admin.js?v=114"></script>
+  <script src="./app-admin-catalog.js?v=114"></script>
+  <script src="./app-social.js?v=114"></script>
 </body>
 </html>

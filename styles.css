@@ -751,6 +751,11 @@ main {
   height: 100%;
 }
 .grid-list .card-body { padding: 10px 14px 4px; }
+/* Non-compact wish list: roomy, whole-picture cards. There's plenty of width
+   here, so widen the photo column and 'contain' it so nothing gets cropped. */
+#wishlist-grid.grid-list .card { grid-template-columns: 220px 1fr; }
+#wishlist-grid.grid-list .card-photo { aspect-ratio: auto; min-height: 220px; }
+#wishlist-grid.grid-list .card-photo img { object-fit: contain; }
 .grid-list .card-actions {
   padding: 4px 14px 10px;
   border-top: 0;
@@ -818,7 +823,13 @@ main {
   gap: 2px;
 }
 .grid-compact .card-name {
-  font-size: 0.92rem;
+  /* Title in Cinzel even in the dense view, so a renamed plush (gold Cinzel)
+     and an un-renamed one (ink Cinzel) read as the same family — not a jarring
+     serif-vs-Arial mix. Matches the .grid-list rule. */
+  font-family: var(--display);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  font-size: 1rem;
   -webkit-line-clamp: 1;
   line-clamp: 1;
 }
@@ -935,7 +946,14 @@ main {
 }
 .card-actions .btn-want:hover { background: var(--blush); color: var(--rose-2); border-color: var(--rose-1); }
 
-.grid-tight .card-name { font-size: 0.95rem; }
+/* Catalog cards have plenty of room — show the whole name, no 2-line clamp. */
+.grid-tight .card-name {
+  font-size: 0.95rem;
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  overflow: visible;
+}
 .grid-tight .card-body { padding: 10px 12px 8px; }
 .grid-tight .card-actions { padding: 8px 10px 10px; gap: 4px; }
 .grid-tight .card-actions button { font-size: 0.78rem; padding: 7px 4px; }
@@ -1957,17 +1975,8 @@ body.cl-insider .changelog-gated strong { color: #2f6fed; }
   transition: background 0.12s ease;
 }
 .card-clickable:hover { background: var(--rose-hover-bg); }
-.card-clickable::after {
-  content: '›';
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--ink-dim);
-  font-size: 1.4rem;
-  pointer-events: none;
-}
-.grid-list .card-body.card-clickable { position: relative; padding-right: 28px; }
+/* (The '›' click-affordance chevron was removed — it added little and collided
+   with the inline Offering tag. Cursor + hover still signal the row is clickable.) */
 
 .trade-history-toggle {
   margin: 14px 0;
@@ -2057,6 +2066,22 @@ body.cl-insider .changelog-gated strong { color: #2f6fed; }
   background: var(--pending-fill);
   color: var(--pending-text);
   border: 1px solid var(--pending-edge);
+}
+/* Trade marker rendered inline in the card body (next to the name) rather than
+   overlaid on the photo — keeps "Offering" off the thumbnail. */
+.card-trade-mark { margin: 4px 0 2px; line-height: 1; }
+/* In the dense compact row, a third line would make this row taller than its
+   neighbours. Instead, pin the marker right-justified in the body's empty
+   space, vertically centred — it fits without adding height. The :has() rule
+   reserves just enough right padding so the title/subtitle never run under it. */
+.grid-compact .card-body { position: relative; }
+.grid-compact .card-body:has(.card-trade-mark) { padding-right: 96px; }
+.grid-compact .card-trade-mark {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
 }
 
 .trader-group, .my-items-section, .trades-section { margin-bottom: 28px; }
@@ -3152,8 +3177,11 @@ body.locked { overflow: hidden; }
 .user-badge .user-name { letter-spacing: 0; }
 .user-badge .user-caret { font-size: 0.7rem; opacity: 0.7; }
 
+.user-badge-wrap { position: relative; }
 .user-menu {
-  position: fixed;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
   z-index: 950;
   background: var(--surface);
   border: 1px solid var(--hairline-2);
@@ -3179,6 +3207,226 @@ body.locked { overflow: hidden; }
 .user-menu .menu-item:hover { background: var(--canvas); color: var(--rose-2); }
 .user-menu .menu-item.danger { color: var(--danger-1); font-weight: 700; }
 .user-menu .menu-item.danger:hover { background: var(--danger-soft); color: var(--danger-1); }
+
+/* ─── Coven (friends/requests) ambient header icon ────────── */
+/* The round .icon-btn anchors a corner count badge (the count that used to
+   sit on the old Social tab). */
+.icon-btn { position: relative; }
+#coven-btn .tab-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  padding: 0 4px;
+  border: 2px solid var(--canvas);
+}
+
+/* ─── My Crypt masthead + footer ────────────────────────────── */
+/* Collection-first My Crypt: a slim identity header renders into #crypt-masthead
+   at the top (above the sub-tab strip), while the social/identity extras (Top 8
+   + your posts + blocked manager) render into #crypt-footer BELOW the collection
+   grid. renderProfileInto()/renderCryptFooter() bring their own internal styles;
+   these rules just space the two blocks from the collection between them. */
+.crypt-masthead:not(:empty) { margin-bottom: 16px; }
+.crypt-footer:not(:empty) {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border-rose-faint);
+}
+
+/* ─── Experimental 3-zone "rails" layout (insider feature.side_rails) ──────
+   OFF by default: .app-shell is display:contents so <main> behaves exactly as
+   before, and the rails are display:none. body.rails-on (admins/allowlist)
+   flips it into left-nav-rail + center stage + right-context-rail, collapsing
+   gracefully to the classic top tab bar on narrow screens. */
+.app-shell { display: contents; }
+.rail { display: none; }
+
+body.rails-on .app-shell {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr) 304px;
+  gap: 24px;
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: 22px 22px 32px;
+  align-items: start;
+}
+body.rails-on main { max-width: none; margin: 0; padding: 0; }
+body.rails-on .tabs { display: none; }
+body.rails-on .rail-left { display: flex; }
+body.rails-on .rail-right.rail-right--active { display: block; }
+
+/* Both rails track the page as the stage scrolls, clearing the sticky header. */
+.rail-left, .rail-right {
+  position: sticky;
+  top: 84px;
+  align-self: start;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.rail-left { flex-direction: column; gap: 10px; }
+
+/* Identity card */
+.rail-id-card {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 10px; border-radius: 14px; background: var(--surface);
+  border: 1px solid var(--border-rose-faint); cursor: pointer; text-align: left;
+}
+.rail-id-card:hover { border-color: var(--rose-1); }
+.rail-avatar {
+  width: 40px; height: 40px; border-radius: 50%; overflow: hidden;
+  flex: 0 0 auto; display: grid; place-items: center; background: var(--blush);
+}
+.rail-avatar-img { width: 100%; height: 100%; object-fit: cover; }
+.rail-id-text { display: flex; flex-direction: column; min-width: 0; }
+.rail-id-name { font-weight: 700; color: var(--ink-2); }
+.rail-id-stat { font-size: .76rem; color: var(--rose-2); }
+
+/* Vertical nav */
+.rail-nav { display: flex; flex-direction: column; gap: 4px; }
+.rail-tab {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 11px 14px; border: none; border-radius: 12px; background: transparent;
+  color: var(--ink-1); font-size: 1rem; font-family: inherit; cursor: pointer; text-align: left;
+}
+.rail-tab:hover { background: var(--blush); }
+.rail-tab.active { background: var(--rose-1); color: #fff; font-weight: 700; }
+.rail-ico { font-size: 1.15rem; width: 1.4em; text-align: center; flex: 0 0 auto; }
+
+/* Compose CTA */
+.rail-compose {
+  margin-top: 8px; padding: 12px; border: none; border-radius: 999px;
+  background: var(--rose-1); color: #fff; font-weight: 700; font-family: inherit;
+  font-size: .95rem; cursor: pointer;
+}
+.rail-compose:hover { background: var(--rose-2); }
+
+/* Right rail — Crypt Vitals */
+.rail-head { font-size: .95rem; margin: 0 0 12px; color: var(--ink-2); }
+.vitals-card {
+  background: var(--surface); border: 1px solid var(--border-rose-faint);
+  border-radius: 16px; padding: 16px;
+}
+.vitals-big { display: flex; flex-direction: column; margin-bottom: 12px; }
+.vitals-num { font-size: 2.4rem; font-weight: 800; color: var(--rose-1); line-height: 1; }
+.vitals-big-label { font-size: .78rem; color: var(--ink-2); opacity: .8; }
+.vitals-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.vitals-chip {
+  font-size: .74rem; background: var(--blush); color: var(--ink-2);
+  padding: 3px 8px; border-radius: 999px;
+}
+.vitals-meter { margin-bottom: 14px; }
+.vitals-sub {
+  font-size: .78rem; color: var(--ink-2); opacity: .85;
+  margin-bottom: 5px; display: flex; justify-content: space-between;
+}
+.vitals-pct { font-weight: 700; color: var(--rose-1); opacity: 1; }
+.vitals-bar { height: 8px; border-radius: 999px; background: var(--blush); overflow: hidden; }
+.vitals-bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--rose-2), var(--rose-1)); }
+.vitals-meter-cap { font-size: .72rem; color: var(--ink-2); opacity: .7; margin-top: 4px; }
+.vitals-stats { display: flex; gap: 10px; margin-bottom: 2px; }
+.vitals-stat { flex: 1; background: var(--canvas); border-radius: 12px; padding: 8px; text-align: center; }
+.vitals-stat-n { display: block; font-weight: 800; color: var(--ink-2); }
+.vitals-stat-l { font-size: .72rem; color: var(--ink-2); opacity: .7; }
+.vitals-missing { margin-top: 14px; }
+.vitals-missing-row { display: flex; gap: 6px; }
+.vitals-miss {
+  width: 48px; height: 48px; border-radius: 10px; overflow: hidden; padding: 0;
+  border: 1px solid var(--border-rose-faint); background: var(--blush);
+  cursor: pointer; display: grid; place-items: center;
+}
+.vitals-miss img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Right-rail master-detail panel */
+.rail-detail-head { display: flex; align-items: center; justify-content: space-between; }
+.rail-detail-head .rail-head { margin: 0; }
+.rail-detail-close {
+  border: none; background: transparent; cursor: pointer; font-size: 1.4rem;
+  line-height: 1; color: var(--ink-2); padding: 0 4px; border-radius: 8px;
+}
+.rail-detail-close:hover { background: var(--blush); }
+.rail-detail-photo {
+  /* Show the WHOLE picture (contain), not a square crop — the rail has the room. */
+  width: 100%; max-height: 340px; object-fit: contain; border-radius: 12px;
+  margin: 10px 0 12px; background: var(--blush);
+}
+.rail-detail-noimg { display: grid; place-items: center; font-size: 2.4rem; min-height: 200px; }
+.rail-detail-name { margin: 0; color: var(--ink-2); font-size: 1.1rem; }
+.rail-detail-product { margin: 2px 0 0; font-size: .82rem; color: var(--ink-2); opacity: .75; }
+.rail-detail-meaning { margin: 10px 0 0; font-size: .88rem; color: var(--ink-1); }
+.rail-detail-facts { margin: 12px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.rail-detail-facts > div { display: flex; justify-content: space-between; gap: 10px; font-size: .82rem; }
+.rail-detail-facts dt { color: var(--ink-2); opacity: .7; margin: 0; }
+.rail-detail-facts dd { margin: 0; color: var(--ink-1); text-align: right; }
+.rail-detail-edit {
+  margin-top: 16px; width: 100%; padding: 10px; border: none; border-radius: 999px;
+  background: var(--rose-1); color: #fff; font-weight: 700; font-family: inherit; cursor: pointer;
+  /* Works as both a <button> and the wish-list Buy <a>. */
+  display: block; box-sizing: border-box; text-align: center; text-decoration: none;
+}
+.rail-detail-edit:hover { background: var(--rose-2); }
+
+/* Catalog detail inside the rail: the modal's two-column header is too wide for
+   a ~300px rail, so stack it and show the whole picture (contain, not crop). */
+.rail-catalog-detail .cd-head { display: block; margin-bottom: 14px; }
+.rail-catalog-detail .cd-photo { aspect-ratio: auto; max-height: 240px; margin-bottom: 12px; }
+.rail-catalog-detail .cd-photo img { object-fit: contain; height: auto; max-height: 240px; }
+.rail-catalog-detail .cd-actions { flex-wrap: wrap; gap: 8px; }
+.rail-catalog-detail .cd-actions button,
+.rail-catalog-detail .cd-actions a { flex: 1 1 auto; text-align: center; }
+.rail-catalog-detail .cd-symbolism img { max-width: 100%; height: auto; }
+
+/* Readability in the narrow rail: the modal leans on the decorative display
+   title + an italic serif for lore, which is hard to read in a tall, skinny
+   column and burns vertical space. In the rail, use the clean sans face,
+   upright, a touch smaller, with tighter rhythm — less scrolling, easier read. */
+.rail-catalog-detail .cd-head-text h2 {
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 1.1rem;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1.25;
+}
+.rail-catalog-detail .cd-section { margin: 14px 0; }
+.rail-catalog-detail .cd-section h3 { font-size: .82rem; margin-bottom: 6px; padding-bottom: 6px; }
+.rail-catalog-detail .cd-section p {
+  font-family: var(--sans);
+  font-style: normal;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin: 0 0 8px;
+}
+.rail-catalog-detail .cd-list { font-size: 0.88rem; }
+.rail-catalog-detail .cd-price { font-size: 1rem; }
+/* "Expand" — pop the rail detail back out into the full-screen modal. */
+.cd-expand-btn {
+  margin-top: 10px; width: 100%; padding: 9px; border-radius: 10px;
+  border: 1px solid var(--border-rose-faint); background: transparent;
+  color: var(--ink-2); font-family: inherit; font-weight: 600; font-size: 0.85rem; cursor: pointer;
+}
+.cd-expand-btn:hover { background: var(--blush); }
+
+/* Medium: drop the right rail, collapse the left rail to icons. */
+@media (max-width: 1180px) {
+  body.rails-on .app-shell { grid-template-columns: 72px minmax(0, 1fr); max-width: 1120px; }
+  body.rails-on .rail-right { display: none !important; }
+  body.rails-on .rail-label,
+  body.rails-on .rail-id-text { display: none; }
+  body.rails-on .rail-id-card,
+  body.rails-on .rail-tab { justify-content: center; padding-left: 0; padding-right: 0; }
+  body.rails-on .rail-compose { font-size: 0; padding: 12px 0; }
+  body.rails-on .rail-compose::before { content: '✚'; font-size: 1.2rem; }
+}
+
+/* Narrow: rails off entirely — restore the classic centered column + top tabs. */
+@media (max-width: 860px) {
+  body.rails-on .app-shell { display: contents; }
+  body.rails-on main { max-width: 1080px; margin: 0 auto; padding: 22px 22px 32px; }
+  body.rails-on .rail { display: none !important; }
+  body.rails-on .tabs { display: flex; }
+}
 
 /* ─── Admin ────────────────────────────── */
 .admin-table {
@@ -4022,3 +4270,6 @@ body.locked { overflow: hidden; }
   background: var(--surface-2, rgba(0,0,0,0.06));
 }
 .co-image-preview:not([src]), .co-image-preview[src=""] { visibility: hidden; }
+/* Category + Availability override controls sit two-up. */
+.co-tag-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.co-tag-row .field { flex: 1 1 140px; min-width: 0; }

@@ -36,8 +36,22 @@ async function onCardClickInner(btn) {
   const { action, id, cid } = btn.dataset;
 
   if (action === 'edit' || action === 'open-detail') {
-    const item = state.collection.find((x) => x.id === id);
-    if (item) openModal('collection', item);
+    const item = state.collection.find((x) => x.id === id) || state.wishlist.find((x) => x.id === id);
+    if (!item) return;
+    const isWish = !state.collection.some((x) => x.id === id);
+    // On the wide rails layout, a plain tap opens the item in the right-rail
+    // master-detail panel (Crypt Vitals steps aside). Otherwise fall back: the
+    // collection has its full edit modal; the wish list (no editor) opens the
+    // lightbox so there's still a "see it bigger" path on narrow screens.
+    if (action === 'open-detail' && railRightVisible()) {
+      state.railDetailId = id;
+      renderRightRail();
+    } else if (isWish) {
+      const src = photoSrc(item) || catalogImageFor(item.catalogId);
+      if (src) openLightbox(src, stripOutfitWord(item.name || ''));
+    } else {
+      openModal('collection', item);
+    }
   } else if (action === 'zoom-photo') {
     const item = state.collection.find((x) => x.id === id) || state.wishlist.find((x) => x.id === id);
     const src = item && (photoSrc(item) || catalogImageFor(item.catalogId));
@@ -46,6 +60,10 @@ async function onCardClickInner(btn) {
     await moveCollectionItem(id, 'up');
   } else if (action === 'move-down') {
     await moveCollectionItem(id, 'down');
+  } else if (action === 'move-up-wish') {
+    await moveWishlistItem(id, 'up');
+  } else if (action === 'move-down-wish') {
+    await moveWishlistItem(id, 'down');
   } else if (action === 'delete') {
     await removeCollectionItem(id);
   } else if (action === 'got') {
@@ -91,6 +109,17 @@ async function onCardClickInner(btn) {
   } else if (action === 'cat-want') {
     await addFromCatalog(cid, 'wishlist');
   } else if (action === 'cat-detail') {
+    // Catalog detail goes to the right rail on the wide layout, modal otherwise.
+    if (railRightVisible()) {
+      state.railDetailId = null;
+      state.railCatalogId = cid;
+      maybeRefreshCatalogDetail(cid);
+      renderRightRail();
+    } else {
+      openCatalogDetailModal(cid);
+    }
+  } else if (action === 'cat-expand') {
+    // Pop the rail's catalog detail back out into the full-screen modal.
     openCatalogDetailModal(cid);
   } else if (action === 'cat-suggest-photo') {
     const targetKind = btn.dataset.targetKind || 'shopify';
@@ -592,6 +621,7 @@ function saveFilters() {
       wishCategory: state.wishCategory,
       wishInStock: state.wishInStock,
       wishSort: state.wishSort,
+      wishView: state.wishView,
       catalogFilter: state.catalogFilter,
       catalogStatuses: [...state.catalogStatuses],
       catalogUnowned: state.catalogUnowned,
@@ -599,7 +629,10 @@ function saveFilters() {
       catalogTheme: state.catalogTheme,
       catalogColor: state.catalogColor,
       catalogSort: state.catalogSort,
-      query: state.query,
+      // Per-section search text (each remembered independently).
+      colQuery: state.colQuery,
+      catQuery: state.catQuery,
+      wishQuery: state.wishQuery,
       tradeFilter: state.tradeFilter,
       tradeSubTab: state.tradeSubTab,
     }));
@@ -617,45 +650,299 @@ function loadFilters() {
     // the Social tab (the default) when reopened. Filters/sub-tabs still
     // persist so each tab keeps its settings once you switch to it.
     const scalars = [
-      'colSubTab', 'filter', 'colCategory', 'colSort', 'colView', 'wishCategory', 'wishSort',
-      'catalogFilter', 'catalogTheme', 'catalogColor', 'catalogSort', 'query', 'tradeSubTab', 'tradeFilter',
+      'colSubTab', 'filter', 'colCategory', 'colSort', 'colView', 'wishCategory', 'wishSort', 'wishView',
+      'catalogFilter', 'catalogTheme', 'catalogColor', 'catalogSort',
+      'colQuery', 'catQuery', 'wishQuery', 'tradeSubTab', 'tradeFilter',
     ];
     for (const k of scalars) if (k in s) state[k] = s[k];
+    // Back-compat: the old single shared search ('query') seeds the collection.
+    if (typeof s.query === 'string' && !('colQuery' in s)) state.colQuery = s.query;
     const bools = ['colDupes', 'colNoBag', 'wishInStock', 'catalogUnowned', 'catalogOriginal'];
     for (const k of bools) if (k in s) state[k] = !!s[k];
     if (Array.isArray(s.catalogStatuses)) state.catalogStatuses = new Set(s.catalogStatuses);
     // Legacy migration: 'pens' was a top-level tab pre-v52; users who had
     // it saved should land on Collection → Pens sub-tab instead so they
     // don't see an empty / non-existent tab.
-    if (state.tab === 'pens') { state.tab = 'collection'; state.colSubTab = 'pens'; }
+    if (state.tab === 'pens') { state.tab = 'crypt'; state.colSubTab = 'pens'; }
+    // IA v2: 'Social' → 'home'; 'My Collection' + 'Wish List' merged into the
+    // 'crypt' tab (Wish List becomes a sub-tab). Map any saved value forward.
+    if (state.tab === 'social') state.tab = 'home';
+    if (state.tab === 'collection') state.tab = 'crypt';
+    if (state.tab === 'wishlist') { state.tab = 'crypt'; state.colSubTab = 'wishlist'; }
     // The collection sub-tabs were split from 'plushies'/'pens' into
-    // plushes/minis/accessories/other/pens. Map the old plushies value and
-    // guard against any unknown stored value.
+    // plushes/minis/accessories/other/pens (+ wishlist in v2). Map the old
+    // plushies value and guard against any unknown stored value.
     if (state.colSubTab === 'plushies') state.colSubTab = 'plushes';
-    if (!['plushes', 'minis', 'accessories', 'other', 'pens'].includes(state.colSubTab)) {
+    if (!['plushes', 'minis', 'accessories', 'other', 'pens', 'wishlist'].includes(state.colSubTab)) {
       state.colSubTab = 'plushes';
     }
-    // Sync the search input value so the visible UI matches the restored state.
+    // Sync the search box to whichever section we're restoring into (render()
+    // also keeps it in sync on every tab/sub-tab switch).
     const searchEl = document.getElementById('search');
-    if (searchEl && state.query) searchEl.value = state.query;
+    const qKey = activeQueryKey();
+    if (searchEl && qKey) searchEl.value = state[qKey] || '';
   } catch { /* corrupt JSON — ignore */ }
+}
+
+// ─── Experimental "rails" layout (insider feature.side_rails) ────────
+// The left rail is a slim identity card + vertical nav + a compose CTA; the
+// right rail is a contextual companion that mirrors the stage. Everything here
+// is a no-op unless body.rails-on is set (admins/allowlist) — the markup lives
+// in index.html and stays display:none for everyone else.
+
+// Left rail identity card — avatar, @name, a one-line vital. Clicking it jumps
+// to My Crypt (delegated via the .app-shell [data-tab] handler).
+function renderRailIdentity() {
+  const el = document.getElementById('rail-identity');
+  if (!el || !window.currentUser) return;
+  const u = window.currentUser;
+  const avatar = state._myAvatarUrl
+    ? `<img src="${escapeHtml(state._myAvatarUrl)}" alt="" class="rail-avatar-img" />`
+    : '<span class="rail-avatar-fallback">🖤</span>';
+  const owned = (state.collection || []).filter(isBun).length;
+  const sig = `${u.username || ''}|${state._myAvatarUrl || ''}|${owned}`;
+  if (el._idSig === sig && el.childNodes.length) return;  // skip needless repaints
+  el._idSig = sig;
+  el.innerHTML = `
+    <button class="rail-id-card" data-tab="crypt" type="button" title="View my crypt">
+      <span class="rail-avatar">${avatar}</span>
+      <span class="rail-id-text">
+        <span class="rail-id-name">@${escapeHtml(u.username || 'you')}</span>
+        <span class="rail-id-stat">${owned} ${owned === 1 ? 'bun' : 'buns'} in the crypt</span>
+      </span>
+    </button>`;
+}
+
+// True when the right rail is actually on screen (wide rails layout). Below the
+// 1180px breakpoint the CSS hides it, so item taps fall back to the modal.
+function railRightVisible() {
+  return document.body.classList.contains('rails-on') && window.innerWidth > 1180;
+}
+
+// Right rail dispatcher: one slot, many faces. A selected item (master-detail)
+// wins; otherwise My Crypt shows Vitals; other tabs collapse the rail.
+function renderRightRail() {
+  const el = document.getElementById('rail-right');
+  if (!el) return;
+  let detailItem = null;
+  if (state.railDetailId) {
+    detailItem = (state.collection || []).find((x) => x.id === state.railDetailId)
+      || (state.wishlist || []).find((x) => x.id === state.railDetailId)
+      || null;
+    if (!detailItem) state.railDetailId = null;   // item gone (deleted) — drop it
+  }
+  let html = '';
+  if (detailItem) {
+    html = renderRailItemDetail(detailItem);
+  } else if (state.railCatalogId) {
+    // Catalog master-detail (the richer Lore / Set Includes / Have-Want-Buy view).
+    const body = typeof catalogDetailBodyHtml === 'function' ? catalogDetailBodyHtml(state.railCatalogId, { forRail: true }) : null;
+    if (body == null) state.railCatalogId = null;
+    else html = `
+      <section class="vitals-card rail-detail rail-catalog-detail">
+        <div class="rail-detail-head">
+          <h2 class="rail-head">Details</h2>
+          <button class="rail-detail-close" data-rail-action="close-detail" type="button" aria-label="Close details">×</button>
+        </div>
+        ${body}
+      </section>`;
+  } else if (state.tab === 'crypt') {
+    html = renderCryptVitals();
+  }
+  if (el._railHtml === html) return;  // identical — skip repaint (avoids thumb flicker)
+  el._railHtml = html;
+  el.innerHTML = html;
+  el.classList.toggle('rail-right--active', !!html);
+}
+
+// Right-rail master-detail panel for a collection item: photo, name, meaning,
+// a few facts, and Edit (full modal) / Close. Read-only summary by design —
+// the heavy edit form stays in the familiar modal.
+function renderRailItemDetail(item) {
+  const src = (typeof photoSrc === 'function' ? photoSrc(item) : null)
+    || (typeof catalogImageFor === 'function' ? catalogImageFor(item.catalogId) : '');
+  const photo = src
+    ? `<img src="${escapeHtml(src)}" alt="" class="rail-detail-photo" loading="lazy" />`
+    : '<div class="rail-detail-photo rail-detail-noimg">🖤</div>';
+
+  // Wish-list items have no editor — show the whole picture, name, notes and a
+  // Buy link instead of the collection's facts + Edit.
+  const isWish = !(state.collection || []).some((x) => x.id === item.id);
+  if (isWish) {
+    return `
+      <section class="vitals-card rail-detail">
+        <div class="rail-detail-head">
+          <h2 class="rail-head">Details</h2>
+          <button class="rail-detail-close" data-rail-action="close-detail" type="button" aria-label="Close details">×</button>
+        </div>
+        ${photo}
+        <h3 class="rail-detail-name">${escapeHtml(stripOutfitWord(item.name || ''))}</h3>
+        ${item.outOfStock ? '<p class="rail-detail-product">Out of stock</p>' : ''}
+        ${item.notes ? `<p class="rail-detail-meaning">${escapeHtml(item.notes)}</p>` : ''}
+        ${item.url ? `<a class="rail-detail-edit" href="${escapeHtml(item.url)}" target="_blank" rel="noopener">Buy ↗</a>` : ''}
+      </section>`;
+  }
+
+  const name = item.nickname
+    ? `<h3 class="rail-detail-name">${escapeHtml(item.nickname)}</h3>
+       <p class="rail-detail-product">${escapeHtml(stripOutfitWord(item.name || ''))}</p>`
+    : `<h3 class="rail-detail-name">${escapeHtml(stripOutfitWord(item.name || ''))}</h3>`;
+  const facts = [];
+  if (item.dateCollected) facts.push(['Collected', item.dateCollected]);
+  if (item.acquiredHow)   facts.push(['How', item.acquiredHow]);
+  if ((item.quantity || 1) > 1) facts.push(['Quantity', `×${item.quantity}`]);
+  if (item.retired) facts.push(['Status', 'Retired']);
+  const factsHtml = facts.length
+    ? `<dl class="rail-detail-facts">${facts.map(([k, v]) =>
+        `<div><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(String(v))}</dd></div>`).join('')}</dl>`
+    : '';
+  return `
+    <section class="vitals-card rail-detail">
+      <div class="rail-detail-head">
+        <h2 class="rail-head">Details</h2>
+        <button class="rail-detail-close" data-rail-action="close-detail" type="button" aria-label="Close details">×</button>
+      </div>
+      ${photo}
+      ${name}
+      ${item.meaning ? `<p class="rail-detail-meaning">${escapeHtml(item.meaning)}</p>` : ''}
+      ${factsHtml}
+      <button class="rail-detail-edit" data-rail-action="edit-detail" data-id="${item.id}" type="button">Edit</button>
+    </section>`;
+}
+
+// Crypt Vitals — your collection at a glance: total buns, a category split,
+// pens progress, and the TOP of your wish list (priority order) as a little
+// most-wanted shortlist. Deliberately NO "collect them all" % — this community
+// isn't completionist. The thumbnails carry data-tab/data-subtab so the
+// .app-shell handler routes a click straight to your wish list.
+function renderCryptVitals() {
+  const col = state.collection || [];
+  // Buns = plushes + minis only. Clothing/accessories/other aren't buns.
+  let plush = 0, mini = 0, acc = 0;
+  for (const it of col) {
+    if (isWearableItem(it)) continue;          // clothing isn't a bun
+    const c = itemCategory(it);
+    if (c === 'plush') plush++;
+    else if (c === 'mini') mini++;
+    else if (c === 'accessory') acc++;
+  }
+  const owned = plush + mini;
+
+  const pensTotal = (typeof activePens === 'function' ? activePens() : []).length;
+  let pensOwned = 0;
+  if (state.pensOwned && state.pensOwned.forEach) state.pensOwned.forEach((n) => { if (n > 0) pensOwned++; });
+
+  const wlAll = state.wishlist || [];
+  const top = (typeof sortWishlist === 'function' ? sortWishlist(wlAll.slice(), 'manual') : wlAll).slice(0, 5);
+  const wishHtml = top.length ? `
+    <div class="vitals-missing">
+      <div class="vitals-sub"><span>Top of your wish list</span></div>
+      <div class="vitals-missing-row">
+        ${top.map((it) => {
+          const src = (typeof photoSrc === 'function' ? photoSrc(it) : null)
+            || (typeof catalogImageFor === 'function' ? catalogImageFor(it.catalogId) : '');
+          return `
+          <button class="vitals-miss" data-tab="crypt" data-subtab="wishlist" type="button" title="${escapeHtml(it.name || '')}">
+            ${src ? `<img src="${escapeHtml(src)}" alt="" loading="lazy" />` : '<span class="no-photo">🖤</span>'}
+          </button>`;
+        }).join('')}
+      </div>
+    </div>` : '';
+
+  return `
+    <section class="vitals-card">
+      <h2 class="rail-head">Crypt Vitals 🕯️</h2>
+      <div class="vitals-big">
+        <span class="vitals-num">${owned}</span>
+        <span class="vitals-big-label">buns in the crypt</span>
+      </div>
+      <div class="vitals-chips">
+        <span class="vitals-chip">🧸 ${plush} plush</span>
+        <span class="vitals-chip">🐭 ${mini} mini</span>
+        <span class="vitals-chip">🎀 ${acc} acc</span>
+      </div>
+      <div class="vitals-stats">
+        <div class="vitals-stat"><span class="vitals-stat-n">${pensOwned}/${pensTotal}</span><span class="vitals-stat-l">pens</span></div>
+        <div class="vitals-stat"><span class="vitals-stat-n">${wlAll.length}</span><span class="vitals-stat-l">wish list</span></div>
+      </div>
+      ${wishHtml}
+    </section>`;
+}
+
+// Which per-section query the single search box is driving right now, or null
+// when search doesn't apply (Pens / Trade / Home / Admin). Keeps Collection,
+// Catalog, and Wish List searches independent.
+function activeQueryKey() {
+  if (state.tab === 'catalog') return 'catQuery';
+  if (state.tab === 'crypt') {
+    if (state.colSubTab === 'wishlist') return 'wishQuery';
+    if (state.colSubTab === 'pens') return null;
+    return 'colQuery';
+  }
+  return null;
 }
 
 // ─── Event wiring ────────────────────────────────────────────────────
 function wireEvents() {
+  // Rails navigation is delegated: rail buttons (nav, identity card, vitals
+  // thumbnails) carry data-tab but aren't bound by the .tab loop below (some are
+  // rendered dynamically). Route them through the matching header tab so they
+  // reuse its full enter logic (data loads, scroll restore) — single source.
+  const shell = document.querySelector('.app-shell');
+  if (shell) {
+    shell.addEventListener('click', (e) => {
+      const t = e.target.closest('[data-tab]');
+      if (!t) return;
+      // A data-subtab (e.g. the wishlist thumbnails) lands on that crypt sub-tab.
+      if (t.dataset.subtab) state.colSubTab = t.dataset.subtab;
+      const top = document.querySelector(`header .tabs .tab[data-tab="${t.dataset.tab}"]`);
+      if (top) top.click();
+    });
+  }
+  const railCompose = document.getElementById('rail-compose');
+  if (railCompose) railCompose.addEventListener('click', () => {
+    if (typeof openComposer === 'function') openComposer();
+  });
+  // Right-rail master-detail controls (Edit → full modal, Close → back to Vitals).
+  const railRightEl = document.getElementById('rail-right');
+  if (railRightEl) {
+    railRightEl.addEventListener('click', (e) => {
+      const a = e.target.closest('[data-rail-action]');
+      if (!a) return;
+      if (a.dataset.railAction === 'close-detail') {
+        state.railDetailId = null;
+        state.railCatalogId = null;
+        renderRightRail();
+      } else if (a.dataset.railAction === 'edit-detail') {
+        const item = state.collection.find((x) => x.id === a.dataset.id);
+        if (item) openModal('collection', item);
+      }
+    });
+    // Catalog detail in the rail carries the normal card actions (Have / Want /
+    // Buy / admin edit) — route them through the same handler the cards use.
+    railRightEl.addEventListener('click', onCardClick);
+  }
+
   document.querySelectorAll('.tab').forEach((t) => {
     t.addEventListener('click', async () => {
       // Remember the scroll position of the tab we're leaving so we can
       // restore it when the user comes back.
       tabScroll.set(state.tab, window.scrollY);
+      state.railDetailId = null;   // leaving the tab closes any rail master-detail
+      state.railCatalogId = null;
       state.tab = t.dataset.tab;
       if (state.tab === 'trade') {
         state.tradeSubTab = 'browse';   // always land on Browse (item 21)
         await loadTradeData();          // refresh from server on enter
       }
-      if (state.tab === 'social') {
+      if (state.tab === 'home') {
         state.socProfile = null;       // always land on the feed, not a stale profile
+        state.socSubTab = 'feed';
         await loadSocialData();
+      }
+      if (state.tab === 'crypt') {
+        // My Crypt's masthead reads the my-profile cache; refresh it on enter.
+        await loadMyProfileCache();
       }
       if (state.tab === 'admin') {
         state.adminUserView = null;
@@ -676,6 +963,8 @@ function wireEvents() {
     s.addEventListener('click', () => {
       const key = `collection:${state.colSubTab}`;
       tabScroll.set(key, window.scrollY);
+      state.railDetailId = null;   // changing sub-tab closes any rail master-detail
+      state.railCatalogId = null;
       state.colSubTab = s.dataset.colSubtab;
       render();
       requestAnimationFrame(() => {
@@ -728,7 +1017,26 @@ function wireEvents() {
 
   // Wishlist filters
   wireSelect('wish-cat', 'wishCategory');
-  wireSelect('wish-sort', 'wishSort');
+  wireSelect('wish-view', 'wishView');
+  // Sort menu mirrors the collection: leaving "My order" turns off arrange mode.
+  const wishSortSel = document.getElementById('wish-sort');
+  if (wishSortSel) wishSortSel.addEventListener('change', () => {
+    state.wishSort = wishSortSel.value;
+    if (state.wishSort !== 'manual') state.wishArranging = false;
+    render();
+  });
+  // Arrange button: start dragging (snaps the sort to "My order"); tap again
+  // when done — the saved priority order keeps showing.
+  const wishArrangeBtn = document.getElementById('wish-arrange');
+  if (wishArrangeBtn) wishArrangeBtn.addEventListener('click', () => {
+    if (state.wishArranging) {
+      state.wishArranging = false;
+    } else {
+      state.wishArranging = true;
+      state.wishSort = 'manual';
+    }
+    render();
+  });
   document.querySelectorAll('#wish-extras input[data-wish-toggle]').forEach((cb) => {
     cb.addEventListener('change', () => {
       if (cb.dataset.wishToggle === 'instock') state.wishInStock = cb.checked;
@@ -784,8 +1092,12 @@ function wireEvents() {
     });
   }
 
+  // Search is per-section: route the input to whichever section is showing so
+  // the text doesn't leak between Collection / Catalog / Wish List, and each
+  // restores its own on return (render() re-syncs the box — see below).
   document.getElementById('search').addEventListener('input', (e) => {
-    state.query = e.target.value;
+    const key = activeQueryKey();
+    if (key) state[key] = e.target.value;
     render();
   });
 
@@ -841,6 +1153,32 @@ function wireEvents() {
   document.getElementById('unworn-clothing-grid').addEventListener('click', onCardClick);
   document.getElementById('wishlist-grid').addEventListener('click', onCardClick);
   document.getElementById('catalog-grid').addEventListener('click', onCardClick);
+
+  // Wish-list drag-and-drop (same mechanics as the collection grid, item 20).
+  const wishGrid = document.getElementById('wishlist-grid');
+  wishGrid.addEventListener('dragstart', (e) => {
+    const card = e.target.closest('[data-reorder-id]');
+    if (!card) return;
+    state._dragId = card.dataset.reorderId;
+    card.classList.add('dragging');
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+  });
+  wishGrid.addEventListener('dragover', (e) => { if (state._dragId) e.preventDefault(); });
+  wishGrid.addEventListener('dragend', () => {
+    wishGrid.querySelectorAll('.dragging').forEach((el) => el.classList.remove('dragging'));
+    state._dragId = null;
+  });
+  wishGrid.addEventListener('drop', async (e) => {
+    if (!state._dragId) return;
+    e.preventDefault();
+    const target = e.target.closest('[data-reorder-id]');
+    const dragId = state._dragId;
+    state._dragId = null;
+    wishGrid.querySelectorAll('.dragging').forEach((el) => el.classList.remove('dragging'));
+    if (target && target.dataset.reorderId !== dragId) {
+      await dropReorderWish(dragId, target.dataset.reorderId);
+    }
+  });
 
   // Add-your-own clothing: open from the closet header, plus modal wiring.
   document.getElementById('add-custom-clothing-btn').addEventListener('click', (e) => {
@@ -915,7 +1253,55 @@ function wireEvents() {
     el.addEventListener('click', closeMiniProfile)
   );
 
-  document.getElementById('user-badge').addEventListener('click', openAccountModal);
+  // Account dropdown under the user badge (replaces the old direct-to-modal
+  // click). Houses View my crypt / Account / Admin (is_admin only) / Sign out.
+  const userBadge = document.getElementById('user-badge');
+  const userMenu = document.getElementById('user-menu');
+  const closeUserMenu = () => {
+    userMenu.classList.add('hidden');
+    userBadge.setAttribute('aria-expanded', 'false');
+  };
+  userBadge.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = userMenu.classList.contains('hidden');
+    userMenu.classList.toggle('hidden', !open);
+    userBadge.setAttribute('aria-expanded', open ? 'true' : 'false');
+    // Admin entry mirrors the old hidden admin tab's is_admin gate.
+    document.getElementById('menu-admin').classList.toggle('hidden', !window.currentUser?.isAdmin);
+  });
+  document.addEventListener('click', (e) => {
+    if (userMenu.classList.contains('hidden')) return;
+    if (!userMenu.contains(e.target) && !userBadge.contains(e.target)) closeUserMenu();
+  });
+  userMenu.addEventListener('click', async (e) => {
+    const item = e.target.closest('[data-go]');
+    if (!item) return;
+    closeUserMenu();
+    const go = item.dataset.go;
+    if (go === 'account') { openAccountModal(); return; }
+    if (go === 'signout') { handleSignOut(); return; }
+    // crypt | admin — switch tabs the same way a .tab click would.
+    tabScroll.set(state.tab, window.scrollY);
+    state.tab = go;
+    if (go === 'crypt') await loadMyProfileCache();
+    if (go === 'admin') { state.adminUserView = null; await loadAdminUsers(); }
+    render();
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    saveFilters();
+  });
+
+  // Coven (friends / requests) — ambient header icon. Lands on Home and opens
+  // the friends surface (the old Social → Friends sub-tab).
+  document.getElementById('coven-btn').addEventListener('click', async () => {
+    tabScroll.set(state.tab, window.scrollY);
+    state.tab = 'home';
+    state.socProfile = null;
+    await loadSocialData();
+    state.socSubTab = 'friends';
+    render();
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    saveFilters();
+  });
 
   // Catalog item create + suggest photo + admin queue modals.
   document.querySelectorAll('[data-close-catalog-item]').forEach((el) =>

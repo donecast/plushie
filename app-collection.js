@@ -120,7 +120,7 @@ function itemCategory(item) {
 }
 
 function filteredCollection() {
-  const q = state.query.trim().toLowerCase();
+  const q = state.colQuery.trim().toLowerCase();
   const arr = state.collection.filter((it) => {
     if (state.filter === 'active' && it.retired) return false;
     if (state.filter === 'retired' && !it.retired) return false;
@@ -140,7 +140,7 @@ function filteredCollection() {
 }
 
 function filteredWishlist() {
-  const q = state.query.trim().toLowerCase();
+  const q = state.wishQuery.trim().toLowerCase();
   const arr = state.wishlist.filter((it) => {
     if (state.wishCategory !== 'all' && itemCategory(it) !== state.wishCategory) return false;
     if (state.wishInStock && it.outOfStock) return false;
@@ -233,11 +233,59 @@ async function dropReorder(dragId, targetId) {
   await persistManualOrder(gIds);
 }
 
+// ─── Wish-list manual ordering (mirrors the collection helpers above) ──────
+// The wishlist is a flat list (no closet / sub-tabs), so its order is simply
+// the displayed sequence. The top of this order is what surfaces in Crypt Vitals.
+function applyManualWishOrder(orderedIds) {
+  const pos = new Map(orderedIds.map((id, i) => [id, i]));
+  for (const it of state.wishlist) {
+    if (pos.has(it.id)) it.sortOrder = pos.get(it.id);
+  }
+}
+
+async function persistManualWishOrder(orderedIds) {
+  applyManualWishOrder(orderedIds);
+  render();
+  try {
+    await data.saveWishlistOrder(orderedIds);
+  } catch (e) {
+    console.error('saveWishlistOrder', e);
+    toast(/sort_order/i.test(e?.message || '')
+      ? 'Run the latest migration (db/0042_wishlist_sort.sql) — the sort_order column is missing.'
+      : 'Could not save the new wish-list order.');
+  }
+}
+
+async function moveWishlistItem(id, dir) {
+  const ordered = sortWishlist(state.wishlist.slice(), 'manual').map((x) => x.id);
+  const i = ordered.indexOf(id);
+  if (i === -1) return;
+  const j = dir === 'up' ? i - 1 : i + 1;
+  if (j < 0 || j >= ordered.length) return; // already at the edge
+  [ordered[i], ordered[j]] = [ordered[j], ordered[i]];
+  await persistManualWishOrder(ordered);
+}
+
+async function dropReorderWish(dragId, targetId) {
+  if (!dragId || !targetId || dragId === targetId) return;
+  const ordered = sortWishlist(state.wishlist.slice(), 'manual').map((x) => x.id);
+  ordered.splice(ordered.indexOf(dragId), 1);
+  ordered.splice(ordered.indexOf(targetId), 0, dragId);
+  await persistManualWishOrder(ordered);
+}
+
 function sortWishlist(items, mode) {
   const a = items.slice();
   const cmpName = (x, y) => (x.name || '').localeCompare(y.name || '');
   const cmpAdded = (x, y) => (y.addedAt || 0) - (x.addedAt || 0);
   switch (mode) {
+    case 'manual': {
+      // Custom priority order (sort_order). Unplaced rows fall to the bottom,
+      // newest-added first, so a fresh wishlist still reads sensibly.
+      const rank = (x) => (x.sortOrder == null ? Infinity : x.sortOrder);
+      a.sort((x, y) => (rank(x) - rank(y)) || cmpAdded(x, y));
+      break;
+    }
     case 'added_asc':  a.sort((x, y) => -cmpAdded(x, y)); break;
     case 'name_asc':   a.sort(cmpName); break;
     case 'name_desc':  a.sort((x, y) => -cmpName(x, y)); break;
@@ -258,7 +306,7 @@ function catalogIdMap() {
 const CATALOG_CATEGORIES = new Set(['all', 'plush', 'mini', 'clothing', 'accessory', 'bundle', 'other']);
 
 function filteredCatalog() {
-  const q = state.query.trim().toLowerCase();
+  const q = state.catQuery.trim().toLowerCase();
   const { owned } = catalogIdMap();
   const cat = CATALOG_CATEGORIES.has(state.catalogFilter) ? state.catalogFilter : 'all';
   const statuses = state.catalogStatuses;
@@ -371,9 +419,8 @@ function renderCatalogCard(rawItem, owned, wished) {
   if (item.isBundle) {
     badges.push(`<span class="badge badge-bundle" title="Bundle — multiple items. Click Have to pick which ones you own.">Bundle</span>`);
   }
-  if ((item.isCustom || item.isVariant) && item.formLabel) {
-    badges.push(`<span class="badge badge-form" title="Form variant">${escapeHtml(item.formLabel)}</span>`);
-  }
+  // NB: form/variant is intentionally NOT badged on the photo — the variant
+  // reads as the gold form-label text after the name (below) instead.
 
   // Custom items normally have no Shopify URL — but form variants
   // resolve through their parent handle so Buy points at the upstream
@@ -511,6 +558,14 @@ function collectionTabOf(item) {
   return 'other';
 }
 
+// A "bun" is an actual plush — a plushie or a mini. Clothing, accessories, and
+// everything else in the crypt are NOT buns and don't count toward the tally.
+function isBun(item) {
+  if (isWearableItem(item)) return false;
+  const c = itemCategory(item);
+  return c === 'plush' || c === 'mini';
+}
+
 // A collection entry = a plush card, plus any accessories attached to it
 // shown side-by-side on the right. Plain plushes render as a bare card.
 function renderCollectionEntry(item) {
@@ -581,15 +636,23 @@ function renderCard(item, kind) {
   if (kind === 'collection' && item.clothingScale) {
     badges.push(`<span class="badge badge-custom" title="Custom — not a Plushie Dreadfuls item">✨</span>`);
   }
-  if (kind === 'collection' && item.retired) badges.push(`<span class="badge badge-retired">Retired</span>`);
-  if (kind === 'wishlist' && item.outOfStock) badges.push(`<span class="badge badge-oos">Out of Stock</span>`);
+  // Retired wins over Out of Stock. A wish-list row's own snapshot can be stale,
+  // so read retired from the live catalog item when there is one — a wished
+  // retired plush should read "Retired", not "Out of Stock".
+  const liveCat = item.catalogId ? catalogForItem(item) : null;
+  const isRetired = item.retired || (liveCat && liveCat.retired);
+  if (isRetired) badges.push(`<span class="badge badge-retired">Retired</span>`);
+  else if (kind === 'wishlist' && item.outOfStock) badges.push(`<span class="badge badge-oos">Out of Stock</span>`);
   if (kind === 'collection' && (item.quantity || 1) > 1) {
     badges.push(`<span class="badge badge-qty">×${item.quantity}</span>`);
   }
 
-  // Trade markers: show if this catalog item is already in trade_items
+  // Trade markers: show if this catalog item is already in trade_items.
+  // Rendered INLINE in the body (next to the name), not as a photo overlay —
+  // on the compact list the tiny thumbnail can't hold an overlay badge without
+  // it spilling onto the picture.
   const tradeMark = tradeMarkerFor(item, kind);
-  if (tradeMark) badges.push(tradeMark);
+  const tradeMarkHtml = tradeMark ? `<div class="card-trade-mark">${tradeMark}</div>` : '';
 
   const tradeBtn = kind === 'collection'
     ? `<button data-action="offer-trade" data-id="${item.id}">↻ Trade?</button>`
@@ -617,12 +680,17 @@ function renderCard(item, kind) {
   // manual ordering). A drag grip (desktop) plus up/down arrows (touch). Note
   // this is gated on `arranging`, NOT the sort: viewing the saved custom order
   // ("My order" in the sort menu) shows it without the live drag handles.
-  const manualMode = kind === 'collection' && state.arranging && !isWearableItem(item);
+  const manualMode = !isWearableItem(item) && (
+    (kind === 'collection' && state.arranging) ||
+    (kind === 'wishlist' && state.wishArranging)
+  );
+  const upAction = kind === 'wishlist' ? 'move-up-wish' : 'move-up';
+  const downAction = kind === 'wishlist' ? 'move-down-wish' : 'move-down';
   const reorder = manualMode
     ? `<div class="col-reorder" title="Drag the grip to reorder, or use the arrows">
-         <button class="reorder-btn" data-action="move-up" data-id="${item.id}" aria-label="Move up">▲</button>
+         <button class="reorder-btn" data-action="${upAction}" data-id="${item.id}" aria-label="Move up">▲</button>
          <span class="reorder-grip" aria-hidden="true">☰</span>
-         <button class="reorder-btn" data-action="move-down" data-id="${item.id}" aria-label="Move down">▼</button>
+         <button class="reorder-btn" data-action="${downAction}" data-id="${item.id}" aria-label="Move down">▼</button>
        </div>`
     : '';
 
@@ -635,6 +703,7 @@ function renderCard(item, kind) {
       <button class="btn-trash" data-action="delete" data-id="${item.id}" aria-label="Delete" title="Delete">🗑</button>
     `
     : `
+      ${reorder}
       <button class="btn-got" data-action="got" data-id="${item.id}">✓ Got it! — move to collection</button>
       <div class="card-actions-secondary">
         ${item.url && !item.outOfStock ? `<a class="btn-buy" href="${escapeHtml(item.url)}" target="_blank" rel="noopener" title="Buy on plushiedreadfuls.com">Buy ↗</a>` : ''}
@@ -654,14 +723,18 @@ function renderCard(item, kind) {
       ? `<h3 class="card-name nickname">${escapeHtml(item.nickname)}</h3>
          <p class="card-product">${escapeHtml(stripOutfitWord(item.name))}</p>`
       : `<h3 class="card-name">${escapeHtml(stripOutfitWord(item.name))}</h3>`}
+    ${tradeMarkHtml}
     ${meta.length ? `<div class="card-meta">${meta.join('')}</div>` : ''}
   `;
   const otherBody = `
     <h3 class="card-name">${escapeHtml(stripOutfitWord(item.name))}</h3>
     ${item.meaning ? `<p class="card-meaning">${escapeHtml(item.meaning)}</p>` : ''}
+    ${tradeMarkHtml}
     ${meta.length ? `<div class="card-meta">${meta.join('')}</div>` : ''}
   `;
-  const bodyOpen = kind === 'collection'
+  // Collection AND wish-list cards open their detail (right-rail master-detail on
+  // wide screens; modal / lightbox fallback otherwise). Catalog cards don't.
+  const bodyOpen = (kind === 'collection' || kind === 'wishlist')
     ? `<div class="card-body card-clickable" data-action="open-detail" data-id="${item.id}">`
     : `<div class="card-body">`;
 
@@ -693,6 +766,13 @@ function applyFeatureFlags() {
   const canSuggest = window.currentUser?.isAdmin || data.featureEnabled('feature.user_photo_uploads');
   const suggestBtn = document.getElementById('suggest-plushie-btn');
   if (suggestBtn) suggestBtn.classList.toggle('hidden', !canSuggest);
+
+  // Insider prototype: the experimental 3-zone "rails" layout. The body class is
+  // all the CSS keys off to swap the centered column for left-nav + stage +
+  // right-context rails (see styles.css; off => display:contents, unchanged).
+  const railsOn = data.featureEnabled('feature.side_rails', false);
+  document.body.classList.toggle('rails-on', railsOn);
+  if (railsOn) renderRailIdentity();
 }
 
 function render() {
@@ -702,44 +782,97 @@ function render() {
   // Pens used to be a top-level tab; it's now a sub-tab of Collection.
   // We treat a Pens sub-view selection like 'tab is collection, but
   // showing the pens checklist'. The flags below derive from both.
-  const onPens = tab === 'collection' && state.colSubTab === 'pens';
+  // 'crypt' is the merged identity surface: profile masthead + the collection
+  // sub-tabs + Wish List (folded in from its old top-level tab). The flags
+  // below derive from the tab + which sub-tab is active.
+  const onCrypt = tab === 'crypt';
+  const onWish  = onCrypt && state.colSubTab === 'wishlist';
+  const onPens  = onCrypt && state.colSubTab === 'pens';
+  const onCol   = onCrypt && !onWish;   // collection grid (also hosts the Pens sub-view)
 
-  document.getElementById('collection-view').classList.toggle('hidden', tab !== 'collection');
-  document.getElementById('wishlist-view').classList.toggle('hidden', tab !== 'wishlist');
+  // Profile masthead (slim header, top) + sub-tab strip + the crypt footer
+  // (Top 8 + your posts, below the collection) all show whenever we're on Crypt.
+  document.getElementById('crypt-masthead').classList.toggle('hidden', !onCrypt);
+  document.getElementById('collection-subtabs').classList.toggle('hidden', !onCrypt);
+  document.getElementById('crypt-footer').classList.toggle('hidden', !onCrypt);
+
+  document.getElementById('collection-view').classList.toggle('hidden', !onCol);
+  document.getElementById('wishlist-view').classList.toggle('hidden', !onWish);
   document.getElementById('catalog-view').classList.toggle('hidden', tab !== 'catalog');
   document.getElementById('trade-view').classList.toggle('hidden', tab !== 'trade');
-  document.getElementById('social-view').classList.toggle('hidden', tab !== 'social');
+  document.getElementById('social-view').classList.toggle('hidden', tab !== 'home');
   document.getElementById('admin-view').classList.toggle('hidden', tab !== 'admin');
-  // Admin tab visibility is gated by the current user being is_admin.
-  document.getElementById('admin-tab').classList.toggle('hidden', !window.currentUser?.isAdmin);
 
-  // Collection sub-tabs and sub-views.
-  if (tab === 'collection') {
-    document.querySelectorAll('#collection-subtabs .subtab').forEach((s) =>
-      s.classList.toggle('active', s.dataset.colSubtab === state.colSubTab)
-    );
+  // My Crypt: render the profile masthead, light the active sub-tab, and pick
+  // the collection grid vs. the Pens checklist sub-view.
+  if (onCrypt) {
+    renderCryptMasthead();
+    renderCryptFooter();
+
+    // Sub-tab badge counts over the whole collection (unfiltered) so the chips
+    // are stable regardless of search/filters. Clothing lives in The Closet and
+    // is NOT a plush/mini, so wearables are excluded from these counts.
+    const tabCounts = { plushes: 0, minis: 0, accessories: 0, other: 0 };
+    for (const it of state.collection) {
+      if (isWearableItem(it)) continue;
+      tabCounts[collectionTabOf(it)]++;
+    }
+    for (const k of Object.keys(tabCounts)) {
+      const el = document.getElementById(`col-subtab-count-${k}`);
+      if (el) el.textContent = `· ${tabCounts[k]}`;
+    }
+    document.getElementById('col-subtab-count-pens').textContent = `· ${state.pensOwned.size}/${activePens().length}`;
+    const wlc = document.getElementById('col-subtab-count-wishlist');
+    if (wlc) wlc.textContent = state.wishlist.length ? `· ${state.wishlist.length}` : '';
+
+    // Light the active sub-tab, and hide any empty non-Pens sub-tab to keep the
+    // strip tight (Pens always shows — it's a checklist; the active tab never
+    // hides, so the current selection can't vanish).
+    const subCount = (key) => key === 'wishlist' ? state.wishlist.length : (tabCounts[key] ?? 0);
+    document.querySelectorAll('#collection-subtabs .subtab').forEach((s) => {
+      const key = s.dataset.colSubtab;
+      s.classList.toggle('active', key === state.colSubTab);
+      const hide = key !== 'pens' && key !== state.colSubTab && subCount(key) === 0;
+      s.classList.toggle('hidden', hide);
+    });
+
     document.getElementById('collection-sub-items').classList.toggle('hidden', state.colSubTab === 'pens');
     document.getElementById('collection-sub-pens').classList.toggle('hidden', state.colSubTab !== 'pens');
   }
 
   // Toolbar visibility: Plushies sub-tab gets the search + filters;
   // Pens sub-tab hides them. Other tabs untouched.
-  document.getElementById('collection-filters').classList.toggle('hidden', tab !== 'collection' || onPens);
-  document.getElementById('wishlist-actions').classList.toggle('hidden', tab !== 'wishlist');
+  document.getElementById('collection-filters').classList.toggle('hidden', !onCol || onPens);
+  document.getElementById('wishlist-actions').classList.toggle('hidden', !onWish);
   document.getElementById('catalog-filters').classList.toggle('hidden', tab !== 'catalog');
 
   // Search bar makes sense on item lists, not on the checklist/trade/social tabs.
-  document.getElementById('search').classList.toggle('hidden', onPens || tab === 'trade' || tab === 'admin' || tab === 'social');
+  const searchEl = document.getElementById('search');
+  searchEl.classList.toggle('hidden', onPens || tab === 'trade' || tab === 'admin' || tab === 'home');
+  // Re-sync the box to the active section's own query (per-section search). Only
+  // write when it differs, so typing doesn't fight the caret.
+  const qKey = activeQueryKey();
+  if (qKey && searchEl.value !== state[qKey]) searchEl.value = state[qKey];
   // Active-filters bar belongs to the catalog.
   document.getElementById('active-filters').classList.toggle('hidden', tab !== 'catalog');
   // The plain count-label now only shows for non-catalog tabs (catalog has its own bar).
-  document.getElementById('count-label').classList.toggle('hidden', tab === 'catalog' || onPens || tab === 'social');
+  document.getElementById('count-label').classList.toggle('hidden', tab === 'catalog' || onPens || tab === 'home');
 
   document.querySelectorAll('.tab').forEach((t) =>
     t.classList.toggle('active', t.dataset.tab === tab)
   );
 
-  if (tab === 'collection') {
+  // Rails layout (insider): keep the left nav lit + the right contextual rail
+  // in sync with the active tab. No-ops visually unless body.rails-on is set.
+  if (document.body.classList.contains('rails-on')) {
+    document.querySelectorAll('.rail-tab').forEach((t) =>
+      t.classList.toggle('active', t.dataset.tab === tab)
+    );
+    renderRailIdentity();
+    renderRightRail();
+  }
+
+  if (onCol) {
     syncCollectionChips();
     // Map every attached accessory to the plush wearing it (computed from
     // the whole collection so attachments survive search/filters), then
@@ -810,26 +943,27 @@ function render() {
     document.getElementById('count-label').textContent =
       `${tabTotal} of ${state.collection.length} item${state.collection.length === 1 ? '' : 's'}`;
 
-    // Per-tab badge counts, computed over the whole collection (unfiltered)
-    // so the tab chips show stable totals regardless of search/filters.
-    const tabCounts = { plushes: 0, minis: 0, accessories: 0, other: 0 };
-    for (const it of state.collection) tabCounts[collectionTabOf(it)]++;
-    for (const k of Object.keys(tabCounts)) {
-      const el = document.getElementById(`col-subtab-count-${k}`);
-      if (el) el.textContent = `· ${tabCounts[k]}`;
-    }
+    // Per-tab badge counts + sub-tab visibility are handled in the onCrypt
+    // block above (they must stay correct on the Wish List / Pens sub-tabs too).
 
     // Pens sub-tab — always re-render so the counts stay current even when
     // another sub-tab is showing. renderPens() updates #pens-progress + #pens-list.
     renderPens();
-    const pensBadge = `${state.pensOwned.size}/${activePens().length}`;
-    document.getElementById('col-subtab-count-pens').textContent = `· ${pensBadge}`;
     // When Pens sub-tab is showing, the count-label is hidden (handled
     // above via the onPens flag); no need to set it here.
-  } else if (tab === 'wishlist') {
+  } else if (onWish) {
     syncWishlistChips();
     const items = filteredWishlist();
-    document.getElementById('wishlist-grid').innerHTML = items.map((i) => renderCard(i, 'wishlist')).join('');
+    // Layout mirrors the collection: roomy list ('cards') or dense 'compact'.
+    const wishCompact = state.wishView === 'compact';
+    const wlGrid = document.getElementById('wishlist-grid');
+    wlGrid.classList.toggle('grid-compact', wishCompact);
+    wlGrid.classList.toggle('grid-list', !wishCompact);
+    // Discoverability hint while arranging, same as the collection.
+    const wishHint = state.wishArranging && items.length > 1
+      ? '<p class="subview-hint">↕ Drag the ☰ grip or use ▲▼ to set your wish-list priority — the top of the list shows in your Crypt Vitals.</p>'
+      : '';
+    wlGrid.innerHTML = wishHint + items.map((i) => renderCard(i, 'wishlist')).join('');
     document.getElementById('wishlist-empty').classList.toggle('hidden', items.length > 0);
     document.getElementById('count-label').textContent =
       `${items.length} of ${state.wishlist.length} item${state.wishlist.length === 1 ? '' : 's'}`;
@@ -850,7 +984,7 @@ function render() {
     document.getElementById('count-label').textContent = state.adminUserView
       ? `Inspecting @${state.adminUserView.user.username}`
       : `${state.adminUsers.length} user${state.adminUsers.length === 1 ? '' : 's'}`;
-  } else if (tab === 'social') {
+  } else if (tab === 'home') {
     renderSocial();
   }
   updateTradeBadge();
