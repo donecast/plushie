@@ -751,6 +751,11 @@ main {
   height: 100%;
 }
 .grid-list .card-body { padding: 10px 14px 4px; }
+/* Non-compact wish list: roomy, whole-picture cards. There's plenty of width
+   here, so widen the photo column and 'contain' it so nothing gets cropped. */
+#wishlist-grid.grid-list .card { grid-template-columns: 220px 1fr; }
+#wishlist-grid.grid-list .card-photo { aspect-ratio: auto; min-height: 220px; }
+#wishlist-grid.grid-list .card-photo img { object-fit: contain; }
 .grid-list .card-actions {
   padding: 4px 14px 10px;
   border-top: 0;
@@ -3322,10 +3327,11 @@ body.rails-on .rail-right.rail-right--active { display: block; }
 }
 .rail-detail-close:hover { background: var(--blush); }
 .rail-detail-photo {
-  width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 12px;
+  /* Show the WHOLE picture (contain), not a square crop — the rail has the room. */
+  width: 100%; max-height: 340px; object-fit: contain; border-radius: 12px;
   margin: 10px 0 12px; background: var(--blush);
 }
-.rail-detail-noimg { display: grid; place-items: center; font-size: 2.4rem; }
+.rail-detail-noimg { display: grid; place-items: center; font-size: 2.4rem; min-height: 200px; }
 .rail-detail-name { margin: 0; color: var(--ink-2); font-size: 1.1rem; }
 .rail-detail-product { margin: 2px 0 0; font-size: .82rem; color: var(--ink-2); opacity: .75; }
 .rail-detail-meaning { margin: 10px 0 0; font-size: .88rem; color: var(--ink-1); }
@@ -3336,6 +3342,8 @@ body.rails-on .rail-right.rail-right--active { display: block; }
 .rail-detail-edit {
   margin-top: 16px; width: 100%; padding: 10px; border: none; border-radius: 999px;
   background: var(--rose-1); color: #fff; font-weight: 700; font-family: inherit; cursor: pointer;
+  /* Works as both a <button> and the wish-list Buy <a>. */
+  display: block; box-sizing: border-box; text-align: center; text-decoration: none;
 }
 .rail-detail-edit:hover { background: var(--rose-2); }
 

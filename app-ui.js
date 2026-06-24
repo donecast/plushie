@@ -36,14 +36,19 @@ async function onCardClickInner(btn) {
   const { action, id, cid } = btn.dataset;
 
   if (action === 'edit' || action === 'open-detail') {
-    const item = state.collection.find((x) => x.id === id);
+    const item = state.collection.find((x) => x.id === id) || state.wishlist.find((x) => x.id === id);
     if (!item) return;
+    const isWish = !state.collection.some((x) => x.id === id);
     // On the wide rails layout, a plain tap opens the item in the right-rail
-    // master-detail panel (Crypt Vitals steps aside) instead of the centered
-    // modal. The explicit Edit affordance still goes straight to the full form.
+    // master-detail panel (Crypt Vitals steps aside). Otherwise fall back: the
+    // collection has its full edit modal; the wish list (no editor) opens the
+    // lightbox so there's still a "see it bigger" path on narrow screens.
     if (action === 'open-detail' && railRightVisible()) {
       state.railDetailId = id;
       renderRightRail();
+    } else if (isWish) {
+      const src = photoSrc(item) || catalogImageFor(item.catalogId);
+      if (src) openLightbox(src, stripOutfitWord(item.name || ''));
     } else {
       openModal('collection', item);
     }
@@ -710,7 +715,9 @@ function renderRightRail() {
   if (!el) return;
   let detailItem = null;
   if (state.railDetailId) {
-    detailItem = (state.collection || []).find((x) => x.id === state.railDetailId) || null;
+    detailItem = (state.collection || []).find((x) => x.id === state.railDetailId)
+      || (state.wishlist || []).find((x) => x.id === state.railDetailId)
+      || null;
     if (!detailItem) state.railDetailId = null;   // item gone (deleted) — drop it
   }
   let html = '';
@@ -731,6 +738,25 @@ function renderRailItemDetail(item) {
   const photo = src
     ? `<img src="${escapeHtml(src)}" alt="" class="rail-detail-photo" loading="lazy" />`
     : '<div class="rail-detail-photo rail-detail-noimg">🖤</div>';
+
+  // Wish-list items have no editor — show the whole picture, name, notes and a
+  // Buy link instead of the collection's facts + Edit.
+  const isWish = !(state.collection || []).some((x) => x.id === item.id);
+  if (isWish) {
+    return `
+      <section class="vitals-card rail-detail">
+        <div class="rail-detail-head">
+          <h2 class="rail-head">Details</h2>
+          <button class="rail-detail-close" data-rail-action="close-detail" type="button" aria-label="Close details">×</button>
+        </div>
+        ${photo}
+        <h3 class="rail-detail-name">${escapeHtml(stripOutfitWord(item.name || ''))}</h3>
+        ${item.outOfStock ? '<p class="rail-detail-product">Out of stock</p>' : ''}
+        ${item.notes ? `<p class="rail-detail-meaning">${escapeHtml(item.notes)}</p>` : ''}
+        ${item.url ? `<a class="rail-detail-edit" href="${escapeHtml(item.url)}" target="_blank" rel="noopener">Buy ↗</a>` : ''}
+      </section>`;
+  }
+
   const name = item.nickname
     ? `<h3 class="rail-detail-name">${escapeHtml(item.nickname)}</h3>
        <p class="rail-detail-product">${escapeHtml(stripOutfitWord(item.name || ''))}</p>`

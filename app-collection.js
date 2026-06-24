@@ -723,7 +723,9 @@ function renderCard(item, kind) {
     ${item.meaning ? `<p class="card-meaning">${escapeHtml(item.meaning)}</p>` : ''}
     ${meta.length ? `<div class="card-meta">${meta.join('')}</div>` : ''}
   `;
-  const bodyOpen = kind === 'collection'
+  // Collection AND wish-list cards open their detail (right-rail master-detail on
+  // wide screens; modal / lightbox fallback otherwise). Catalog cards don't.
+  const bodyOpen = (kind === 'collection' || kind === 'wishlist')
     ? `<div class="card-body card-clickable" data-action="open-detail" data-id="${item.id}">`
     : `<div class="card-body">`;
 
