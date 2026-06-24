@@ -1,4 +1,4 @@
--- 0030_wishlist_sort.sql
+-- 0042_wishlist_sort.sql
 -- Let collectors hand-prioritise their wish list (drag & drop / move up-down),
 -- mirroring the collection ordering from 0029. A nullable sort_order on
 -- wishlist; NULL means "not yet hand-placed" and sorts after placed items

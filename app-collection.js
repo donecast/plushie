@@ -251,7 +251,7 @@ async function persistManualWishOrder(orderedIds) {
   } catch (e) {
     console.error('saveWishlistOrder', e);
     toast(/sort_order/i.test(e?.message || '')
-      ? 'Run the latest migration (db/0030_wishlist_sort.sql) — the sort_order column is missing.'
+      ? 'Run the latest migration (db/0042_wishlist_sort.sql) — the sort_order column is missing.'
       : 'Could not save the new wish-list order.');
   }
 }

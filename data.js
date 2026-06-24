@@ -230,7 +230,7 @@ const data = {
   },
 
   // Same idea for the wish list (priority order). Tolerates the column not
-  // existing yet (pre-0030).
+  // existing yet (pre-0042).
   async saveWishlistOrder(orderedIds) {
     const now = new Date().toISOString();
     const results = await Promise.all(orderedIds.map((id, i) =>
