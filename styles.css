@@ -946,7 +946,14 @@ main {
 }
 .card-actions .btn-want:hover { background: var(--blush); color: var(--rose-2); border-color: var(--rose-1); }
 
-.grid-tight .card-name { font-size: 0.95rem; }
+/* Catalog cards have plenty of room — show the whole name, no 2-line clamp. */
+.grid-tight .card-name {
+  font-size: 0.95rem;
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  overflow: visible;
+}
 .grid-tight .card-body { padding: 10px 12px 8px; }
 .grid-tight .card-actions { padding: 8px 10px 10px; gap: 4px; }
 .grid-tight .card-actions button { font-size: 0.78rem; padding: 7px 4px; }

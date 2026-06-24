@@ -419,9 +419,8 @@ function renderCatalogCard(rawItem, owned, wished) {
   if (item.isBundle) {
     badges.push(`<span class="badge badge-bundle" title="Bundle — multiple items. Click Have to pick which ones you own.">Bundle</span>`);
   }
-  if ((item.isCustom || item.isVariant) && item.formLabel) {
-    badges.push(`<span class="badge badge-form" title="Form variant">${escapeHtml(item.formLabel)}</span>`);
-  }
+  // NB: form/variant is intentionally NOT badged on the photo — the variant
+  // reads as the gold form-label text after the name (below) instead.
 
   // Custom items normally have no Shopify URL — but form variants
   // resolve through their parent handle so Buy points at the upstream
@@ -637,8 +636,13 @@ function renderCard(item, kind) {
   if (kind === 'collection' && item.clothingScale) {
     badges.push(`<span class="badge badge-custom" title="Custom — not a Plushie Dreadfuls item">✨</span>`);
   }
-  if (kind === 'collection' && item.retired) badges.push(`<span class="badge badge-retired">Retired</span>`);
-  if (kind === 'wishlist' && item.outOfStock) badges.push(`<span class="badge badge-oos">Out of Stock</span>`);
+  // Retired wins over Out of Stock. A wish-list row's own snapshot can be stale,
+  // so read retired from the live catalog item when there is one — a wished
+  // retired plush should read "Retired", not "Out of Stock".
+  const liveCat = item.catalogId ? catalogForItem(item) : null;
+  const isRetired = item.retired || (liveCat && liveCat.retired);
+  if (isRetired) badges.push(`<span class="badge badge-retired">Retired</span>`);
+  else if (kind === 'wishlist' && item.outOfStock) badges.push(`<span class="badge badge-oos">Out of Stock</span>`);
   if (kind === 'collection' && (item.quantity || 1) > 1) {
     badges.push(`<span class="badge badge-qty">×${item.quantity}</span>`);
   }
