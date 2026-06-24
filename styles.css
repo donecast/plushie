@@ -722,7 +722,9 @@ main {
 /* ─── Grid & Cards ────────────────────────────── */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  /* auto-fit (not auto-fill) so cards stretch to fill the row instead of
+     leaving empty phantom tracks — and wasted space — on the right edge. */
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   /* Force all rows to the tallest cell's height. Combined with the
      .card flex-column + .card-body { flex:1 } pattern, every card in
      a row stretches to the same height — addresses the 'boxes are
@@ -763,7 +765,7 @@ main {
 }
 
 .grid-tight {
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   grid-auto-rows: 1fr;
   align-items: stretch;
   gap: 12px;
@@ -3991,7 +3993,7 @@ body.rails-on .rail-right.rail-right--active { display: block; }
 /* When editing, the inline form takes the comment's full width. */
 .soc-comment-edit-form { flex: 1 1 100%; margin-top: 4px; }
 .soc-post-plush { margin: 8px 0 2px; font-weight: 700; color: var(--gold); }
-.soc-post-body { margin: 8px 0; white-space: pre-wrap; line-height: 1.5; }
+.soc-post-body { margin: 8px 0; white-space: pre-wrap; line-height: 1.5; overflow-wrap: anywhere; word-break: break-word; }
 .soc-post-photo { margin: 10px -14px -4px; }
 /* Show the whole photo (no crop — there's no tap-to-open original on the feed),
    but cap it at ~70% of the viewport height so a tall portrait doesn't swallow
@@ -4011,8 +4013,8 @@ body.rails-on .rail-right.rail-right--active { display: block; }
 
 /* Comments */
 .soc-comments { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
-.soc-comment { font-size: 0.9rem; line-height: 1.45; display: flex; flex-direction: column; gap: 2px; }
-.soc-comment-main { display: flex; gap: 6px; align-items: baseline; }
+.soc-comment { font-size: 0.9rem; line-height: 1.45; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; word-break: break-word; }
+.soc-comment-main { display: flex; gap: 6px; align-items: baseline; min-width: 0; flex-wrap: wrap; }
 .soc-comment .soc-userlink b { color: var(--ink); }
 .soc-comment-del { margin-left: auto; }
 .soc-more-comments { align-self: flex-start; font-size: 0.82rem; }
@@ -4301,8 +4303,9 @@ body.rails-on .rail-right.rail-right--active { display: block; }
    auto-fill collapses to a single column on narrow screens. Fonts step down
    a notch to fit the slimmer cards. */
 .grid-list.closet-grid {
-  grid-template-columns: repeat(auto-fill, minmax(240px, 300px));
-  justify-content: end;
+  /* Fill to the right edge: auto-fit + 1fr lets cards grow to use the
+     full width rather than capping at 300px and bunching to one side. */
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 .closet-grid .card-name { font-size: 1rem; letter-spacing: 0.02em; }
 .closet-grid .card-name.nickname { font-size: 1rem; }
