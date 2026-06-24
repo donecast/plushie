@@ -1968,17 +1968,8 @@ body.cl-insider .changelog-gated strong { color: #2f6fed; }
   transition: background 0.12s ease;
 }
 .card-clickable:hover { background: var(--rose-hover-bg); }
-.card-clickable::after {
-  content: '›';
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--ink-dim);
-  font-size: 1.4rem;
-  pointer-events: none;
-}
-.grid-list .card-body.card-clickable { position: relative; padding-right: 28px; }
+/* (The '›' click-affordance chevron was removed — it added little and collided
+   with the inline Offering tag. Cursor + hover still signal the row is clickable.) */
 
 .trade-history-toggle {
   margin: 14px 0;
