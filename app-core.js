@@ -478,6 +478,9 @@ const CATEGORY_OVERRIDES = [
   { test: (it) => /\b(gas|plague)\s*-?\s*mask\b/i.test(it.name || ''), category: 'clothing' },
 ];
 function categoryOverride(item) {
+  // An admin's per-item DB override (from the Edit-details overlay) wins over the
+  // hardcoded list below.
+  if (item && item.categoryOverrideTag) return item.categoryOverrideTag;
   for (const o of CATEGORY_OVERRIDES) if (o.test(item)) return o.category;
   return null;
 }
@@ -642,6 +645,12 @@ function applyCatalogOverrides(shopifyProducts, overrides) {
     }
     // A picked cover photo replaces Shopify's default first image.
     if (ov.image) item.image = ov.image;
+    // Tag overrides: re-categorise and/or force retired. categoryOverrideTag is
+    // read by categoryOverride() below; retiredOverride drives itemStatus and
+    // lets the modal prefill auto/active/retired.
+    if (ov.category) item.categoryOverrideTag = ov.category;
+    if (ov.retired === true)  { item.retired = true;  item.retiredOverride = true; }
+    if (ov.retired === false) { item.retired = false; item.retiredOverride = false; }
     item.hasOverride = true;
   }
 }

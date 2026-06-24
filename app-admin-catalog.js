@@ -309,6 +309,13 @@ function openCatalogOverrideModal(cid) {
     ? (item.accessories || []).map((a) => a.name || a).join('\n')
     : '';
 
+  // Tag overrides: reflect any current category / retired override (else "auto").
+  document.getElementById('co-category').value = item.categoryOverrideTag || 'auto';
+  document.getElementById('co-retired').value =
+    item.retiredOverride === true ? 'retired'
+    : item.retiredOverride === false ? 'active'
+    : 'auto';
+
   // Close the catalog detail modal we were launched from so the editor
   // isn't hidden behind it (the post-save flow returns to the grid).
   document.getElementById('catalog-detail-modal').classList.add('hidden');
@@ -394,7 +401,13 @@ async function submitCatalogOverrideForm(e) {
     .map((s) => canonicalizeAccessoryName(s))
     .filter(Boolean)
     .map((name) => ({ name, key: accessoryKey(name) }));
-  const patch = { lore, symbolism, accessories };
+  // Tag overrides: 'auto' = inherit (null). Availability maps active/retired to
+  // a boolean the catalog merge applies.
+  const catSel = document.getElementById('co-category').value;
+  const retSel = document.getElementById('co-retired').value;
+  const category = catSel && catSel !== 'auto' ? catSel : null;
+  const retired = retSel === 'retired' ? true : retSel === 'active' ? false : null;
+  const patch = { lore, symbolism, accessories, category, retired };
   // Cover photo: '' = store default (inherit), otherwise the picked image URL.
   // Only touch the image column when the picker actually loaded — if its live
   // image list was unavailable (offline / CORS) we leave any existing cover

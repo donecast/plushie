@@ -1509,7 +1509,7 @@ data.adminUpdateCatalogItem = async function (id, patch) {
 data.listCatalogOverrides = async function () {
   const { data: rows, error } = await sb
     .from('catalog_overrides')
-    .select('handle, lore, symbolism, accessories, image');
+    .select('handle, lore, symbolism, accessories, image, category, retired');
   if (error) { console.warn('catalog overrides load skipped', error); return []; }
   return rows || [];
 };
@@ -1529,14 +1529,20 @@ data.adminUpsertCatalogOverride = async function (handle, patch) {
   // is present, '' / null clears it.
   const hasImage = Object.prototype.hasOwnProperty.call(patch, 'image');
   const image = patch.image || null;
+  // Tag overrides: category (null = inherit) and retired (true/false = force,
+  // null = inherit).
+  const category = patch.category || null;
+  const retired = (patch.retired === true || patch.retired === false) ? patch.retired : null;
   // Delete the row only when we know the full picture is empty — i.e. the image
-  // key was provided (so we're sure there's no cover override to preserve).
-  if (lore === null && symbolism === null && accessories === null && hasImage && image === null) {
+  // key was provided (so we're sure there's no cover override to preserve) AND
+  // no tag overrides remain.
+  if (lore === null && symbolism === null && accessories === null
+      && category === null && retired === null && hasImage && image === null) {
     const { error } = await sb.from('catalog_overrides').delete().eq('handle', handle);
     if (error) throw error;
     return null;
   }
-  const row = { handle, lore, symbolism, accessories, updated_by: window.currentUser.id };
+  const row = { handle, lore, symbolism, accessories, category, retired, updated_by: window.currentUser.id };
   if (hasImage) row.image = image;
   const { data: saved, error } = await sb
     .from('catalog_overrides')

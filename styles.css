@@ -4270,3 +4270,6 @@ body.rails-on .rail-right.rail-right--active { display: block; }
   background: var(--surface-2, rgba(0,0,0,0.06));
 }
 .co-image-preview:not([src]), .co-image-preview[src=""] { visibility: hidden; }
+/* Category + Availability override controls sit two-up. */
+.co-tag-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.co-tag-row .field { flex: 1 1 140px; min-width: 0; }
