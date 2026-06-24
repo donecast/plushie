@@ -120,7 +120,7 @@ function itemCategory(item) {
 }
 
 function filteredCollection() {
-  const q = state.query.trim().toLowerCase();
+  const q = state.colQuery.trim().toLowerCase();
   const arr = state.collection.filter((it) => {
     if (state.filter === 'active' && it.retired) return false;
     if (state.filter === 'retired' && !it.retired) return false;
@@ -140,7 +140,7 @@ function filteredCollection() {
 }
 
 function filteredWishlist() {
-  const q = state.query.trim().toLowerCase();
+  const q = state.wishQuery.trim().toLowerCase();
   const arr = state.wishlist.filter((it) => {
     if (state.wishCategory !== 'all' && itemCategory(it) !== state.wishCategory) return false;
     if (state.wishInStock && it.outOfStock) return false;
@@ -233,11 +233,59 @@ async function dropReorder(dragId, targetId) {
   await persistManualOrder(gIds);
 }
 
+// ─── Wish-list manual ordering (mirrors the collection helpers above) ──────
+// The wishlist is a flat list (no closet / sub-tabs), so its order is simply
+// the displayed sequence. The top of this order is what surfaces in Crypt Vitals.
+function applyManualWishOrder(orderedIds) {
+  const pos = new Map(orderedIds.map((id, i) => [id, i]));
+  for (const it of state.wishlist) {
+    if (pos.has(it.id)) it.sortOrder = pos.get(it.id);
+  }
+}
+
+async function persistManualWishOrder(orderedIds) {
+  applyManualWishOrder(orderedIds);
+  render();
+  try {
+    await data.saveWishlistOrder(orderedIds);
+  } catch (e) {
+    console.error('saveWishlistOrder', e);
+    toast(/sort_order/i.test(e?.message || '')
+      ? 'Run the latest migration (db/0030_wishlist_sort.sql) — the sort_order column is missing.'
+      : 'Could not save the new wish-list order.');
+  }
+}
+
+async function moveWishlistItem(id, dir) {
+  const ordered = sortWishlist(state.wishlist.slice(), 'manual').map((x) => x.id);
+  const i = ordered.indexOf(id);
+  if (i === -1) return;
+  const j = dir === 'up' ? i - 1 : i + 1;
+  if (j < 0 || j >= ordered.length) return; // already at the edge
+  [ordered[i], ordered[j]] = [ordered[j], ordered[i]];
+  await persistManualWishOrder(ordered);
+}
+
+async function dropReorderWish(dragId, targetId) {
+  if (!dragId || !targetId || dragId === targetId) return;
+  const ordered = sortWishlist(state.wishlist.slice(), 'manual').map((x) => x.id);
+  ordered.splice(ordered.indexOf(dragId), 1);
+  ordered.splice(ordered.indexOf(targetId), 0, dragId);
+  await persistManualWishOrder(ordered);
+}
+
 function sortWishlist(items, mode) {
   const a = items.slice();
   const cmpName = (x, y) => (x.name || '').localeCompare(y.name || '');
   const cmpAdded = (x, y) => (y.addedAt || 0) - (x.addedAt || 0);
   switch (mode) {
+    case 'manual': {
+      // Custom priority order (sort_order). Unplaced rows fall to the bottom,
+      // newest-added first, so a fresh wishlist still reads sensibly.
+      const rank = (x) => (x.sortOrder == null ? Infinity : x.sortOrder);
+      a.sort((x, y) => (rank(x) - rank(y)) || cmpAdded(x, y));
+      break;
+    }
     case 'added_asc':  a.sort((x, y) => -cmpAdded(x, y)); break;
     case 'name_asc':   a.sort(cmpName); break;
     case 'name_desc':  a.sort((x, y) => -cmpName(x, y)); break;
@@ -258,7 +306,7 @@ function catalogIdMap() {
 const CATALOG_CATEGORIES = new Set(['all', 'plush', 'mini', 'clothing', 'accessory', 'bundle', 'other']);
 
 function filteredCatalog() {
-  const q = state.query.trim().toLowerCase();
+  const q = state.catQuery.trim().toLowerCase();
   const { owned } = catalogIdMap();
   const cat = CATALOG_CATEGORIES.has(state.catalogFilter) ? state.catalogFilter : 'all';
   const statuses = state.catalogStatuses;
@@ -617,12 +665,17 @@ function renderCard(item, kind) {
   // manual ordering). A drag grip (desktop) plus up/down arrows (touch). Note
   // this is gated on `arranging`, NOT the sort: viewing the saved custom order
   // ("My order" in the sort menu) shows it without the live drag handles.
-  const manualMode = kind === 'collection' && state.arranging && !isWearableItem(item);
+  const manualMode = !isWearableItem(item) && (
+    (kind === 'collection' && state.arranging) ||
+    (kind === 'wishlist' && state.wishArranging)
+  );
+  const upAction = kind === 'wishlist' ? 'move-up-wish' : 'move-up';
+  const downAction = kind === 'wishlist' ? 'move-down-wish' : 'move-down';
   const reorder = manualMode
     ? `<div class="col-reorder" title="Drag the grip to reorder, or use the arrows">
-         <button class="reorder-btn" data-action="move-up" data-id="${item.id}" aria-label="Move up">▲</button>
+         <button class="reorder-btn" data-action="${upAction}" data-id="${item.id}" aria-label="Move up">▲</button>
          <span class="reorder-grip" aria-hidden="true">☰</span>
-         <button class="reorder-btn" data-action="move-down" data-id="${item.id}" aria-label="Move down">▼</button>
+         <button class="reorder-btn" data-action="${downAction}" data-id="${item.id}" aria-label="Move down">▼</button>
        </div>`
     : '';
 
@@ -635,6 +688,7 @@ function renderCard(item, kind) {
       <button class="btn-trash" data-action="delete" data-id="${item.id}" aria-label="Delete" title="Delete">🗑</button>
     `
     : `
+      ${reorder}
       <button class="btn-got" data-action="got" data-id="${item.id}">✓ Got it! — move to collection</button>
       <div class="card-actions-secondary">
         ${item.url && !item.outOfStock ? `<a class="btn-buy" href="${escapeHtml(item.url)}" target="_blank" rel="noopener" title="Buy on plushiedreadfuls.com">Buy ↗</a>` : ''}
@@ -752,7 +806,12 @@ function render() {
   document.getElementById('catalog-filters').classList.toggle('hidden', tab !== 'catalog');
 
   // Search bar makes sense on item lists, not on the checklist/trade/social tabs.
-  document.getElementById('search').classList.toggle('hidden', onPens || tab === 'trade' || tab === 'admin' || tab === 'home');
+  const searchEl = document.getElementById('search');
+  searchEl.classList.toggle('hidden', onPens || tab === 'trade' || tab === 'admin' || tab === 'home');
+  // Re-sync the box to the active section's own query (per-section search). Only
+  // write when it differs, so typing doesn't fight the caret.
+  const qKey = activeQueryKey();
+  if (qKey && searchEl.value !== state[qKey]) searchEl.value = state[qKey];
   // Active-filters bar belongs to the catalog.
   document.getElementById('active-filters').classList.toggle('hidden', tab !== 'catalog');
   // The plain count-label now only shows for non-catalog tabs (catalog has its own bar).
@@ -862,7 +921,16 @@ function render() {
   } else if (onWish) {
     syncWishlistChips();
     const items = filteredWishlist();
-    document.getElementById('wishlist-grid').innerHTML = items.map((i) => renderCard(i, 'wishlist')).join('');
+    // Layout mirrors the collection: roomy list ('cards') or dense 'compact'.
+    const wishCompact = state.wishView === 'compact';
+    const wlGrid = document.getElementById('wishlist-grid');
+    wlGrid.classList.toggle('grid-compact', wishCompact);
+    wlGrid.classList.toggle('grid-list', !wishCompact);
+    // Discoverability hint while arranging, same as the collection.
+    const wishHint = state.wishArranging && items.length > 1
+      ? '<p class="subview-hint">↕ Drag the ☰ grip or use ▲▼ to set your wish-list priority — the top of the list shows in your Crypt Vitals.</p>'
+      : '';
+    wlGrid.innerHTML = wishHint + items.map((i) => renderCard(i, 'wishlist')).join('');
     document.getElementById('wishlist-empty').classList.toggle('hidden', items.length > 0);
     document.getElementById('count-label').textContent =
       `${items.length} of ${state.wishlist.length} item${state.wishlist.length === 1 ? '' : 's'}`;

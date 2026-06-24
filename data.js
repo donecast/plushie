@@ -229,6 +229,16 @@ const data = {
     if (failed) throw failed.error;
   },
 
+  // Same idea for the wish list (priority order). Tolerates the column not
+  // existing yet (pre-0030).
+  async saveWishlistOrder(orderedIds) {
+    const now = new Date().toISOString();
+    const results = await Promise.all(orderedIds.map((id, i) =>
+      sb.from('wishlist').update({ sort_order: i, updated_at: now }).eq('id', id)));
+    const failed = results.find((r) => r.error);
+    if (failed) throw failed.error;
+  },
+
   // ─── Photos (R2 via Worker, with Supabase Storage fallback) ──────
   // Routing is controlled by window.R2_BASE in config.js:
   //   * empty / unset → legacy Supabase Storage 'photos' bucket

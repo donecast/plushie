@@ -46,6 +46,10 @@ async function onCardClickInner(btn) {
     await moveCollectionItem(id, 'up');
   } else if (action === 'move-down') {
     await moveCollectionItem(id, 'down');
+  } else if (action === 'move-up-wish') {
+    await moveWishlistItem(id, 'up');
+  } else if (action === 'move-down-wish') {
+    await moveWishlistItem(id, 'down');
   } else if (action === 'delete') {
     await removeCollectionItem(id);
   } else if (action === 'got') {
@@ -592,6 +596,7 @@ function saveFilters() {
       wishCategory: state.wishCategory,
       wishInStock: state.wishInStock,
       wishSort: state.wishSort,
+      wishView: state.wishView,
       catalogFilter: state.catalogFilter,
       catalogStatuses: [...state.catalogStatuses],
       catalogUnowned: state.catalogUnowned,
@@ -599,7 +604,10 @@ function saveFilters() {
       catalogTheme: state.catalogTheme,
       catalogColor: state.catalogColor,
       catalogSort: state.catalogSort,
-      query: state.query,
+      // Per-section search text (each remembered independently).
+      colQuery: state.colQuery,
+      catQuery: state.catQuery,
+      wishQuery: state.wishQuery,
       tradeFilter: state.tradeFilter,
       tradeSubTab: state.tradeSubTab,
     }));
@@ -617,10 +625,13 @@ function loadFilters() {
     // the Social tab (the default) when reopened. Filters/sub-tabs still
     // persist so each tab keeps its settings once you switch to it.
     const scalars = [
-      'colSubTab', 'filter', 'colCategory', 'colSort', 'colView', 'wishCategory', 'wishSort',
-      'catalogFilter', 'catalogTheme', 'catalogColor', 'catalogSort', 'query', 'tradeSubTab', 'tradeFilter',
+      'colSubTab', 'filter', 'colCategory', 'colSort', 'colView', 'wishCategory', 'wishSort', 'wishView',
+      'catalogFilter', 'catalogTheme', 'catalogColor', 'catalogSort',
+      'colQuery', 'catQuery', 'wishQuery', 'tradeSubTab', 'tradeFilter',
     ];
     for (const k of scalars) if (k in s) state[k] = s[k];
+    // Back-compat: the old single shared search ('query') seeds the collection.
+    if (typeof s.query === 'string' && !('colQuery' in s)) state.colQuery = s.query;
     const bools = ['colDupes', 'colNoBag', 'wishInStock', 'catalogUnowned', 'catalogOriginal'];
     for (const k of bools) if (k in s) state[k] = !!s[k];
     if (Array.isArray(s.catalogStatuses)) state.catalogStatuses = new Set(s.catalogStatuses);
@@ -640,9 +651,11 @@ function loadFilters() {
     if (!['plushes', 'minis', 'accessories', 'other', 'pens', 'wishlist'].includes(state.colSubTab)) {
       state.colSubTab = 'plushes';
     }
-    // Sync the search input value so the visible UI matches the restored state.
+    // Sync the search box to whichever section we're restoring into (render()
+    // also keeps it in sync on every tab/sub-tab switch).
     const searchEl = document.getElementById('search');
-    if (searchEl && state.query) searchEl.value = state.query;
+    const qKey = activeQueryKey();
+    if (searchEl && qKey) searchEl.value = state[qKey] || '';
   } catch { /* corrupt JSON — ignore */ }
 }
 
@@ -687,46 +700,38 @@ function renderRightRail() {
   el.classList.toggle('rail-right--active', !!html);
 }
 
-// Crypt Vitals — collection at a glance, computed from existing state: total
-// buns, a category split, catalogue coverage (own X of Y browsable products),
-// pens, wishlist, and a "still missing" hunt list of unowned plushes. The
-// thumbnails + the card carry data-tab so the .app-shell handler routes clicks.
+// Crypt Vitals — your collection at a glance: total buns, a category split,
+// pens progress, and the TOP of your wish list (priority order) as a little
+// most-wanted shortlist. Deliberately NO "collect them all" % — this community
+// isn't completionist. The thumbnails carry data-tab/data-subtab so the
+// .app-shell handler routes a click straight to your wish list.
 function renderCryptVitals() {
   const col = state.collection || [];
   const owned = col.length;
   const by = { plushes: 0, minis: 0, accessories: 0, other: 0 };
   for (const it of col) { const t = collectionTabOf(it); by[t] = (by[t] || 0) + 1; }
 
-  const ownedIds = new Set(col.filter((i) => i.catalogId).map((i) => i.catalogId));
-  const browsable = (state.catalog || []).filter((c) => !c.variantParent);
-  const total = browsable.length;
-  const haveCount = browsable.filter((c) => ownedIds.has(c.id)).length;
-  const pct = total ? Math.round((haveCount / total) * 100) : 0;
-
   const pensTotal = (typeof activePens === 'function' ? activePens() : []).length;
   let pensOwned = 0;
   if (state.pensOwned && state.pensOwned.forEach) state.pensOwned.forEach((n) => { if (n > 0) pensOwned++; });
 
-  const missing = browsable
-    .filter((c) => !ownedIds.has(c.id) && catalogCategory(c) === 'plush' && !c.retired && c.available !== false)
-    .slice(0, 4);
-  const missHtml = missing.length ? `
+  const wlAll = state.wishlist || [];
+  const top = (typeof sortWishlist === 'function' ? sortWishlist(wlAll.slice(), 'manual') : wlAll).slice(0, 4);
+  const wishHtml = top.length ? `
     <div class="vitals-missing">
-      <div class="vitals-sub"><span>Still missing</span></div>
+      <div class="vitals-sub"><span>Top of your wish list</span></div>
       <div class="vitals-missing-row">
-        ${missing.map((c) => {
-          const src = c.image
-            ? (typeof shopifyImageVariant === 'function' ? shopifyImageVariant(c.image, 200) || c.image : c.image)
-            : '';
+        ${top.map((it) => {
+          const src = (typeof photoSrc === 'function' ? photoSrc(it) : null)
+            || (typeof catalogImageFor === 'function' ? catalogImageFor(it.catalogId) : '');
           return `
-          <button class="vitals-miss" data-tab="catalog" type="button" title="${escapeHtml(c.name)}">
+          <button class="vitals-miss" data-tab="crypt" data-subtab="wishlist" type="button" title="${escapeHtml(it.name || '')}">
             ${src ? `<img src="${escapeHtml(src)}" alt="" loading="lazy" />` : '<span class="no-photo">🖤</span>'}
           </button>`;
         }).join('')}
       </div>
     </div>` : '';
 
-  const wl = (state.wishlist || []).length;
   return `
     <section class="vitals-card">
       <h2 class="rail-head">Crypt Vitals 🕯️</h2>
@@ -739,17 +744,25 @@ function renderCryptVitals() {
         <span class="vitals-chip">🐭 ${by.minis} mini</span>
         <span class="vitals-chip">🎀 ${by.accessories} acc</span>
       </div>
-      <div class="vitals-meter">
-        <div class="vitals-sub"><span>Catalogue</span><span class="vitals-pct">${pct}%</span></div>
-        <div class="vitals-bar"><span style="width:${pct}%"></span></div>
-        <div class="vitals-meter-cap">${haveCount} of ${total} products owned</div>
-      </div>
       <div class="vitals-stats">
         <div class="vitals-stat"><span class="vitals-stat-n">${pensOwned}/${pensTotal}</span><span class="vitals-stat-l">pens</span></div>
-        <div class="vitals-stat"><span class="vitals-stat-n">${wl}</span><span class="vitals-stat-l">wishlist</span></div>
+        <div class="vitals-stat"><span class="vitals-stat-n">${wlAll.length}</span><span class="vitals-stat-l">wish list</span></div>
       </div>
-      ${missHtml}
+      ${wishHtml}
     </section>`;
+}
+
+// Which per-section query the single search box is driving right now, or null
+// when search doesn't apply (Pens / Trade / Home / Admin). Keeps Collection,
+// Catalog, and Wish List searches independent.
+function activeQueryKey() {
+  if (state.tab === 'catalog') return 'catQuery';
+  if (state.tab === 'crypt') {
+    if (state.colSubTab === 'wishlist') return 'wishQuery';
+    if (state.colSubTab === 'pens') return null;
+    return 'colQuery';
+  }
+  return null;
 }
 
 // ─── Event wiring ────────────────────────────────────────────────────
@@ -763,6 +776,8 @@ function wireEvents() {
     shell.addEventListener('click', (e) => {
       const t = e.target.closest('[data-tab]');
       if (!t) return;
+      // A data-subtab (e.g. the wishlist thumbnails) lands on that crypt sub-tab.
+      if (t.dataset.subtab) state.colSubTab = t.dataset.subtab;
       const top = document.querySelector(`header .tabs .tab[data-tab="${t.dataset.tab}"]`);
       if (top) top.click();
     });
@@ -862,7 +877,26 @@ function wireEvents() {
 
   // Wishlist filters
   wireSelect('wish-cat', 'wishCategory');
-  wireSelect('wish-sort', 'wishSort');
+  wireSelect('wish-view', 'wishView');
+  // Sort menu mirrors the collection: leaving "My order" turns off arrange mode.
+  const wishSortSel = document.getElementById('wish-sort');
+  if (wishSortSel) wishSortSel.addEventListener('change', () => {
+    state.wishSort = wishSortSel.value;
+    if (state.wishSort !== 'manual') state.wishArranging = false;
+    render();
+  });
+  // Arrange button: start dragging (snaps the sort to "My order"); tap again
+  // when done — the saved priority order keeps showing.
+  const wishArrangeBtn = document.getElementById('wish-arrange');
+  if (wishArrangeBtn) wishArrangeBtn.addEventListener('click', () => {
+    if (state.wishArranging) {
+      state.wishArranging = false;
+    } else {
+      state.wishArranging = true;
+      state.wishSort = 'manual';
+    }
+    render();
+  });
   document.querySelectorAll('#wish-extras input[data-wish-toggle]').forEach((cb) => {
     cb.addEventListener('change', () => {
       if (cb.dataset.wishToggle === 'instock') state.wishInStock = cb.checked;
@@ -918,8 +952,12 @@ function wireEvents() {
     });
   }
 
+  // Search is per-section: route the input to whichever section is showing so
+  // the text doesn't leak between Collection / Catalog / Wish List, and each
+  // restores its own on return (render() re-syncs the box — see below).
   document.getElementById('search').addEventListener('input', (e) => {
-    state.query = e.target.value;
+    const key = activeQueryKey();
+    if (key) state[key] = e.target.value;
     render();
   });
 
@@ -975,6 +1013,32 @@ function wireEvents() {
   document.getElementById('unworn-clothing-grid').addEventListener('click', onCardClick);
   document.getElementById('wishlist-grid').addEventListener('click', onCardClick);
   document.getElementById('catalog-grid').addEventListener('click', onCardClick);
+
+  // Wish-list drag-and-drop (same mechanics as the collection grid, item 20).
+  const wishGrid = document.getElementById('wishlist-grid');
+  wishGrid.addEventListener('dragstart', (e) => {
+    const card = e.target.closest('[data-reorder-id]');
+    if (!card) return;
+    state._dragId = card.dataset.reorderId;
+    card.classList.add('dragging');
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+  });
+  wishGrid.addEventListener('dragover', (e) => { if (state._dragId) e.preventDefault(); });
+  wishGrid.addEventListener('dragend', () => {
+    wishGrid.querySelectorAll('.dragging').forEach((el) => el.classList.remove('dragging'));
+    state._dragId = null;
+  });
+  wishGrid.addEventListener('drop', async (e) => {
+    if (!state._dragId) return;
+    e.preventDefault();
+    const target = e.target.closest('[data-reorder-id]');
+    const dragId = state._dragId;
+    state._dragId = null;
+    wishGrid.querySelectorAll('.dragging').forEach((el) => el.classList.remove('dragging'));
+    if (target && target.dataset.reorderId !== dragId) {
+      await dropReorderWish(dragId, target.dataset.reorderId);
+    }
+  });
 
   // Add-your-own clothing: open from the closet header, plus modal wiring.
   document.getElementById('add-custom-clothing-btn').addEventListener('click', (e) => {

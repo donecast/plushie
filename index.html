@@ -182,11 +182,17 @@
           </div>
         </details>
         <select id="wish-sort" class="filter-select" aria-label="Sort wishlist">
+          <option value="manual">My order</option>
           <option value="added_desc">Newest added</option>
           <option value="added_asc">Oldest added</option>
           <option value="name_asc">Name A→Z</option>
           <option value="name_desc">Name Z→A</option>
         </select>
+        <select id="wish-view" class="filter-select" aria-label="Wish list layout">
+          <option value="cards">Card view</option>
+          <option value="compact">Compact list</option>
+        </select>
+        <button id="wish-arrange" class="filter-arrange" type="button" title="Drag your wish list into priority order">↕ Arrange</button>
         <button id="check-restocks" class="filter-action">Check restocks</button>
         <button class="filter-clear" data-clear-tab="wishlist">Clear filters</button>
       </div>
@@ -1325,18 +1331,18 @@
   <script src="./config.js?v=53"></script>
   <script src="./auth.js?v=58"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=70"></script>
+  <script src="./data.js?v=71"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=101"></script>
-  <script src="./app-catalog.js?v=101"></script>
-  <script src="./app-collection.js?v=101"></script>
-  <script src="./app-ui.js?v=101"></script>
-  <script src="./app-trade.js?v=101"></script>
-  <script src="./app-account.js?v=101"></script>
-  <script src="./app-admin.js?v=101"></script>
-  <script src="./app-admin-catalog.js?v=101"></script>
-  <script src="./app-social.js?v=101"></script>
+  <script src="./app-core.js?v=102"></script>
+  <script src="./app-catalog.js?v=102"></script>
+  <script src="./app-collection.js?v=102"></script>
+  <script src="./app-ui.js?v=102"></script>
+  <script src="./app-trade.js?v=102"></script>
+  <script src="./app-account.js?v=102"></script>
+  <script src="./app-admin.js?v=102"></script>
+  <script src="./app-admin-catalog.js?v=102"></script>
+  <script src="./app-social.js?v=102"></script>
 </body>
 </html>
