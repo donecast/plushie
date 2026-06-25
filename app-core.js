@@ -495,10 +495,21 @@ function categoryOverride(item) {
   return null;
 }
 
+// The six user-facing buckets — the single category vocabulary shown in the
+// filter chips, the catalog-override editor, and the custom-item editor. Kept
+// here so catalogCategory() can trust an admin's explicit pick verbatim.
+const CATALOG_CATEGORY_VALUES = new Set(['plush', 'mini', 'clothing', 'accessory', 'bundle', 'other']);
+
 function catalogCategory(item) {
   const ov = categoryOverride(item);
   if (ov) return ov;
   const t = (item.type || '').toLowerCase();
+  // Hand-entered ("custom") catalog items don't have a Shopify product_type —
+  // the editor's Category picker writes the canonical vocabulary straight into
+  // `type`, so trust it verbatim rather than running the Shopify-oriented
+  // name/tag heuristics below. This makes "what the admin picks" === "what the
+  // user sees" for custom items, with no keyword guesswork.
+  if (item.isCustom && CATALOG_CATEGORY_VALUES.has(t)) return t;
   if (NON_PLUSHIE_NAME.test(item.name || '')) return 'other';     // standees, etc. tagged as 'plush'
   if (OTHER_CATEGORY_TYPES.has(t)) return 'other';                // store merch
   // Bundles are their own category — they aren't physically a single

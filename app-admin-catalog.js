@@ -60,7 +60,10 @@ function openCatalogItemModal(mode = 'admin', editId = null) {
     document.getElementById('ci-name').value = row.name || '';
     document.getElementById('ci-form-label').value = row.formLabel || '';
     document.getElementById('ci-parent-handle').value = row.parentHandle || '';
-    document.getElementById('ci-type').value = row.type || 'plush';
+    // Reflect the item's effective category (not the raw stored `type`), so
+    // legacy rows typed in the old Shopify vocabulary — 'Plush Accessory',
+    // 'charms', etc. — preselect the right canonical option instead of a blank.
+    document.getElementById('ci-type').value = catalogCategory(row);
     document.getElementById('ci-retired').value = row.retired ? 'retired' : 'active';
     document.getElementById('ci-handle').value = row.handle || '';
     document.getElementById('ci-release-year').value = row.releaseYear ?? '';
