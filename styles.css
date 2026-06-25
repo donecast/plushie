@@ -3569,12 +3569,35 @@ body.rails-on .rail-right.rail-right--active { display: block; }
 }
 .admin-table tr:hover td { background: var(--border-rose-mist); }
 /* Compact, right-aligned count columns; de-emphasised feedback. */
-.admin-table .admin-num { text-align: right; font-variant-numeric: tabular-nums; }
+.admin-table .admin-num { text-align: center; font-variant-numeric: tabular-nums; }
 .admin-table .admin-fb { font-size: 0.8rem; white-space: nowrap; }
 .admin-fb .fb-good { color: var(--teal-text); }
 .admin-fb .fb-bad  { color: var(--danger-hi); }
 /* Feedback summary dialled down in the inspect view (less prominent). */
 .feedback-summary-dim { opacity: 0.7; transform: scale(0.92); transform-origin: left center; }
+
+/* Maintenance mode: admin tool input + the full-screen takeover. */
+.admin-maint-reason {
+  display: block; width: 100%; box-sizing: border-box; margin-top: 8px;
+  padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border-rose-faint);
+  background: var(--canvas); color: var(--ink-1); font-family: var(--sans);
+}
+.admin-maint.admin-maint-on { border: 1px solid var(--rose-1); }
+.maint-overlay {
+  position: fixed; inset: 0; z-index: 9999; padding: 24px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--canvas);
+}
+body.maint-locked { overflow: hidden; }
+.maint-card {
+  max-width: 460px; text-align: center;
+  background: var(--surface); border: 1px solid var(--border-rose-faint);
+  border-radius: 20px; padding: 40px 28px;
+}
+.maint-bat { font-size: 3rem; margin-bottom: 8px; }
+.maint-card h1 { font-family: var(--display); color: var(--ink-2); margin: 0 0 12px; }
+.maint-reason { font-size: 1.05rem; font-weight: 600; color: var(--ink-1); line-height: 1.5; margin: 0 0 14px; }
+.maint-sub { color: var(--ink-2); opacity: .8; margin: 0; line-height: 1.5; }
 .admin-table button {
   background: var(--panel-2);
   border: 1px solid var(--gold-border);

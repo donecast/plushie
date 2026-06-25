@@ -1310,6 +1310,21 @@ function rerenderSocialCurrent() {
 // guard the one-time event wiring — re-attaching listeners would make
 // every form submit (post, trade, etc.) fire twice. Data reloads below
 // are safe to repeat.
+
+// Full-screen "the crypt is resting" takeover for non-admins while an admin has
+// maintenance mode on. Boot returns early after this, so the app never renders.
+function showMaintenanceScreen(reason) {
+  const el = document.getElementById('maintenance-overlay');
+  if (!el) return;
+  const r = document.getElementById('maint-reason');
+  if (r) {
+    r.textContent = (reason || '').trim();
+    r.classList.toggle('hidden', !r.textContent);
+  }
+  el.classList.remove('hidden');
+  document.body.classList.add('maint-locked');
+}
+
 let eventsWired = false;
 async function boot() {
   if (!eventsWired) {
@@ -1325,6 +1340,12 @@ async function boot() {
   await handleJoinToken();        // ?join=<token> redeems and switches in
   await data.migrateFromIDB();    // one-time IDB → Supabase upload per account
   await data.loadAppSettings();   // feature flags (e.g. user photo uploads)
+  // Maintenance gate: if an admin has taken the crypt down, show everyone but
+  // admins a "resting" screen (with the reason) instead of booting the app.
+  if (data.appSettings['maintenance.enabled'] === true && !window.currentUser?.isAdmin) {
+    showMaintenanceScreen(data.appSettings['maintenance.reason']);
+    return;
+  }
   applyFeatureFlags();
   await loadAll();
   state.pensOwned = await data.listPens();

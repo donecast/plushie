@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=111" />
+  <link rel="stylesheet" href="./styles.css?v=112" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -1478,6 +1478,17 @@
     </div>
   </div>
 
+  <!-- Maintenance takeover: shown by showMaintenanceScreen() to non-admins when
+       an admin has flipped maintenance mode on. Covers the whole app. -->
+  <div id="maintenance-overlay" class="maint-overlay hidden" role="alert" aria-live="assertive">
+    <div class="maint-card">
+      <div class="maint-bat">🦇</div>
+      <h1>The crypt is resting</h1>
+      <p id="maint-reason" class="maint-reason hidden"></p>
+      <p class="maint-sub">We've stepped away for a few minutes of upkeep. Please check back shortly. 🖤</p>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./config.js?v=53"></script>
   <script src="./auth.js?v=59"></script>
@@ -1486,14 +1497,14 @@
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=120"></script>
-  <script src="./app-catalog.js?v=120"></script>
-  <script src="./app-collection.js?v=120"></script>
-  <script src="./app-ui.js?v=120"></script>
-  <script src="./app-trade.js?v=120"></script>
-  <script src="./app-account.js?v=120"></script>
-  <script src="./app-admin.js?v=120"></script>
-  <script src="./app-admin-catalog.js?v=120"></script>
-  <script src="./app-social.js?v=120"></script>
+  <script src="./app-core.js?v=121"></script>
+  <script src="./app-catalog.js?v=121"></script>
+  <script src="./app-collection.js?v=121"></script>
+  <script src="./app-ui.js?v=121"></script>
+  <script src="./app-trade.js?v=121"></script>
+  <script src="./app-account.js?v=121"></script>
+  <script src="./app-admin.js?v=121"></script>
+  <script src="./app-admin-catalog.js?v=121"></script>
+  <script src="./app-social.js?v=121"></script>
 </body>
 </html>
