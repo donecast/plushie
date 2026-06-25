@@ -3967,8 +3967,12 @@ body.maint-locked { overflow: hidden; }
   .form-actions { flex-direction: column-reverse; gap: 8px; }
   .form-actions button { width: 100%; }
 
-  /* User menu / dropdowns */
-  .user-menu { left: 12px; right: 12px; }
+  /* User menu / dropdowns — anchor to the avatar's right edge and open INWARD
+     (leftward). The menu is positioned against .user-badge-wrap, a tiny box
+     pinned to the far-right of the header, so the old `left: 12px; right: 12px`
+     resolved against that ~40px box and (with min-width: 190px) shoved the menu
+     off the right edge of the screen. `right: 0; left: auto` keeps it on-screen. */
+  .user-menu { right: 0; left: auto; }
 
   /* Trade lines: stack the two columns */
   .trade-lines { grid-template-columns: 1fr; gap: 8px; }
