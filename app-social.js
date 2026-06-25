@@ -533,10 +533,14 @@ function renderTop8(top8, isMe) {
   }
   const slots = top8.map((t) => {
     const img = t.photoUrl || catalogImageFor(t.catalogId);
+    // Tapping a Top 8 photo opens the shared lightbox so you can see it bigger.
+    const zoomAttr = img
+      ? ` data-soc-action="zoom-top8" data-src="${escapeHtml(img)}" data-name="${escapeHtml(t.plushName)}" role="button" tabindex="0" title="Tap to see it bigger"`
+      : '';
     return `
       <div class="soc-top8-slot">
         <span class="soc-top8-rank">${t.position}</span>
-        <div class="soc-top8-photo">${img ? `<img src="${escapeHtml(img)}" loading="lazy" alt="" />` : '<span class="no-photo">🖤</span>'}</div>
+        <div class="soc-top8-photo"${zoomAttr}>${img ? `<img src="${escapeHtml(img)}" loading="lazy" alt="" />` : '<span class="no-photo">🖤</span>'}</div>
         <span class="soc-top8-name">${escapeHtml(t.plushName)}</span>
       </div>`;
   }).join('');
@@ -1048,6 +1052,7 @@ async function onSocialClick(e) {
     case 'close-profile': state.socProfile = null; renderSocial(); break;
     case 'edit-profile': closeSocialModal(); openAccountModal(); break;
     case 'edit-top8': openTop8Picker(); break;
+    case 'zoom-top8': openLightbox(target.dataset.src, target.dataset.name); break;
 
     case 'toggle-like': await onToggleLike(postId, target); break;
     case 'toggle-comments': onToggleComments(postId); break;
