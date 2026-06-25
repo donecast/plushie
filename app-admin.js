@@ -77,6 +77,17 @@ function renderAdminUserList() {
     <section class="admin-tools">
       <h2 class="trader-head"><span>Tools</span></h2>
 
+      <div class="admin-tool admin-maint${(data.appSettings || {})['maintenance.enabled'] === true ? ' admin-maint-on' : ''}">
+        <div>
+          <strong>Maintenance mode ${(data.appSettings || {})['maintenance.enabled'] === true ? '<span class="badge badge-oos">ON</span>' : ''}</strong>
+          <p class="dim">Show everyone but admins a "down for maintenance" screen with the reason below — for when you need to take the crypt down for a few minutes. You stay in.</p>
+          <input type="text" id="admin-maint-reason" class="admin-maint-reason" maxlength="200"
+            placeholder="Reason (e.g. Quick fix in progress — back in ~10 minutes)"
+            value="${escapeHtml((data.appSettings || {})['maintenance.reason'] || '')}" />
+        </div>
+        <button class="${(data.appSettings || {})['maintenance.enabled'] === true ? 'btn-primary' : 'btn-ghost'}" data-admin-action="toggle-maintenance">${(data.appSettings || {})['maintenance.enabled'] === true ? 'Turn off' : 'Turn on'}</button>
+      </div>
+
       <div class="admin-tool">
         <div>
           <strong>Add a catalog item</strong>
@@ -130,7 +141,7 @@ function renderAdminUserList() {
       <button class="btn-ghost" data-admin-action="download-users-csv">⬇ Download CSV</button>
     </h2>
     <table class="admin-table">
-      <thead><tr><th>Username</th><th>Name</th><th>Joined</th><th>Coll.</th><th>Wish</th><th>Trade</th><th>Last seen</th><th class="dim">Fb (g/m/b)</th><th></th></tr></thead>
+      <thead><tr><th>Username</th><th>Name</th><th>Joined</th><th class="admin-num">Coll.</th><th class="admin-num">Wish</th><th class="admin-num">Trade</th><th>Last seen</th><th class="dim">Fb (g/m/b)</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
@@ -440,6 +451,21 @@ async function onAdminClick(e) {
     }
   } else if (action === 'download-users-csv') {
     downloadUsersCsv();
+  } else if (action === 'toggle-maintenance') {
+    const reason = (document.getElementById('admin-maint-reason')?.value || '').trim();
+    const turningOn = (data.appSettings || {})['maintenance.enabled'] !== true;
+    btn.disabled = true;
+    try {
+      // Save the reason first so it's in place before the gate flips on.
+      await data.adminSetSetting('maintenance.reason', reason);
+      await data.adminSetSetting('maintenance.enabled', turningOn);
+      toast(turningOn ? 'Maintenance mode ON — non-admins see the down screen.' : 'Maintenance mode OFF.');
+      renderAdmin();
+    } catch (err) {
+      console.error('toggle-maintenance', err);
+      toast('Could not change maintenance mode.');
+      btn.disabled = false;
+    }
   } else if (action === 'back') {
     state.adminUserView = null;
     renderAdmin();
