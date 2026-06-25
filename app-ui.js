@@ -339,12 +339,15 @@ async function toggleNotifications() {
   }
 }
 
+// Reflect the current reminders state onto the Settings toggle (the header
+// bell is gone — notifications now live under Account & settings). Safe to
+// call any time; no-ops if the checkbox isn't in the DOM yet.
 async function updateNotifyButton() {
-  const btn = document.getElementById('notify-btn');
   const enabled = await idb.getMeta('notify_enabled');
   const granted = 'Notification' in window && Notification.permission === 'granted';
-  btn.classList.toggle('active', !!(enabled && granted));
-  btn.title = (enabled && granted) ? 'Reminders on — click to turn off' : 'Enable reminders';
+  const on = !!(enabled && granted);
+  const chk = document.getElementById('acct-notify');
+  if (chk) chk.checked = on;
 }
 
 async function scheduleReminderCheck() {
@@ -751,6 +754,25 @@ function renderRailStirrings() {
 // right rail is a contextual companion that mirrors the stage. Everything here
 // is a no-op unless body.rails-on is set (admins/allowlist) — the markup lives
 // in index.html and stays display:none for everyone else.
+
+// Header account button: the user's avatar (falling back to a heart), which
+// opens the account popover. Replaces the old @name + caret pill. Kept in sync
+// from render() and whenever the avatar/username changes.
+function updateUserBadge() {
+  const badge = document.getElementById('user-badge');
+  const slot = document.getElementById('user-avatar');
+  if (!badge || !slot || !window.currentUser) return;
+  badge.classList.remove('hidden');
+  const u = window.currentUser.username || 'you';
+  badge.title = `@${u}`;
+  badge.setAttribute('aria-label', `@${u} — account menu`);
+  const sig = state._myAvatarUrl || '';
+  if (slot._avSig === sig) return;   // avatar unchanged — skip repaint
+  slot._avSig = sig;
+  slot.innerHTML = state._myAvatarUrl
+    ? `<img src="${escapeHtml(state._myAvatarUrl)}" alt="" class="user-avatar-img" />`
+    : '<span class="user-avatar-fallback">🖤</span>';
+}
 
 // Left rail identity card — avatar, @name, a one-line vital. Clicking it jumps
 // to My Crypt (delegated via the .app-shell [data-tab] handler).
@@ -1171,7 +1193,11 @@ function wireEvents() {
   });
 
   document.getElementById('check-restocks').addEventListener('click', checkAllRestocks);
-  document.getElementById('notify-btn').addEventListener('click', toggleNotifications);
+  const notifyChk = document.getElementById('acct-notify');
+  if (notifyChk) notifyChk.addEventListener('change', async () => {
+    await toggleNotifications();
+    updateNotifyButton();   // resync (e.g. if permission was denied, revert the box)
+  });
 
   document.querySelectorAll('[data-close]').forEach((el) =>
     el.addEventListener('click', closeModal)
