@@ -353,3 +353,20 @@ test('buildUsersCsv emits a header + one RFC-4180 row per user, dates as YYYY-MM
   assert.equal(lines[2], 'bee,"Bee, Jr.",,,0,0,0,0,0,0,0');
   assert.equal(call('buildUsersCsv', []), 'Username,Name,Joined,Last seen,Collection,Wishlist,For trade,Good,Meh,Bad,Total feedback');
 });
+
+test('sortCatalog treats a hand-entered releaseYear as Jan 1, sorting customs among their year-mates', () => {
+  // Shopify items have full createdAt timestamps; a custom carries only a
+  // releaseYear but a created_at of "just now" (when it was keyed in).
+  const items = [
+    { id: 'shop-2020', name: 'B 2020', createdAt: '2020-06-01T00:00:00Z' },
+    { id: 'shop-2024', name: 'A 2024', createdAt: '2024-06-01T00:00:00Z' },
+    { id: 'custom-2018', name: 'C custom', createdAt: '2026-06-25T00:00:00Z', releaseYear: 2018 },
+  ];
+  // Newest first: 2024 shop, 2020 shop, then the 2018 custom (NOT first, even
+  // though it was created_at "today") — it sorts by its listed year.
+  assert.deepEqual(call('sortCatalog', items, 'newest').map((x) => x.id),
+    ['shop-2024', 'shop-2020', 'custom-2018']);
+  // Oldest first: the 2018 custom now leads.
+  assert.deepEqual(call('sortCatalog', items, 'oldest').map((x) => x.id),
+    ['custom-2018', 'shop-2020', 'shop-2024']);
+});
