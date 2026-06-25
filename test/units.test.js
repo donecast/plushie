@@ -370,3 +370,12 @@ test('sortCatalog treats a hand-entered releaseYear as Jan 1, sorting customs am
   assert.deepEqual(call('sortCatalog', items, 'oldest').map((x) => x.id),
     ['custom-2018', 'shop-2020', 'shop-2024']);
 });
+
+test('compactViewAllowed gates the dense list to non-phone widths', () => {
+  // Phone width → matchMedia('(max-width: 768px)') matches → compact disallowed.
+  app.setGlobal('matchMedia', (q) => ({ matches: /max-width:\s*768px/.test(q) }));
+  assert.equal(call('compactViewAllowed'), false);
+  // Desktop width → the phone media query does not match → compact allowed.
+  app.setGlobal('matchMedia', () => ({ matches: false }));
+  assert.equal(call('compactViewAllowed'), true);
+});

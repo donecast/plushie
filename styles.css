@@ -3935,6 +3935,9 @@ body.maint-locked { overflow: hidden; }
      wins by source order. Same reasoning for the compact list (one dense row
      per item), or it collapses into a 2-up grid of useless square boxes. */
   .grid-list { grid-template-columns: 1fr; }
+  /* Compact list view is desktop-only on phones — hide its Card/Compact toggle,
+     and keep the single-column fallback as a guard in case JS ever renders it. */
+  #col-view, #wish-view { display: none; }
   .grid-compact { grid-template-columns: 1fr; }
   .grid-tight { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
   .card-name { font-size: 0.98rem; }

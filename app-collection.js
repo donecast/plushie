@@ -620,7 +620,7 @@ function renderAttachedAccessory(a) {
     : '<span class="no-photo">🧥</span>';
   // Compact view is starved for space: drop the button label down to the bare
   // ↩ arrow (the title/aria-label still carries the meaning).
-  const compact = state.colView === 'compact';
+  const compact = state.colView === 'compact' && compactViewAllowed();
   const detachLabel = compact ? '↩' : '↩ Hang it back up';
   return `
     <div class="attached-acc" data-acc-id="${a.id}">
@@ -948,8 +948,9 @@ function render() {
       ? shown.filter((i) => isWearableItem(i) && collectionTabOf(i) === sub)
       : [];
 
-    // Layout: roomy cards (default) or a dense compact list (item 13).
-    const compact = state.colView === 'compact';
+    // Layout: roomy cards or a dense compact list. Compact is desktop-only —
+    // compactViewAllowed() forces cards on phones (where the toggle is hidden).
+    const compact = state.colView === 'compact' && compactViewAllowed();
     const colGrid = document.getElementById('collection-grid');
     colGrid.classList.toggle('grid-compact', compact);
     colGrid.classList.toggle('grid-list', !compact);
@@ -1004,8 +1005,9 @@ function render() {
   } else if (onWish) {
     syncWishlistChips();
     const items = filteredWishlist();
-    // Layout mirrors the collection: roomy list ('cards') or dense 'compact'.
-    const wishCompact = state.wishView === 'compact';
+    // Layout mirrors the collection: roomy 'cards' or dense 'compact'.
+    // Compact is desktop-only; compactViewAllowed() forces cards on phones.
+    const wishCompact = state.wishView === 'compact' && compactViewAllowed();
     const wlGrid = document.getElementById('wishlist-grid');
     wlGrid.classList.toggle('grid-compact', wishCompact);
     wlGrid.classList.toggle('grid-list', !wishCompact);

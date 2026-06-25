@@ -94,6 +94,16 @@ const state = {
   socPendingCount: 0,         // incoming friend requests — drives the tab badge
 };
 
+// Compact list view is a desktop-only density option. On phones it's too
+// cramped to be worthwhile, so we ignore a saved 'compact' preference there and
+// always fall back to roomy cards (the #col-view / #wish-view toggle is hidden
+// on phones too). Single source of truth for the "is this a phone" line — keep
+// it in sync with the toggle-hiding rule in styles.css (@media max-width:768px).
+const PHONE_MEDIA = '(max-width: 768px)';
+function compactViewAllowed() {
+  return !window.matchMedia(PHONE_MEDIA).matches;
+}
+
 // Themed visibility tiers. The DB enum is public|friends|inner|coffin_buddies;
 // these are the gothic-cute labels the UI shows. Rename here to re-theme.
 // Nesting: Public ⊇ Coven ⊇ Castle Crew ('inner') ⊇ Coffin Buddies.

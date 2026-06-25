@@ -1075,6 +1075,13 @@ function wireEvents() {
   };
   wireSelect('col-state', 'filter');
   wireSelect('col-view', 'colView');
+  // Compact list view is desktop-only (hidden + forced off on phones). Re-render
+  // when crossing that breakpoint so a desktop→phone resize drops back to cards,
+  // and back to the saved compact layout when widening again.
+  const phoneMq = window.matchMedia(PHONE_MEDIA);
+  const onPhoneBreakpoint = () => render();
+  if (phoneMq.addEventListener) phoneMq.addEventListener('change', onPhoneBreakpoint);
+  else if (phoneMq.addListener) phoneMq.addListener(onPhoneBreakpoint);
   // Sort menu: switching to any sort other than "My order" leaves arrange mode
   // (you can't drag a date/name-sorted list into a custom order).
   const sortSel = document.getElementById('col-sort');
