@@ -378,10 +378,25 @@ function filteredCatalog() {
   return sortCatalog(items, state.catalogSort);
 }
 
+// Sort key for the date-ordered catalog views. Hand-entered (custom) items
+// usually carry only a release_year — there's no real publish timestamp lined
+// up with when the plush actually came out, just the created_at of when it was
+// keyed in. Sorting on created_at alone strands those items at the "just added"
+// end, so they read as missing from Newest/Oldest. Treat an explicit
+// releaseYear as Jan 1 of that year (the same year renderCatalogMeta shows), so
+// each custom sorts among its year-mates; order within a year doesn't matter.
+// Shopify items have no releaseYear and keep their full created_at precision.
+function catalogSortTime(item) {
+  if (item.releaseYear && !isNaN(item.releaseYear)) {
+    return Date.UTC(Number(item.releaseYear), 0, 1);
+  }
+  return Date.parse(item.createdAt) || 0;
+}
+
 function sortCatalog(items, mode) {
   const arr = items.slice();
   const cmpName = (a, b) => cleanCatalogName(a.name).localeCompare(cleanCatalogName(b.name));
-  const cmpDate = (a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0);
+  const cmpDate = (a, b) => catalogSortTime(b) - catalogSortTime(a);
   const cmpPrice = (a, b) => (a.price ?? Infinity) - (b.price ?? Infinity);
   switch (mode) {
     case 'oldest':     arr.sort((a, b) => -cmpDate(a, b)); break;
