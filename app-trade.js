@@ -92,6 +92,11 @@ function updateTradeBadge() {
     if (n > 0) { b2.textContent = n; b2.classList.remove('hidden'); }
     else       { b2.classList.add('hidden'); }
   }
+  const b3 = document.getElementById('bn-trade-badge');
+  if (b3) {
+    if (n > 0) { b3.textContent = n; b3.classList.remove('hidden'); }
+    else       { b3.classList.add('hidden'); }
+  }
 }
 
 function tradeIsExpired(t) {

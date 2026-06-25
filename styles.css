@@ -3467,12 +3467,70 @@ body.rails-on .rail-right.rail-right--active { display: block; }
   body.rails-on .rail-stirrings { display: none; }
 }
 
-/* Narrow: rails off entirely — restore the classic centered column + top tabs. */
+/* Narrow: rails off entirely — restore the classic centered column. The top tab
+   strip is replaced by the fixed bottom nav (below), so we DON'T re-show .tabs
+   here the way the original rails fallback did. */
 @media (max-width: 860px) {
   body.rails-on .app-shell { display: contents; }
   body.rails-on main { max-width: 1080px; margin: 0 auto; padding: 22px 22px 32px; }
   body.rails-on .rail { display: none !important; }
-  body.rails-on .tabs { display: flex; }
+}
+
+/* ─── Mobile bottom navigation ───────────────────────────────
+   On phones the primary nav lives in a fixed bottom icon bar instead of the top
+   tab strip — thumb-reachable, native-app feel. The markup sits inside
+   .app-shell so its [data-tab] clicks reuse the rails' delegated handler. */
+.bottom-nav { display: none; }
+@media (max-width: 860px) {
+  /* Top tabs give way to the bottom bar (override both the plain and the
+     rails-on fallback rule above). */
+  .tabs, body.rails-on .tabs { display: none; }
+
+  .bottom-nav {
+    display: flex;
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 30;
+    background: linear-gradient(0deg, var(--header-bg-1), var(--header-bg-2));
+    backdrop-filter: blur(10px);
+    border-top: 1px solid var(--header-border);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .bottom-tab {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    position: relative;
+    background: none;
+    border: none;
+    padding: 8px 4px 7px;
+    color: var(--muted-1);
+    font-family: inherit;
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+  .bottom-tab .bn-ico { font-size: 1.35rem; line-height: 1; }
+  .bottom-tab.active { color: var(--rose-1); }
+  /* Trade count rides the top-right of the icon as a small pill. */
+  .bottom-tab .tab-badge {
+    position: absolute;
+    top: 2px;
+    left: calc(50% + 6px);
+    margin: 0;
+    min-width: 16px;
+    line-height: 16px;
+    font-size: 0.62rem;
+  }
+
+  /* Lift page content so the fixed bar never hides the last row. */
+  main,
+  body.rails-on main { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
 }
 
 /* ─── Admin ────────────────────────────── */
