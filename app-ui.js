@@ -544,37 +544,57 @@ async function maybeFireFriendNotifications() {
   await fireLocalNotification('🦇 The Plush Crypt', body, 'friend-request');
 }
 
+let _reminderInFlight = false;
 async function maybeFireReminder() {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (!(await idb.getMeta('notify_enabled'))) return;
-
-  const oos = state.wishlist.filter((w) => w.outOfStock);
-  if (oos.length === 0) return;
-
-  const last = (await idb.getMeta('last_reminder')) || 0;
-  const dayMs = 24 * 60 * 60 * 1000;
-  if (Date.now() - last < dayMs) return;
-
-  const title = '🦇 The Plush Crypt';
-  const body = oos.length === 1
-    ? `Check on restock: ${oos[0].name}`
-    : `${oos.length} out-of-stock wishlist items waiting…`;
-
+  // scheduleReminderCheck() runs on boot, after edits, and on toggle, so two
+  // calls can overlap. This synchronous guard lets only one through at a time
+  // so concurrent calls can't each fire the same reminder.
+  if (_reminderInFlight) return;
+  _reminderInFlight = true;
   try {
-    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-      const reg = await navigator.serviceWorker.ready;
-      reg.showNotification(title, {
-        body,
-        icon: 'icon-192.png',
-        badge: 'icon-192.png',
-        tag: 'restock-reminder',
-      });
-    } else {
-      new Notification(title, { body, icon: 'icon-192.png' });
-    }
+    // Out-of-stock wishlist items, minus retired ones — a retired plush is
+    // gone for good and will never restock, so "check on restock" is just
+    // noise. The wishlist row's own `retired` is always false (see data.js),
+    // so read retirement from the live catalog item, exactly like the card
+    // badges do (app-collection.js).
+    const oos = state.wishlist.filter((w) => {
+      if (!w.outOfStock) return false;
+      const liveCat = w.catalogId ? catalogForItem(w) : null;
+      return !(w.retired || (liveCat && liveCat.retired));
+    });
+    if (oos.length === 0) return;
+
+    const last = (await idb.getMeta('last_reminder')) || 0;
+    const dayMs = 24 * 60 * 60 * 1000;
+    if (Date.now() - last < dayMs) return;
+    // Claim the daily slot before showing, so the throttle is committed even
+    // if a second call slips past the in-flight guard between awaits.
     await idb.setMeta('last_reminder', Date.now());
-  } catch (e) {
-    console.warn('Notification failed', e);
+
+    const title = '🦇 The Plush Crypt';
+    const body = oos.length === 1
+      ? `Check on restock: ${oos[0].name}`
+      : `${oos.length} out-of-stock wishlist items waiting…`;
+
+    try {
+      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+        const reg = await navigator.serviceWorker.ready;
+        reg.showNotification(title, {
+          body,
+          icon: 'icon-192.png',
+          badge: 'icon-192.png',
+          tag: 'restock-reminder',
+        });
+      } else {
+        new Notification(title, { body, icon: 'icon-192.png' });
+      }
+    } catch (e) {
+      console.warn('Notification failed', e);
+    }
+  } finally {
+    _reminderInFlight = false;
   }
 }
 
