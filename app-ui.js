@@ -365,6 +365,10 @@ async function scheduleReminderCheck() {
 async function maybeFireTradeNotifications() {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (!(await idb.getMeta('notify_enabled'))) return;
+  // Real push already covers every trade transition (offer/counter/accept/
+  // decline/ship). If this device is subscribed, stay quiet so we don't double
+  // up with an OS banner. Local stays as the fallback where push isn't set up.
+  if (await pushActive()) return;
   if (!Array.isArray(state.trades) || state.trades.length === 0) return;
 
   const seen = (await idb.getMeta('notified_trade_events')) || {};
@@ -451,6 +455,21 @@ function pushSupported() {
     !!window.VAPID_PUBLIC_KEY;
 }
 
+// True when THIS device has a live push subscription, i.e. the backend will
+// deliver friend/trade/social events as real push (reaching the app even when
+// closed). The local fire-while-open helpers use this to step aside so you get
+// exactly ONE notification per event: push when subscribed, local only as a
+// fallback for browsers where push isn't available.
+async function pushActive() {
+  if (!pushSupported() || Notification.permission !== 'granted') return false;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    return !!(await reg.pushManager.getSubscription());
+  } catch (_) {
+    return false;
+  }
+}
+
 // Ensure this device has a push subscription stored server-side. Idempotent:
 // reuses any existing browser subscription, upserts the row keyed on
 // (user, endpoint). Returns true if a subscription is registered.
@@ -529,6 +548,9 @@ window.sendSelfTestPush = sendSelfTestPush;
 async function maybeFireFriendNotifications() {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (!(await idb.getMeta('notify_enabled'))) return;
+  // Friend requests already arrive as real push; skip the local copy when this
+  // device is subscribed so you don't get two. Local remains the fallback.
+  if (await pushActive()) return;
 
   const reqs = state.socRequests || [];
   const prev = await idb.getMeta('notified_friend_reqs');   // null on first run
@@ -989,8 +1011,35 @@ function activeQueryKey() {
   return null;
 }
 
+// Switch to a top-level tab by name (home/catalog/crypt/trade). Clicks the
+// header tab so it reuses that tab's full enter logic. Returns false if the
+// tab isn't present (e.g. signed-out shell).
+function goToTab(tab) {
+  const top = document.querySelector(`header .tabs .tab[data-tab="${tab}"]`);
+  if (top) { top.click(); return true; }
+  return false;
+}
+
+// When the app is launched from a tapped notification it carries the target
+// tab in the hash (./#trade). Land there, then strip the hash so a later
+// manual refresh doesn't keep forcing that tab.
+function handleNotificationHash() {
+  const tab = (location.hash || '').replace(/^#/, '');
+  if (!tab) return;
+  if (goToTab(tab)) {
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+}
+
 // ─── Event wiring ────────────────────────────────────────────────────
 function wireEvents() {
+  // A notification tapped while the app is already open posts us the tab to
+  // show (the SW can't navigate an existing client itself).
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (e) => {
+      if (e.data && e.data.type === 'notification-nav' && e.data.tab) goToTab(e.data.tab);
+    });
+  }
   // Rails navigation is delegated: rail buttons (nav, identity card, vitals
   // thumbnails) carry data-tab but aren't bound by the .tab loop below (some are
   // rendered dynamically). Route them through the matching header tab so they

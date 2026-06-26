@@ -1373,6 +1373,9 @@ async function boot() {
     if (state.tab === 'catalog') render();
     refreshCatalogLive();
   });
+  // If we were opened by tapping a notification (./#trade etc.), land on that
+  // tab — after loadFilters/render have restored the previous tab, so this wins.
+  handleNotificationHash();
 }
 
 // Legal modal works on the pre-sign-in auth overlay too, so wire it up
