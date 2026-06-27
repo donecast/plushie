@@ -1,5 +1,5 @@
 // Plushie Dreadfuls service worker — offline app shell.
-const CACHE = 'plushie-dreadful-v157';
+const CACHE = 'plushie-dreadful-v158';
 // Only precache the root + static assets that don't carry cache-buster query
 // strings. Versioned files (app.js?v=N, styles.css?v=N, catalog.json?v=N)
 // get fetched and cached on demand by the fetch handler — listing them here
@@ -80,14 +80,34 @@ self.addEventListener('push', (e) => {
   e.waitUntil(self.registration.showNotification(title, opts));
 });
 
+// Map a notification's tag to the app tab it should open. Tags are set by the
+// push triggers / local helpers (e.g. 'trade-<id>', 'friend-request',
+// 'like-<id>'); we only need the prefix to pick a destination. null = root.
+function tabForTag(tag) {
+  if (!tag) return null;
+  if (tag.startsWith('trade-') || tag === 'trade-action') return 'trade';
+  if (tag === 'friend-request' || tag === 'friend-accept' ||
+      tag === 'coffin-buddy' ||
+      tag.startsWith('post-') || tag.startsWith('like-') || tag.startsWith('comment-')) {
+    return 'home';
+  }
+  return null;
+}
+
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
-  const target = (e.notification.data && e.notification.data.url) || './';
+  const tab = tabForTag(e.notification.tag);
+  const target = tab ? `./#${tab}` : ((e.notification.data && e.notification.data.url) || './');
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((cs) => {
       for (const c of cs) {
-        if ('focus' in c) return c.focus();
+        if ('focus' in c) {
+          // App is already open — tell it which tab to show, then focus it.
+          if (tab) c.postMessage({ type: 'notification-nav', tab });
+          return c.focus();
+        }
       }
+      // Nothing open — launch with the tab in the hash so boot lands there.
       if (self.clients.openWindow) return self.clients.openWindow(target);
     })
   );

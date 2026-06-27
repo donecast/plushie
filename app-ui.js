@@ -365,6 +365,10 @@ async function scheduleReminderCheck() {
 async function maybeFireTradeNotifications() {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (!(await idb.getMeta('notify_enabled'))) return;
+  // Real push already covers every trade transition (offer/counter/accept/
+  // decline/ship). If this device is subscribed, stay quiet so we don't double
+  // up with an OS banner. Local stays as the fallback where push isn't set up.
+  if (await pushActive()) return;
   if (!Array.isArray(state.trades) || state.trades.length === 0) return;
 
   const seen = (await idb.getMeta('notified_trade_events')) || {};
@@ -451,6 +455,21 @@ function pushSupported() {
     !!window.VAPID_PUBLIC_KEY;
 }
 
+// True when THIS device has a live push subscription, i.e. the backend will
+// deliver friend/trade/social events as real push (reaching the app even when
+// closed). The local fire-while-open helpers use this to step aside so you get
+// exactly ONE notification per event: push when subscribed, local only as a
+// fallback for browsers where push isn't available.
+async function pushActive() {
+  if (!pushSupported() || Notification.permission !== 'granted') return false;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    return !!(await reg.pushManager.getSubscription());
+  } catch (_) {
+    return false;
+  }
+}
+
 // Ensure this device has a push subscription stored server-side. Idempotent:
 // reuses any existing browser subscription, upserts the row keyed on
 // (user, endpoint). Returns true if a subscription is registered.
@@ -529,6 +548,9 @@ window.sendSelfTestPush = sendSelfTestPush;
 async function maybeFireFriendNotifications() {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (!(await idb.getMeta('notify_enabled'))) return;
+  // Friend requests already arrive as real push; skip the local copy when this
+  // device is subscribed so you don't get two. Local remains the fallback.
+  if (await pushActive()) return;
 
   const reqs = state.socRequests || [];
   const prev = await idb.getMeta('notified_friend_reqs');   // null on first run
@@ -544,37 +566,57 @@ async function maybeFireFriendNotifications() {
   await fireLocalNotification('🦇 The Plush Crypt', body, 'friend-request');
 }
 
+let _reminderInFlight = false;
 async function maybeFireReminder() {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (!(await idb.getMeta('notify_enabled'))) return;
-
-  const oos = state.wishlist.filter((w) => w.outOfStock);
-  if (oos.length === 0) return;
-
-  const last = (await idb.getMeta('last_reminder')) || 0;
-  const dayMs = 24 * 60 * 60 * 1000;
-  if (Date.now() - last < dayMs) return;
-
-  const title = '🦇 The Plush Crypt';
-  const body = oos.length === 1
-    ? `Check on restock: ${oos[0].name}`
-    : `${oos.length} out-of-stock wishlist items waiting…`;
-
+  // scheduleReminderCheck() runs on boot, after edits, and on toggle, so two
+  // calls can overlap. This synchronous guard lets only one through at a time
+  // so concurrent calls can't each fire the same reminder.
+  if (_reminderInFlight) return;
+  _reminderInFlight = true;
   try {
-    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-      const reg = await navigator.serviceWorker.ready;
-      reg.showNotification(title, {
-        body,
-        icon: 'icon-192.png',
-        badge: 'icon-192.png',
-        tag: 'restock-reminder',
-      });
-    } else {
-      new Notification(title, { body, icon: 'icon-192.png' });
-    }
+    // Out-of-stock wishlist items, minus retired ones — a retired plush is
+    // gone for good and will never restock, so "check on restock" is just
+    // noise. The wishlist row's own `retired` is always false (see data.js),
+    // so read retirement from the live catalog item, exactly like the card
+    // badges do (app-collection.js).
+    const oos = state.wishlist.filter((w) => {
+      if (!w.outOfStock) return false;
+      const liveCat = w.catalogId ? catalogForItem(w) : null;
+      return !(w.retired || (liveCat && liveCat.retired));
+    });
+    if (oos.length === 0) return;
+
+    const last = (await idb.getMeta('last_reminder')) || 0;
+    const dayMs = 24 * 60 * 60 * 1000;
+    if (Date.now() - last < dayMs) return;
+    // Claim the daily slot before showing, so the throttle is committed even
+    // if a second call slips past the in-flight guard between awaits.
     await idb.setMeta('last_reminder', Date.now());
-  } catch (e) {
-    console.warn('Notification failed', e);
+
+    const title = '🦇 The Plush Crypt';
+    const body = oos.length === 1
+      ? `Check on restock: ${oos[0].name}`
+      : `${oos.length} out-of-stock wishlist items waiting…`;
+
+    try {
+      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+        const reg = await navigator.serviceWorker.ready;
+        reg.showNotification(title, {
+          body,
+          icon: 'icon-192.png',
+          badge: 'icon-192.png',
+          tag: 'restock-reminder',
+        });
+      } else {
+        new Notification(title, { body, icon: 'icon-192.png' });
+      }
+    } catch (e) {
+      console.warn('Notification failed', e);
+    }
+  } finally {
+    _reminderInFlight = false;
   }
 }
 
@@ -969,8 +1011,35 @@ function activeQueryKey() {
   return null;
 }
 
+// Switch to a top-level tab by name (home/catalog/crypt/trade). Clicks the
+// header tab so it reuses that tab's full enter logic. Returns false if the
+// tab isn't present (e.g. signed-out shell).
+function goToTab(tab) {
+  const top = document.querySelector(`header .tabs .tab[data-tab="${tab}"]`);
+  if (top) { top.click(); return true; }
+  return false;
+}
+
+// When the app is launched from a tapped notification it carries the target
+// tab in the hash (./#trade). Land there, then strip the hash so a later
+// manual refresh doesn't keep forcing that tab.
+function handleNotificationHash() {
+  const tab = (location.hash || '').replace(/^#/, '');
+  if (!tab) return;
+  if (goToTab(tab)) {
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+}
+
 // ─── Event wiring ────────────────────────────────────────────────────
 function wireEvents() {
+  // A notification tapped while the app is already open posts us the tab to
+  // show (the SW can't navigate an existing client itself).
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (e) => {
+      if (e.data && e.data.type === 'notification-nav' && e.data.tab) goToTab(e.data.tab);
+    });
+  }
   // Rails navigation is delegated: rail buttons (nav, identity card, vitals
   // thumbnails) carry data-tab but aren't bound by the .tab loop below (some are
   // rendered dynamically). Route them through the matching header tab so they
