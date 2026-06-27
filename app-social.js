@@ -559,7 +559,7 @@ function closeSocialModal() {
 }
 
 function openComposer() {
-  state.socComposeVis = state.socComposeVis || 'friends';
+  state.socComposeVis = state.socComposeVis || 'public';
   state.socComposePhoto = null;
   const visOptions = Object.entries(VIS_META).map(([k, m]) =>
     `<option value="${k}" ${state.socComposeVis === k ? 'selected' : ''}>${m.glyph} ${m.label} — ${m.hint}</option>`).join('');
