@@ -4116,12 +4116,30 @@ body.maint-locked { overflow: hidden; }
 .soc-like:hover, .soc-comment-btn:hover { color: var(--ink); }
 .soc-like.liked { color: var(--danger); }
 
-/* Comments */
-.soc-comments { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
-.soc-comment { font-size: 0.9rem; line-height: 1.45; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; word-break: break-word; }
-.soc-comment-main { display: flex; gap: 6px; align-items: baseline; min-width: 0; flex-wrap: wrap; }
-.soc-comment .soc-userlink b { color: var(--ink); }
-.soc-comment-del { margin-left: auto; }
+/* Comments — Facebook-style: avatar + rounded bubble + action row */
+.soc-comments { margin-top: 8px; display: flex; flex-direction: column; gap: 12px; }
+.soc-comment {
+  display: flex; gap: 8px; align-items: flex-start;
+  font-size: 0.9rem; line-height: 1.4; overflow-wrap: anywhere; word-break: break-word;
+}
+.soc-comment-avatar { flex: none; padding: 0; margin-top: 1px; }
+.soc-comment-avatar .soc-avatar { width: 32px; height: 32px; font-size: 0.8rem; }
+.soc-comment-reply .soc-comment-avatar .soc-avatar { width: 28px; height: 28px; }
+.soc-comment-col { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+
+/* The grey bubble hugs its content; the reaction pill perches on its corner. */
+.soc-comment-bubble-wrap { position: relative; align-self: flex-start; max-width: 100%; }
+.soc-comment-bubble {
+  display: inline-block; max-width: 100%;
+  background: var(--surface-2); border: 1px solid var(--hairline);
+  border-radius: 16px; padding: 7px 12px;
+}
+.soc-comment-author { display: inline; vertical-align: baseline; }
+.soc-comment-author b { color: var(--ink); font-weight: 800; font-size: 0.86rem; }
+.soc-comment-text { white-space: pre-wrap; }
+/* Pill overhangs the bubble bottom — reserve a little space below it. */
+.soc-comment-bubble-wrap:has(.soc-react-summary) { margin-bottom: 9px; }
+
 .soc-more-comments { align-self: flex-start; font-size: 0.82rem; }
 .soc-comment-form { display: flex; gap: 8px; margin-top: 6px; }
 .soc-comment-input {
@@ -4129,25 +4147,53 @@ body.maint-locked { overflow: hidden; }
   border: 1px solid var(--border-rose-faint); background: var(--surface-2); font: inherit; color: var(--ink);
 }
 
-/* Comment reactions, replies & mentions (item 5) */
-.soc-comment-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-left: 2px; }
-.soc-react-btn, .soc-reply-btn { font-size: 0.76rem; }
+/* Reaction summary pill — tucked into the bubble's bottom-right corner. */
+.soc-react-summary {
+  position: absolute; right: 6px; bottom: -11px; z-index: 1;
+  display: inline-flex; align-items: center; gap: 3px;
+  background: var(--surface); border: 1px solid var(--hairline-3);
+  border-radius: 999px; padding: 1px 6px 1px 5px; cursor: pointer;
+  font-size: 0.72rem; color: var(--ink-mute); box-shadow: var(--shadow-card); line-height: 1.5;
+}
+.soc-react-summary:hover { background: var(--surface-2); }
+.soc-react-summary-emoji { font-size: 0.8rem; letter-spacing: -2px; }
+.soc-react-summary-count { font-weight: 700; }
+
+/* Action row: Like · Reply · time, plus hover-quiet edit/delete/flag controls. */
+.soc-comment-actions {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding-left: 12px; margin-top: 1px;
+}
+.soc-act-like, .soc-act-reply { font-size: 0.76rem; font-weight: 700; color: var(--ink-mute); text-decoration: none; }
+.soc-act-like:hover, .soc-act-reply:hover { color: var(--ink); text-decoration: underline; }
+.soc-act-like.reacted { color: var(--rose-1); }
+.soc-act-time { font-size: 0.74rem; color: var(--ink-mute); }
+.soc-comment-controls { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; }
+/* These reuse the legacy icon styles, but inside the cluster they shouldn't
+   self-align — the cluster as a whole is what hugs the right edge. */
+.soc-comment-controls .soc-comment-edit,
+.soc-comment-controls .soc-comment-del,
+.soc-comment-controls .soc-comment-flag { margin-left: 0; }
+
+/* Reaction picker — pops above the Like link; hover-reveal on desktop. */
 .soc-react-wrap { position: relative; display: inline-flex; }
 .soc-react-palette {
-  position: absolute; bottom: 100%; left: 0; margin-bottom: 4px; z-index: 5;
-  display: flex; gap: 2px; padding: 4px 6px;
+  display: none;
+  position: absolute; bottom: 100%; left: 0; margin-bottom: 8px; z-index: 6;
+  gap: 5px; padding: 6px 10px;
   background: var(--surface); border: 1px solid var(--hairline-3);
   border-radius: 999px; box-shadow: var(--shadow-card-lift);
 }
-.soc-react-opt { border: none; background: none; cursor: pointer; font-size: 1.1rem; line-height: 1; padding: 2px; border-radius: 50%; }
-.soc-react-opt:hover { transform: scale(1.25); }
-.soc-react-chips { display: inline-flex; gap: 4px; flex-wrap: wrap; }
-.soc-react-chip {
-  border: 1px solid var(--hairline-3); background: var(--surface-2);
-  border-radius: 999px; padding: 1px 8px; font-size: 0.76rem; cursor: pointer; color: var(--ink);
+.soc-react-palette.open { display: flex; }
+@media (hover: hover) { .soc-react-wrap:hover .soc-react-palette { display: flex; } }
+.soc-react-opt {
+  border: none; background: none; cursor: pointer; font-size: 1.5rem; line-height: 1;
+  padding: 2px; border-radius: 50%; transition: transform 0.12s ease;
 }
-.soc-react-chip.mine { border-color: var(--rose-1); background: var(--blush); color: var(--rose-2); font-weight: 700; }
-.soc-comment-replies { padding-left: 16px; border-left: 2px solid var(--hairline); margin-top: 4px; display: flex; flex-direction: column; gap: 8px; }
+.soc-react-opt:hover { transform: scale(1.35) translateY(-2px); }
+.soc-react-opt.chosen { transform: scale(1.15); filter: drop-shadow(0 0 3px var(--rose-1)); }
+
+.soc-comment-replies { padding-left: 14px; border-left: 2px solid var(--hairline); margin-top: 8px; display: flex; flex-direction: column; gap: 12px; }
 .soc-reply-form { margin-top: 4px; }
 .soc-mention {
   border: none; background: none; padding: 0; cursor: pointer;

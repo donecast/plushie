@@ -177,8 +177,19 @@ function renderFeed() {
   el.innerHTML = composer + `<div class="soc-feed-list">${posts}</div>`;
 }
 
-// Quick-reaction palette for comments (item 5).
-const SOC_REACTIONS = ['🖤', '😂', '😮', '😢', '😡', '👏'];
+// Facebook-style reaction set for comments — emoji + the name we show on the
+// Like link once chosen (item 5). Reactions are mutually exclusive per user
+// (picking a new one replaces the old), exactly like Facebook.
+const SOC_REACTIONS = [
+  { emoji: '👍', label: 'Like' },
+  { emoji: '🖤', label: 'Love' },
+  { emoji: '😂', label: 'Haha' },
+  { emoji: '😮', label: 'Wow' },
+  { emoji: '😢', label: 'Sad' },
+  { emoji: '😡', label: 'Angry' },
+];
+const SOC_REACTION_DEFAULT = '👍';
+const SOC_REACTION_LABEL = Object.fromEntries(SOC_REACTIONS.map((r) => [r.emoji, r.label]));
 
 // Escape text, then linkify @username mentions into tappable chips (item 5).
 function linkifyMentions(text) {
@@ -187,44 +198,76 @@ function linkifyMentions(text) {
 }
 
 // One comment (and its nested replies). depth caps the visual indent.
+// Facebook-style: avatar + a rounded "bubble" holding the name and text, with a
+// reaction-summary pill tucked into the bubble's corner and a Like · Reply ·
+// time action row underneath. Hovering/tapping Like reveals the reaction picker.
 function renderComment(c, postId, depth = 0) {
-  const reactChips = (c.reactions || []).map((r) =>
-    `<button class="soc-react-chip ${r.mine ? 'mine' : ''}" data-soc-action="react-comment" data-comment-id="${c.id}" data-emoji="${r.emoji}">${r.emoji} ${r.count}</button>`).join('');
-  const palette = SOC_REACTIONS.map((e) =>
-    `<button class="soc-react-opt" data-soc-action="react-comment" data-comment-id="${c.id}" data-emoji="${e}">${e}</button>`).join('');
   const replying = state.socReplyTo === c.id;
   const editing = state.socEditComment === c.id;
   const replies = (c.replies || []).map((r) => renderComment(r, postId, Math.min(depth + 1, 1))).join('');
-  const bodyHtml = editing
+
+  // My current reaction (mutually exclusive), the total across everyone, and
+  // the distinct emoji to stack on the summary pill (most-used first).
+  const myReact = (c.reactions || []).find((r) => r.mine)?.emoji || null;
+  const totalReacts = (c.reactions || []).reduce((n, r) => n + r.count, 0);
+  const stackEmoji = [...(c.reactions || [])].sort((a, b) => b.count - a.count).slice(0, 3).map((r) => r.emoji);
+
+  const palette = SOC_REACTIONS.map((r) =>
+    `<button class="soc-react-opt ${myReact === r.emoji ? 'chosen' : ''}" data-soc-action="react-comment" data-comment-id="${c.id}" data-emoji="${r.emoji}" title="${r.label}" aria-label="${r.label}">${r.emoji}</button>`).join('');
+
+  const summaryPill = totalReacts ? `
+    <button class="soc-react-summary" data-soc-action="toggle-react-comment" data-comment-id="${c.id}"
+            title="${myReact ? 'Tap to remove your reaction' : 'Tap to react'}">
+      <span class="soc-react-summary-emoji">${stackEmoji.join('')}</span>
+      <span class="soc-react-summary-count">${totalReacts}</span>
+    </button>` : '';
+
+  // The Like trigger shows a thumbs-up when you haven't reacted, or your chosen
+  // reaction emoji once you have (no word — the emoji is the label).
+  const likeEmoji = myReact || '👍';
+  const likeTitle = myReact ? (SOC_REACTION_LABEL[myReact] || 'Reaction') : 'Like';
+
+  // Editing swaps the bubble for an inline form; otherwise show bubble + actions.
+  const bubbleBlock = editing
     ? `<form class="soc-comment-form soc-comment-edit-form" data-soc-action="submit-comment-edit" data-comment-id="${c.id}">
          <input type="text" class="soc-comment-input" maxlength="500" value="${escapeHtml(c.body)}" />
          <button class="btn-primary" type="submit">Save</button>
          <button class="linklike" type="button" data-soc-action="cancel-edit-comment">Cancel</button>
        </form>`
-    : `<span>${linkifyMentions(c.body)}</span>`;
+    : `
+      <div class="soc-comment-bubble-wrap">
+        <div class="soc-comment-bubble">
+          <button class="soc-userlink soc-comment-author" data-soc-action="view-profile" data-uid="${c.authorId}"><b>@${escapeHtml(c.authorName)}</b></button>
+          <div class="soc-comment-text">${linkifyMentions(c.body)}</div>
+        </div>
+        ${summaryPill}
+      </div>
+      <div class="soc-comment-actions">
+        <span class="soc-react-wrap">
+          <button class="linklike soc-act-like ${myReact ? 'reacted' : ''}" data-soc-action="toggle-react-palette" data-comment-id="${c.id}" title="${likeTitle}" aria-label="${likeTitle}">${likeEmoji}</button>
+          <span class="soc-react-palette" data-react-palette="${c.id}">${palette}</span>
+        </span>
+        <button class="linklike soc-act-reply" data-soc-action="reply-comment" data-comment-id="${c.id}" data-post-id="${postId}">Reply</button>
+        <span class="soc-act-time" title="${escapeHtml(new Date(c.createdAt).toLocaleString())}">${escapeHtml(socTimeAgo(c.createdAt))}</span>
+        <span class="soc-comment-controls">
+          ${c.mine ? `<button class="soc-comment-edit" data-soc-action="edit-comment" data-comment-id="${c.id}" title="Edit">✎</button>` : ''}
+          ${c.canDelete ? `<button class="soc-comment-del" data-soc-action="delete-comment" data-comment-id="${c.id}" title="Delete">×</button>` : ''}
+          ${!c.mine ? `<button class="soc-comment-flag" data-soc-action="report-comment" data-comment-id="${c.id}" data-owner="${c.authorId}" data-name="${escapeHtml(c.authorName)}" title="Report this comment">🚩</button>` : ''}
+        </span>
+      </div>`;
+
   return `
     <div class="soc-comment ${depth ? 'soc-comment-reply' : ''}">
-      <div class="soc-comment-main">
-        <button class="soc-userlink" data-soc-action="view-profile" data-uid="${c.authorId}"><b>@${escapeHtml(c.authorName)}</b></button>
-        ${bodyHtml}
-        ${(c.mine && !editing) ? `<button class="soc-comment-edit" data-soc-action="edit-comment" data-comment-id="${c.id}" title="Edit">✎</button>` : ''}
-        ${(c.canDelete && !editing) ? `<button class="soc-comment-del" data-soc-action="delete-comment" data-comment-id="${c.id}" title="Delete">×</button>` : ''}
-        ${(!c.mine && !editing) ? `<button class="soc-comment-flag" data-soc-action="report-comment" data-comment-id="${c.id}" data-owner="${c.authorId}" data-name="${escapeHtml(c.authorName)}" title="Report this comment">🚩</button>` : ''}
+      <button class="soc-userlink soc-comment-avatar" data-soc-action="view-profile" data-uid="${c.authorId}" tabindex="-1" aria-label="@${escapeHtml(c.authorName)}">${socAvatar(c.authorAvatar, c.authorName)}</button>
+      <div class="soc-comment-col">
+        ${bubbleBlock}
+        ${replying ? `
+          <form class="soc-comment-form soc-reply-form" data-soc-action="submit-comment" data-post-id="${postId}" data-parent-id="${c.id}">
+            <input type="text" class="soc-comment-input" maxlength="500" placeholder="Reply to @${escapeHtml(c.authorName)}…" />
+            <button class="btn-primary" type="submit">Reply</button>
+          </form>` : ''}
+        ${replies ? `<div class="soc-comment-replies">${replies}</div>` : ''}
       </div>
-      <div class="soc-comment-tools">
-        <span class="soc-react-wrap">
-          <button class="linklike soc-react-btn" data-soc-action="toggle-react-palette" data-comment-id="${c.id}">React</button>
-          <span class="soc-react-palette hidden" data-react-palette="${c.id}">${palette}</span>
-        </span>
-        <button class="linklike soc-reply-btn" data-soc-action="reply-comment" data-comment-id="${c.id}" data-post-id="${postId}">Reply</button>
-        ${reactChips ? `<span class="soc-react-chips">${reactChips}</span>` : ''}
-      </div>
-      ${replying ? `
-        <form class="soc-comment-form soc-reply-form" data-soc-action="submit-comment" data-post-id="${postId}" data-parent-id="${c.id}">
-          <input type="text" class="soc-comment-input" maxlength="500" placeholder="Reply to @${escapeHtml(c.authorName)}…" />
-          <button class="btn-primary" type="submit">Reply</button>
-        </form>` : ''}
-      ${replies ? `<div class="soc-comment-replies">${replies}</div>` : ''}
     </div>`;
 }
 
@@ -1039,6 +1082,10 @@ function onSocialModalClick(e) {
 }
 
 async function onSocialClick(e) {
+  // Tapping anywhere outside an open reaction picker dismisses it (Facebook-style).
+  if (!e.target.closest('.soc-react-wrap')) {
+    document.querySelectorAll('.soc-react-palette.open').forEach((p) => p.classList.remove('open'));
+  }
   const target = e.target.closest('[data-soc-action]');
   if (!target) return;
   const a = target.dataset.socAction;
@@ -1069,9 +1116,12 @@ async function onSocialClick(e) {
       rerenderSocialCurrent();
       break;
     case 'react-comment': await onReactComment(target.dataset.commentId, target.dataset.emoji); break;
+    case 'toggle-react-comment': await onToggleCommentReaction(target.dataset.commentId); break;
     case 'toggle-react-palette': {
       const pal = document.querySelector(`[data-react-palette="${target.dataset.commentId}"]`);
-      if (pal) pal.classList.toggle('hidden');
+      // Only one picker open at a time.
+      document.querySelectorAll('.soc-react-palette.open').forEach((p) => { if (p !== pal) p.classList.remove('open'); });
+      if (pal) pal.classList.toggle('open');
       break;
     }
     case 'reply-comment': {
@@ -1251,23 +1301,54 @@ async function submitCommentEdit(form) {
   } catch (e) { console.error('edit comment', e); toast('Could not save your edit.'); }
 }
 
-// Toggle one of my emoji reactions on a comment, then refresh.
-async function onReactComment(commentId, emoji) {
+// Find the comment object behind a chip/picker, wherever it's rendered.
+function findCommentEverywhere(commentId) {
   const post = state.socFeed.find((p) => (p.comments || []).some((c) => commentHasId(c, commentId)))
     || (state.socProfile?.posts || []).find((p) => (p.comments || []).some((c) => commentHasId(c, commentId)));
-  const c = post && findCommentById(post.comments, commentId);
-  const mine = c && (c.reactions || []).some((r) => r.emoji === emoji && r.mine);
+  return post ? findCommentById(post.comments, commentId) : null;
+}
+
+// Pick a specific reaction from the picker. Reactions are mutually exclusive
+// per user (Facebook-style): tapping the one you already have removes it;
+// tapping a different one swaps your old reaction for the new one.
+async function onReactComment(commentId, emoji) {
+  const c = findCommentEverywhere(commentId);
+  const mineEmoji = c && (c.reactions || []).find((r) => r.mine)?.emoji;
   try {
-    await data.toggleCommentReaction(commentId, emoji, !mine);
-    await loadSocialData();
-    if (state.socProfile) await openProfile(state.socProfile.profile.id);
-    else rerenderSocialCurrent();
-  } catch (e) {
-    console.error('react', e);
-    toast(/comment_reactions/i.test(e?.message || '')
-      ? 'Run the latest migration (db/0032_comment_social.sql).'
-      : 'Could not react.');
-  }
+    if (mineEmoji === emoji) {
+      await data.toggleCommentReaction(commentId, emoji, false);
+    } else {
+      if (mineEmoji) await data.toggleCommentReaction(commentId, mineEmoji, false);
+      await data.toggleCommentReaction(commentId, emoji, true);
+    }
+    await refreshAfterReaction();
+  } catch (e) { reactionError(e); }
+}
+
+// Tapping the reaction-summary pill (or the Like link once you've reacted):
+// remove my reaction if I have one, otherwise add the default 🖤 Like. This is
+// the "increment by tapping / remove by one if already liked" behaviour.
+async function onToggleCommentReaction(commentId) {
+  const c = findCommentEverywhere(commentId);
+  const mineEmoji = c && (c.reactions || []).find((r) => r.mine)?.emoji;
+  try {
+    if (mineEmoji) await data.toggleCommentReaction(commentId, mineEmoji, false);
+    else await data.toggleCommentReaction(commentId, SOC_REACTION_DEFAULT, true);
+    await refreshAfterReaction();
+  } catch (e) { reactionError(e); }
+}
+
+async function refreshAfterReaction() {
+  await loadSocialData();
+  if (state.socProfile) await openProfile(state.socProfile.profile.id);
+  else rerenderSocialCurrent();
+}
+
+function reactionError(e) {
+  console.error('react', e);
+  toast(/comment_reactions/i.test(e?.message || '')
+    ? 'Run the latest migration (db/0032_comment_social.sql).'
+    : 'Could not react.');
 }
 
 function commentHasId(c, id) { return findCommentById([c], id) != null; }

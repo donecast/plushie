@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=117" />
+  <link rel="stylesheet" href="./styles.css?v=118" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -993,6 +993,9 @@
         <div class="changelog">
           <div class="changelog-day">
             <h3 class="changelog-date">June 28, 2026</h3>
+            <ul>
+              <li><strong>Comments &amp; reactions got a Facebook-style makeover.</strong> Comments now sit in rounded chat bubbles with the author's avatar, and each one has a <strong>👍 · Reply · time</strong> row underneath. Hover or tap the <strong>👍</strong> to pick a reaction (👍 🖤 😂 😮 😢 😡), and your reactions are one-per-person now — picking a new one swaps the old. Tap the little reaction count on a comment to add your reaction, or tap again to take it back.</li>
+            </ul>
             <p class="changelog-fixes">Fixed <strong>restock reminders</strong> still nagging about <strong>retired</strong> plushies right after opening the app — the reminder now waits for the catalog to load before deciding what's truly out of stock.</p>
           </div>
 
@@ -1527,18 +1530,18 @@
   <script src="./config.js?v=53"></script>
   <script src="./auth.js?v=59"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=75"></script>
+  <script src="./data.js?v=76"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=128"></script>
-  <script src="./app-catalog.js?v=128"></script>
-  <script src="./app-collection.js?v=128"></script>
-  <script src="./app-ui.js?v=128"></script>
-  <script src="./app-trade.js?v=128"></script>
-  <script src="./app-account.js?v=128"></script>
-  <script src="./app-admin.js?v=128"></script>
-  <script src="./app-admin-catalog.js?v=128"></script>
-  <script src="./app-social.js?v=128"></script>
+  <script src="./app-core.js?v=129"></script>
+  <script src="./app-catalog.js?v=129"></script>
+  <script src="./app-collection.js?v=129"></script>
+  <script src="./app-ui.js?v=129"></script>
+  <script src="./app-trade.js?v=129"></script>
+  <script src="./app-account.js?v=129"></script>
+  <script src="./app-admin.js?v=129"></script>
+  <script src="./app-admin-catalog.js?v=129"></script>
+  <script src="./app-social.js?v=129"></script>
 </body>
 </html>
