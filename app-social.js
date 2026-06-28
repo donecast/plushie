@@ -197,14 +197,31 @@ function linkifyMentions(text) {
     (m, name) => `<button class="soc-mention" data-soc-action="view-mention" data-username="${escapeHtml(name)}">@${escapeHtml(name)}</button>`);
 }
 
-// One comment (and its nested replies). depth caps the visual indent.
-// Facebook-style: avatar + a rounded "bubble" holding the name and text, with a
-// reaction-summary pill tucked into the bubble's corner and a Like · Reply ·
-// time action row underneath. Hovering/tapping Like reveals the reaction picker.
+// Flatten a comment's whole reply subtree into one thread-ordered list, so deep
+// reply chains render at a single indent level instead of nesting forever (which
+// crushed the bubble into an unreadable sliver on phones).
+function flattenReplies(c) {
+  const out = [];
+  const walk = (list) => {
+    for (const r of (list || [])) { out.push(r); walk(r.replies); }
+  };
+  walk(c.replies);
+  return out;
+}
+
+// One comment (and its replies). Facebook-style: avatar + a rounded "bubble"
+// holding the name and text, with a reaction-summary pill tucked into the
+// bubble's corner and a Like · Reply · time action row underneath.
+// Nesting is capped at two tiers — a top-level comment plus ONE replies tier.
+// A reply to a reply still threads in the data, but visually it joins that same
+// tier as its siblings (depth 0 hoists the whole flattened subtree; depth ≥ 1
+// renders no children of its own).
 function renderComment(c, postId, depth = 0) {
   const replying = state.socReplyTo === c.id;
   const editing = state.socEditComment === c.id;
-  const replies = (c.replies || []).map((r) => renderComment(r, postId, Math.min(depth + 1, 1))).join('');
+  const replies = depth === 0
+    ? flattenReplies(c).map((r) => renderComment(r, postId, 1)).join('')
+    : '';
 
   // My current reaction (mutually exclusive), the total across everyone, and
   // the distinct emoji to stack on the summary pill (most-used first).
@@ -275,9 +292,12 @@ function renderPostCard(p) {
   const img = p.photoUrl || catalogImageFor(p.catalogId);
   const expanded = state.socExpandedComments.has(p.id);
   const commentCount = p.commentCount ?? p.comments.length;
-  // Collapsed: show the last 2 top-level threads; expanded: all.
+  // Collapsed: show the last 2 top-level threads; expanded: all. A shown thread
+  // now surfaces its entire (flattened) subtree, so count whole subtrees when
+  // working out how many comments are still hidden behind "View more".
   const shownComments = expanded ? p.comments : p.comments.slice(-2);
-  const moreCount = commentCount - shownComments.reduce((n, c) => n + 1 + (c.replies ? c.replies.length : 0), 0);
+  const subtreeSize = (c) => 1 + (c.replies || []).reduce((n, r) => n + subtreeSize(r), 0);
+  const moreCount = commentCount - shownComments.reduce((n, c) => n + subtreeSize(c), 0);
 
   return `
   <article class="soc-post" data-post-id="${p.id}">

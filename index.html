@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=118" />
+  <link rel="stylesheet" href="./styles.css?v=119" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -1007,8 +1007,9 @@
               <li><strong>Comments &amp; reactions got a Facebook-style makeover.</strong> Comments now sit in rounded chat bubbles with the author's avatar, and each one has a <strong>👍 · Reply · time</strong> row underneath. Hover or tap the <strong>👍</strong> to pick a reaction (👍 🖤 😂 😮 😢 😡), and your reactions are one-per-person now — picking a new one swaps the old. Tap the little reaction count on a comment to add your reaction, or tap again to take it back.</li>
               <li class="changelog-gated"><strong>Admin moderation:</strong> per-user <strong>Block from app</strong> (full ban — removal screen at sign-in) and <strong>Ghost mode</strong> (shadow-ban — they can still use the app but see nothing from anyone else, and no one sees them). Both live in the admin user detail; admins can't be moderated.</li>
               <li><strong>Item lore, retold in our own voice.</strong> The story blurbs on plushies, minis and bundles are now written fresh in the same gothic-cute spirit, and any "set includes" items that were buried in the write-up have been tidied into the <strong>Set includes</strong> checklist where they belong.</li>
+              <li class="changelog-gated"><strong>Community cover photos (pilot).</strong> A handful of catalog items now show a collector's own photo as their main image instead of the stock shot. Under the hood, photos now carry a slot — <strong>lettered</strong> (A, B…) for fan/community shots and <strong>numbered</strong> (0, 1…) for official ones — so an item can hold several pictures and grow into a gallery later. Rolling out gradually.</li>
             </ul>
-            <p class="changelog-fixes">Fixed <strong>restock reminders</strong> still nagging about <strong>retired</strong> plushies right after opening the app — the reminder now waits for the catalog to load before deciding what's truly out of stock.</p>
+            <p class="changelog-fixes">Fixed <strong>deeply-nested replies</strong> getting crushed into an unreadable sliver — reply threads now stop indenting after one level, so a reply-to-a-reply lines up with its siblings instead of marching off the right edge. Also fixed <strong>editing a comment</strong> — the inline edit box now gives the text room and drops <strong>Save</strong>/<strong>Cancel</strong> onto a tidy row beneath, instead of squashing them into an unreadable sliver. Also fixed <strong>restock reminders</strong> still nagging about <strong>retired</strong> plushies right after opening the app — the reminder now waits for the catalog to load before deciding what's truly out of stock.</p>
           </div>
 
           <div class="changelog-day">
@@ -1554,18 +1555,18 @@
   <script src="./config.js?v=53"></script>
   <script src="./auth.js?v=60"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=78"></script>
+  <script src="./data.js?v=79"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=131"></script>
-  <script src="./app-catalog.js?v=131"></script>
-  <script src="./app-collection.js?v=131"></script>
-  <script src="./app-ui.js?v=131"></script>
-  <script src="./app-trade.js?v=131"></script>
-  <script src="./app-account.js?v=131"></script>
-  <script src="./app-admin.js?v=131"></script>
-  <script src="./app-admin-catalog.js?v=131"></script>
-  <script src="./app-social.js?v=131"></script>
+  <script src="./app-core.js?v=134"></script>
+  <script src="./app-catalog.js?v=134"></script>
+  <script src="./app-collection.js?v=134"></script>
+  <script src="./app-ui.js?v=134"></script>
+  <script src="./app-trade.js?v=134"></script>
+  <script src="./app-account.js?v=134"></script>
+  <script src="./app-admin.js?v=134"></script>
+  <script src="./app-admin-catalog.js?v=134"></script>
+  <script src="./app-social.js?v=134"></script>
 </body>
 </html>
