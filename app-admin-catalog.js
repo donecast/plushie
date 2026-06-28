@@ -69,6 +69,7 @@ function openCatalogItemModal(mode = 'admin', editId = null) {
     document.getElementById('ci-release-year').value = row.releaseYear ?? '';
     document.getElementById('ci-tags').value = (row.tags || []).join(', ');
     document.getElementById('ci-lore').value = row.lore || '';
+    document.getElementById('ci-alt-lore').value = row.altLore || '';
     document.getElementById('ci-accessories').value = (row.accessories || [])
       .map((a) => a.name || a).join('\n');
     document.getElementById('ci-notes').value = '';
@@ -180,6 +181,7 @@ async function submitCatalogItemForm(e) {
   const tags = (document.getElementById('ci-tags').value || '')
     .split(',').map((t) => t.trim()).filter(Boolean);
   const lore = document.getElementById('ci-lore').value.trim() || null;
+  const altLore = (document.getElementById('ci-alt-lore')?.value || '').trim() || null;
   const notes = (document.getElementById('ci-notes')?.value || '').trim() || null;
   // Parse one accessory per non-empty line. Each carries a display
   // name + lowercase key — same shape the body_html parser produces
@@ -218,6 +220,7 @@ async function submitCatalogItemForm(e) {
         parent_handle: parentHandle,
         form_label: formLabel,
         lore,
+        alt_lore: altLore,
         tags,
         accessories,
         release_year: releaseYear,
@@ -239,6 +242,7 @@ async function submitCatalogItemForm(e) {
         form_label: formLabel,
         image_path: imagePath,
         lore,
+        alt_lore: altLore,
         tags,
         accessories,
         release_year: releaseYear,
@@ -298,6 +302,8 @@ function openCatalogOverrideModal(cid) {
   const loreHeading = (loreCat === 'plush' || loreCat === 'mini' || loreCat === 'bundle') ? 'Lore' : 'Notes';
   document.getElementById('co-lore-label').textContent = loreHeading;
   document.getElementById('co-lore').value = item.lore || '';
+  document.getElementById('co-alt-lore-label').textContent = `${loreHeading} (retelling)`;
+  document.getElementById('co-alt-lore').value = item.altLore || '';
 
   // Prefill symbolism as plain text — from the plain field if present,
   // otherwise flattened from the parsed HTML block so the admin starts
@@ -398,6 +404,7 @@ async function submitCatalogOverrideForm(e) {
   const errEl = document.getElementById('co-error');
   errEl.classList.add('hidden');
   const lore = document.getElementById('co-lore').value.trim() || null;
+  const altLore = document.getElementById('co-alt-lore').value.trim() || null;
   const symbolism = document.getElementById('co-symbolism').value.trim() || null;
   // Same per-line parse as the custom-item form: canonicalised display
   // name + lowercase key, so the checklist treats overrides identically.
@@ -412,7 +419,7 @@ async function submitCatalogOverrideForm(e) {
   const retSel = document.getElementById('co-retired').value;
   const category = catSel && catSel !== 'auto' ? catSel : null;
   const retired = retSel === 'retired' ? true : retSel === 'active' ? false : null;
-  const patch = { lore, symbolism, accessories, category, retired };
+  const patch = { lore, altLore, symbolism, accessories, category, retired };
   // Cover photo: '' = store default (inherit), otherwise the picked image URL.
   // Only touch the image column when the picker actually loaded — if its live
   // image list was unavailable (offline / CORS) we leave any existing cover
@@ -703,8 +710,11 @@ function catalogDetailBodyHtml(cid, { forRail = false } = {}) {
   // same free-text reads as plain "Notes".
   const loreCat = catalogCategory(item);
   const loreHeading = (loreCat === 'plush' || loreCat === 'mini' || loreCat === 'bundle') ? 'Lore' : 'Notes';
-  const loreHtml = item.lore
-    ? `<section class="cd-section"><h3>${loreHeading}</h3>${item.lore.split(/\n{2,}/).map((p) => `<p>${escapeHtml(p)}</p>`).join('')}</section>`
+  // Prefer our same-style retelling (altLore) over PD's original prose; fall
+  // back to the original when no retelling exists yet.
+  const loreText = item.altLore || item.lore;
+  const loreHtml = loreText
+    ? `<section class="cd-section"><h3>${loreHeading}</h3>${loreText.split(/\n{2,}/).map((p) => `<p>${escapeHtml(p)}</p>`).join('')}</section>`
     : '';
   const symHtml = item.symbolismHtml
     ? `<section class="cd-section"><h3>Symbolism</h3><div class="cd-symbolism">${sanitizeBodyHtml(item.symbolismHtml)}</div></section>`

@@ -1552,6 +1552,7 @@ data.createCatalogItem = async function (record) {
     image_path: record.image_path || null,
     description: record.description || null,
     lore: record.lore || null,
+    alt_lore: record.alt_lore || null,
     symbolism: record.symbolism || null,
     tags: record.tags || [],
     accessories: Array.isArray(record.accessories) ? record.accessories : [],
@@ -1596,7 +1597,7 @@ data.adminUpdateCatalogItem = async function (id, patch) {
 data.listCatalogOverrides = async function () {
   const { data: rows, error } = await sb
     .from('catalog_overrides')
-    .select('handle, lore, symbolism, accessories, image, category, retired');
+    .select('handle, lore, alt_lore, symbolism, accessories, image, category, retired');
   if (error) { console.warn('catalog overrides load skipped', error); return []; }
   return rows || [];
 };
@@ -1607,6 +1608,7 @@ data.listCatalogOverrides = async function () {
 // item reverts cleanly to the live feed.
 data.adminUpsertCatalogOverride = async function (handle, patch) {
   const lore = patch.lore || null;
+  const altLore = patch.altLore || null;
   const symbolism = patch.symbolism || null;
   const accessories = (Array.isArray(patch.accessories) && patch.accessories.length)
     ? patch.accessories : null;
@@ -1623,13 +1625,13 @@ data.adminUpsertCatalogOverride = async function (handle, patch) {
   // Delete the row only when we know the full picture is empty — i.e. the image
   // key was provided (so we're sure there's no cover override to preserve) AND
   // no tag overrides remain.
-  if (lore === null && symbolism === null && accessories === null
+  if (lore === null && altLore === null && symbolism === null && accessories === null
       && category === null && retired === null && hasImage && image === null) {
     const { error } = await sb.from('catalog_overrides').delete().eq('handle', handle);
     if (error) throw error;
     return null;
   }
-  const row = { handle, lore, symbolism, accessories, category, retired, updated_by: window.currentUser.id };
+  const row = { handle, lore, alt_lore: altLore, symbolism, accessories, category, retired, updated_by: window.currentUser.id };
   if (hasImage) row.image = image;
   const { data: saved, error } = await sb
     .from('catalog_overrides')
