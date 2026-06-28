@@ -574,6 +574,12 @@ async function maybeFireReminder() {
   // calls can overlap. This synchronous guard lets only one through at a time
   // so concurrent calls can't each fire the same reminder.
   if (_reminderInFlight) return;
+  // Retirement is read from the live catalog (below), so a check that runs
+  // before the catalog has loaded would miss every cross-reference and nag on
+  // retired items. At boot this fires before loadCatalog() resolves, so bail
+  // until the catalog is in hand — the hourly interval (and the post-catalog
+  // boot call) re-runs it once it's loaded.
+  if (!state.catalog || state.catalog.length === 0) return;
   _reminderInFlight = true;
   try {
     // Out-of-stock wishlist items, minus retired ones — a retired plush is
