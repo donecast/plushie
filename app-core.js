@@ -655,6 +655,10 @@ function applyCatalogOverrides(shopifyProducts, overrides) {
     const ov = byHandle.get(item.handle);
     if (!ov) continue;
     if (ov.lore) item.lore = ov.lore;
+    // Our same-style retelling. Kept separate from `lore` (PD's original,
+    // still live-parsed) so the original is never overwritten; the detail
+    // modal prefers `altLore` for display and falls back to `lore`.
+    if (ov.alt_lore) item.altLore = ov.alt_lore;
     if (ov.symbolism) {
       // Plain-text override wins over the (now stale) parsed HTML block,
       // so the detail modal renders the edited text, not the old images.
@@ -708,6 +712,7 @@ async function mergeCustomCatalog(shopifyProducts) {
         isCustom: true,
         description: c.description || null,
         lore: c.lore || null,
+        altLore: c.alt_lore || null,
         symbolism: c.symbolism || null,
         accessories: [],
         releaseYear: c.release_year ?? null,
@@ -749,6 +754,7 @@ function resolveCatalogItem(item) {
     tags:        (item.tags && item.tags.length) ? item.tags : (parent.tags || []),
     description: item.description ?? parent.description ?? null,
     lore:        item.lore ?? parent.lore ?? null,
+    altLore:     item.altLore ?? parent.altLore ?? null,
     symbolism:   item.symbolism ?? parent.symbolism ?? null,
     // Inherit the HTML-rich symbolism block too — the detail modal
     // prefers it over the plain-text version when present. Without
