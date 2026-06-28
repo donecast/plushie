@@ -1366,12 +1366,17 @@ async function boot() {
   scheduleSocialCheck();  // keep polling for new requests while the app is open
   updateNotifyButton();
   registerSW();
-  if (await idb.getMeta('notify_enabled')) { scheduleReminderCheck(); ensurePushSubscription(); }
+  const notifyEnabled = await idb.getMeta('notify_enabled');
+  if (notifyEnabled) ensurePushSubscription();
   // Catalog: ship the baked copy immediately, then try to refresh from live
   // Shopify in the background. Falls back silently if CORS or network blocks it.
   loadCatalog().then(() => {
     if (state.tab === 'catalog') render();
     refreshCatalogLive();
+    // Restock reminders cross-reference the live catalog for retirement, so
+    // only start checking once it's loaded — otherwise retired wishlist items
+    // would wrongly nag (the catalog isn't in hand yet at boot).
+    if (notifyEnabled) scheduleReminderCheck();
   });
   // If we were opened by tapping a notification (./#trade etc.), land on that
   // tab — after loadFilters/render have restored the previous tab, so this wins.
