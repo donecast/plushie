@@ -4095,8 +4095,15 @@ body.maint-locked { overflow: hidden; }
   font-size: 0.85rem; padding: 2px 4px; border-radius: 6px; margin-left: auto;
 }
 .soc-comment-edit:hover { color: var(--rose-1); background: var(--blush); }
-/* When editing, the inline form takes the comment's full width. */
-.soc-comment-edit-form { flex: 1 1 100%; margin-top: 4px; }
+/* When editing, the inline form takes the comment's full width. The input gets
+   its own row; Save/Cancel sit on the row beneath so the buttons never get
+   crushed into a letter-per-line sliver next to a greedy input. */
+.soc-comment-edit-form { flex: 1 1 100%; margin-top: 4px; flex-wrap: wrap; }
+.soc-comment-edit-form .soc-comment-input { flex: 1 1 100%; }
+.soc-comment-edit-form .btn-primary,
+.soc-comment-edit-form .linklike { flex: 0 0 auto; white-space: nowrap; }
+/* Push the button pair to the right edge under the input. */
+.soc-comment-edit-form .btn-primary { margin-left: auto; }
 .soc-post-plush { margin: 8px 0 2px; font-weight: 700; color: var(--gold); }
 .soc-post-body { margin: 8px 0; white-space: pre-wrap; line-height: 1.5; overflow-wrap: anywhere; word-break: break-word; }
 .soc-post-photo { margin: 10px -14px -4px; }

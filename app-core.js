@@ -214,6 +214,12 @@ function cleanCatalogName(name) {
 
 function shopifyImageVariant(url, size) {
   if (!url) return null;
+  // The _<size>x trick only works on Shopify's CDN. Any other URL — an
+  // R2-hosted community photo (catalog_photos Picture A), a signed
+  // Storage URL, etc. — must pass through untouched; mangling its
+  // extension just yields a 404. Callers fall back to the original URL,
+  // so returning it unchanged is the right no-op.
+  if (!/^https:\/\/cdn\.shopify\.com\//.test(url)) return url;
   // Shopify CDN: insert _<size>x before extension, e.g. .jpg → _400x.jpg
   return url.replace(/\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i, `_${size}x.$1$2`);
 }
