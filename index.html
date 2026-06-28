@@ -995,6 +995,7 @@
             <h3 class="changelog-date">June 28, 2026</h3>
             <ul>
               <li><strong>Comments &amp; reactions got a Facebook-style makeover.</strong> Comments now sit in rounded chat bubbles with the author's avatar, and each one has a <strong>👍 · Reply · time</strong> row underneath. Hover or tap the <strong>👍</strong> to pick a reaction (👍 🖤 😂 😮 😢 😡), and your reactions are one-per-person now — picking a new one swaps the old. Tap the little reaction count on a comment to add your reaction, or tap again to take it back.</li>
+              <li class="changelog-gated"><strong>Admin moderation:</strong> per-user <strong>Block from app</strong> (full ban — removal screen at sign-in) and <strong>Ghost mode</strong> (shadow-ban — they can still use the app but see nothing from anyone else, and no one sees them). Both live in the admin user detail; admins can't be moderated.</li>
             </ul>
             <p class="changelog-fixes">Fixed <strong>restock reminders</strong> still nagging about <strong>retired</strong> plushies right after opening the app — the reminder now waits for the catalog to load before deciding what's truly out of stock.</p>
           </div>
@@ -1526,22 +1527,34 @@
     </div>
   </div>
 
+  <!-- App-block takeover: shown by showBlockedScreen() to a user an admin has
+       fully blocked from the app (db/0046 profiles.app_blocked). -->
+  <div id="blocked-overlay" class="maint-overlay hidden" role="alert" aria-live="assertive">
+    <div class="maint-card">
+      <div class="maint-bat">⚰️</div>
+      <h1>This account has been removed</h1>
+      <p class="maint-sub">Your access to The Plush Crypt has been revoked by a moderator.
+        If you believe this is a mistake, reach out at
+        <a href="mailto:hello@plushcrypt.com">hello@plushcrypt.com</a>. 🖤</p>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./config.js?v=53"></script>
-  <script src="./auth.js?v=59"></script>
+  <script src="./auth.js?v=60"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=76"></script>
+  <script src="./data.js?v=77"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=129"></script>
-  <script src="./app-catalog.js?v=129"></script>
-  <script src="./app-collection.js?v=129"></script>
-  <script src="./app-ui.js?v=129"></script>
-  <script src="./app-trade.js?v=129"></script>
-  <script src="./app-account.js?v=129"></script>
-  <script src="./app-admin.js?v=129"></script>
-  <script src="./app-admin-catalog.js?v=129"></script>
-  <script src="./app-social.js?v=129"></script>
+  <script src="./app-core.js?v=130"></script>
+  <script src="./app-catalog.js?v=130"></script>
+  <script src="./app-collection.js?v=130"></script>
+  <script src="./app-ui.js?v=130"></script>
+  <script src="./app-trade.js?v=130"></script>
+  <script src="./app-account.js?v=130"></script>
+  <script src="./app-admin.js?v=130"></script>
+  <script src="./app-admin-catalog.js?v=130"></script>
+  <script src="./app-social.js?v=130"></script>
 </body>
 </html>

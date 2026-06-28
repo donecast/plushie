@@ -52,9 +52,17 @@ const auth = {
     // still sign in before all migrations have been applied.
     let { data, error } = await sb
       .from('profiles')
-      .select('id, username, is_admin, photo_uploads_enabled, custom_clothing_enabled')
+      .select('id, username, is_admin, photo_uploads_enabled, custom_clothing_enabled, app_blocked, ghosted')
       .eq('id', session.user.id)
       .maybeSingle();
+    if (error && /column.*(app_blocked|ghosted)/i.test(error.message || '')) {
+      console.warn('[auth] profiles.app_blocked/ghosted missing; run migration 0046');
+      ({ data, error } = await sb
+        .from('profiles')
+        .select('id, username, is_admin, photo_uploads_enabled, custom_clothing_enabled')
+        .eq('id', session.user.id)
+        .maybeSingle());
+    }
     if (error && /column.*custom_clothing_enabled/i.test(error.message || '')) {
       console.warn('[auth] profiles.custom_clothing_enabled missing; run migration 0026');
       ({ data, error } = await sb
@@ -282,6 +290,12 @@ async function runAuthGate(onReady) {
         // Real insider status, kept regardless of demo mode so the demo
         // toggle in Settings stays visible (and can be switched back off).
         demoEligible: realInsider,
+        // Admin moderation (db/0046). app_blocked → full boot takeover;
+        // ghosted → can use the app but is isolated from everyone else.
+        // Not demo-suppressed: admins are never blockable, so demo presenting
+        // doesn't apply, and a ghost should stay a ghost in any mode.
+        appBlocked: profile.app_blocked === true,
+        ghosted: profile.ghosted === true,
       };
 
       // Real-name gate (see db/0045). A first name is required for everyone
