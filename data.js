@@ -2571,6 +2571,7 @@ data._hydratePosts = async function (rows) {
       id: c.id,
       authorId: c.author_id,
       authorName: profs.get(c.author_id)?.username ?? 'unknown',
+      authorAvatar: profs.get(c.author_id)?.avatarUrl ?? null,
       body: c.body,
       createdAt: c.created_at,
       parentId: c.parent_comment_id || null,
