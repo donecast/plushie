@@ -648,6 +648,7 @@ data.getPublicFeedback = async function (userId, limit = 8) {
 
 // ─── Trades ────────────────────────────────────────────────────────
 data.listTrades = async function () {
+  if (data.isGhosted()) return [];
   const uid = window.currentUser.id;
   const { data: rows, error } = await sb
     .from('trades')
@@ -1448,10 +1449,21 @@ data.adminUserSnapshot = async function (userId) {
   }));
   // Feedback summary
   const fb = await data.getFeedbackSummary(userId);
+  // Moderation flags (db/0046) — fetched fresh so the admin toggles reflect
+  // current state. Falls back to all-false if the migration isn't applied yet.
+  let moderation = { app_blocked: false, ghosted: false, is_admin: false };
+  {
+    let { data: prof, error } = await sb
+      .from('profiles').select('app_blocked, ghosted, is_admin').eq('id', userId).maybeSingle();
+    if (error && /column.*(app_blocked|ghosted)/i.test(error.message || '')) {
+      ({ data: prof } = await sb.from('profiles').select('is_admin').eq('id', userId).maybeSingle());
+    }
+    if (prof) moderation = { app_blocked: prof.app_blocked === true, ghosted: prof.ghosted === true, is_admin: prof.is_admin === true };
+  }
   return {
     collection: col, plushies, wishlist, pens,
     trades: trades || [], tradeItems: tradeItems || [],
-    blocksInitiated, blockedBy, feedback: fb,
+    blocksInitiated, blockedBy, feedback: fb, moderation,
   };
 };
 
@@ -2210,6 +2222,17 @@ data.adminSetCustomClothing = async function (userId, enabled) {
   if (error) throw error;
 };
 
+// Admin moderation (db/0046). Same RLS path as the toggles above (admins may
+// update any profile row); a DB trigger refuses to block/ghost an admin.
+data.adminSetAppBlocked = async function (userId, on) {
+  const { error } = await sb.from('profiles').update({ app_blocked: !!on }).eq('id', userId);
+  if (error) throw error;
+};
+data.adminSetGhosted = async function (userId, on) {
+  const { error } = await sb.from('profiles').update({ ghosted: !!on }).eq('id', userId);
+  if (error) throw error;
+};
+
 data.adminSetSetting = async function (key, value) {
   const row = { key, value, updated_at: new Date().toISOString(), updated_by: window.currentUser?.id };
   const { error } = await sb.from('app_settings').upsert(row);
@@ -2282,6 +2305,7 @@ data._resolveProfiles = async function (ids) {
 
 // ─── Friend graph ───────────────────────────────────────────────────
 data.listFriends = async function () {
+  if (data.isGhosted()) return [];
   const uid = window.currentUser.id;
   const { data: rows, error } = await sb
     .from('friendships')
@@ -2309,6 +2333,7 @@ data.listFriends = async function () {
 };
 
 data.listIncomingRequests = async function () {
+  if (data.isGhosted()) return [];
   const uid = window.currentUser.id;
   const { data: rows, error } = await sb
     .from('friendships')
@@ -2415,6 +2440,7 @@ data.setCoffinBuddy = async function (otherId, on) {
 };
 
 data.searchUsers = async function (prefix, limit = 12) {
+  if (data.isGhosted()) return [];
   const q = (prefix || '').trim();
   if (!q) return [];
   const { data: rows, error } = await sb
@@ -2613,9 +2639,18 @@ data._hydratePosts = async function (rows) {
   })));
 };
 
+// A ghosted (or app-blocked) user is isolated from everyone else: server RLS
+// already hides others' rows and shadow-hides theirs, but we also short-circuit
+// the client list calls so social/trades read as cleanly empty (no flicker, and
+// not even their own rows leak into a feed that should look dead). db/0046.
+data.isGhosted = function () {
+  return window.currentUser?.ghosted === true || window.currentUser?.appBlocked === true;
+};
+
 // The feed: every post RLS lets me see (mine + friends' + public),
 // newest first. Early-Facebook style — one global-ish river.
 data.listFeed = async function (limit = 60) {
+  if (data.isGhosted()) return [];
   const { data: rows, error } = await sb
     .from('posts')
     .select('*')
@@ -2626,6 +2661,8 @@ data.listFeed = async function (limit = 60) {
 };
 
 data.listUserPosts = async function (userId, limit = 40) {
+  // A ghost can still see their own profile, but no one else's.
+  if (data.isGhosted() && userId !== window.currentUser?.id) return [];
   const { data: rows, error } = await sb
     .from('posts')
     .select('*')

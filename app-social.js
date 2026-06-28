@@ -1411,6 +1411,16 @@ function showMaintenanceScreen(reason) {
   document.body.classList.add('maint-locked');
 }
 
+// Full-screen takeover for a user an admin has blocked from the entire app
+// (db/0046 profiles.app_blocked). Like maintenance mode, boot returns early
+// after this, so the app never renders for them.
+function showBlockedScreen() {
+  const el = document.getElementById('blocked-overlay');
+  if (!el) { showMaintenanceScreen(''); return; } // fail closed onto the generic takeover
+  el.classList.remove('hidden');
+  document.body.classList.add('maint-locked');
+}
+
 let eventsWired = false;
 async function boot() {
   if (!eventsWired) {
@@ -1426,6 +1436,13 @@ async function boot() {
   await handleJoinToken();        // ?join=<token> redeems and switches in
   await data.migrateFromIDB();    // one-time IDB → Supabase upload per account
   await data.loadAppSettings();   // feature flags (e.g. user photo uploads)
+  // App-block gate: a user an admin has fully blocked (db/0046) never boots —
+  // they get a removal takeover instead. Checked before maintenance so a
+  // blocked user sees the block, not the "resting" screen.
+  if (window.currentUser?.appBlocked && !window.currentUser?.isAdmin) {
+    showBlockedScreen();
+    return;
+  }
   // Maintenance gate: if an admin has taken the crypt down, show everyone but
   // admins a "resting" screen (with the reason) instead of booting the app.
   if (data.appSettings['maintenance.enabled'] === true && !window.currentUser?.isAdmin) {

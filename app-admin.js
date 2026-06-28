@@ -246,6 +246,44 @@ async function onToggleCustomClothingForUser(e) {
   }
 }
 
+// Admin moderation toggles (db/0046). Re-render after saving so the adjacent
+// label reflects the new state. A DB trigger refuses to moderate admins.
+async function onToggleAppBlockForUser(e) {
+  const cb = e.target;
+  const userId = cb.dataset.userId;
+  const next = cb.checked;
+  cb.disabled = true;
+  try {
+    await data.adminSetAppBlocked(userId, next);
+    if (state.adminUserView?.snapshot?.moderation) state.adminUserView.snapshot.moderation.app_blocked = next;
+    toast(next ? 'User blocked from the entire app.' : 'User unblocked.');
+    renderAdmin();
+  } catch (err) {
+    console.error(err);
+    cb.checked = !next;
+    cb.disabled = false;
+    toast('Could not save: ' + (err.message || err));
+  }
+}
+
+async function onToggleGhostForUser(e) {
+  const cb = e.target;
+  const userId = cb.dataset.userId;
+  const next = cb.checked;
+  cb.disabled = true;
+  try {
+    await data.adminSetGhosted(userId, next);
+    if (state.adminUserView?.snapshot?.moderation) state.adminUserView.snapshot.moderation.ghosted = next;
+    toast(next ? 'User ghosted — isolated from everyone else.' : 'Ghost mode lifted.');
+    renderAdmin();
+  } catch (err) {
+    console.error(err);
+    cb.checked = !next;
+    cb.disabled = false;
+    toast('Could not save: ' + (err.message || err));
+  }
+}
+
 function renderAdminUserView() {
   const { user, snapshot } = state.adminUserView;
   // Compact, read-only row. The whole card opens a read-only detail modal
@@ -330,6 +368,35 @@ function renderAdminUserView() {
       </div>
     </section>
 
+    ${(() => {
+      const mod = snapshot.moderation || {};
+      const lock = mod.is_admin ? 'disabled title="Admins can\'t be moderated"' : '';
+      return `
+    <section class="my-items-section">
+      <h3 class="trader-head"><span>Moderation</span></h3>
+      <div class="admin-tool">
+        <div>
+          <strong>Block from app</strong>
+          <p class="dim">A full ban. This user gets a "removed" takeover at sign-in and can't use the app at all. They're hidden from everyone, and see nothing themselves.</p>
+        </div>
+        <label class="checkbox" style="white-space:nowrap;">
+          <input type="checkbox" data-admin-toggle="app-block" data-user-id="${user.id}" ${mod.app_blocked ? 'checked' : ''} ${lock} />
+          <span>${mod.is_admin ? 'N/A (admin)' : (mod.app_blocked ? 'Blocked' : 'Allowed')}</span>
+        </label>
+      </div>
+      <div class="admin-tool">
+        <div>
+          <strong>Ghost mode</strong>
+          <p class="dim">A shadow-ban. This user can still sign in and use the app, but sees nothing from anyone else (empty social, empty trades, no other profiles) — and no one else sees their posts, trades, or friendships.</p>
+        </div>
+        <label class="checkbox" style="white-space:nowrap;">
+          <input type="checkbox" data-admin-toggle="ghost" data-user-id="${user.id}" ${mod.ghosted ? 'checked' : ''} ${lock} />
+          <span>${mod.is_admin ? 'N/A (admin)' : (mod.ghosted ? 'Ghosted' : 'Visible')}</span>
+        </label>
+      </div>
+    </section>`;
+    })()}
+
     <section class="my-items-section">
       <h3 class="trader-head"><span>Collection (${snapshot.plushies.length})</span><span class="dim">read-only · tap to view</span></h3>
       <div class="grid grid-compact">${snapshot.plushies.map((i) => renderItemRow(i, 'collection')).join('') || '<p class="dim">Empty.</p>'}</div>
@@ -387,6 +454,10 @@ function renderAdminUserView() {
     ?.addEventListener('change', onTogglePhotoUploadsForUser);
   document.querySelector('[data-admin-toggle="custom-clothing"]')
     ?.addEventListener('change', onToggleCustomClothingForUser);
+  document.querySelector('[data-admin-toggle="app-block"]')
+    ?.addEventListener('change', onToggleAppBlockForUser);
+  document.querySelector('[data-admin-toggle="ghost"]')
+    ?.addEventListener('change', onToggleGhostForUser);
 }
 
 // Read-only detail for an item in the admin collection/wishlist view —
