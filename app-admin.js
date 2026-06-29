@@ -79,9 +79,17 @@ function renderAdminUserList() {
     const f = u.feedback || { good_count: 0, meh_count: 0, bad_count: 0, total_count: 0 };
     const me = u.id === window.currentUser.id;
     const dateCell = (iso) => iso ? new Date(iso).toLocaleDateString() : '—';
+    // Status badges to the right of the name: 🛡️ admin, ⚖️ moderator,
+    // 👻 ghosted (shadow-ban), 🚫 blocked from app (full ban).
+    const statusBadges = [
+      u.is_admin     ? '<span class="admin-status-badge" title="Admin">🛡️</span>' : '',
+      u.is_moderator ? '<span class="admin-status-badge" title="Moderator">⚖️</span>' : '',
+      u.ghosted      ? '<span class="admin-status-badge" title="Ghosted (shadow-banned)">👻</span>' : '',
+      u.app_blocked  ? '<span class="admin-status-badge" title="Blocked from app">🚫</span>' : '',
+    ].join('');
     return `
       <tr data-uid="${u.id}" class="admin-row">
-        <td><strong>@${escapeHtml(u.username)}</strong>${me ? ' <span class="dim">(you)</span>' : ''}${u.is_admin ? ' <span class="role-tag">admin</span>' : ''}</td>
+        <td><strong>@${escapeHtml(u.username)}</strong>${me ? ' <span class="dim">(you)</span>' : ''}${statusBadges ? ` <span class="admin-status-badges">${statusBadges}</span>` : ''}</td>
         <td>${u.full_name ? escapeHtml(u.full_name) : '<span class="dim">—</span>'}</td>
         <td class="dim">${dateCell(u.created_at)}</td>
         <td class="admin-num">${u.collection_count ?? 0}</td>
