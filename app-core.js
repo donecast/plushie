@@ -731,8 +731,15 @@ function applyCatalogOverrides(shopifyProducts, overrides) {
     // A picked cover photo replaces Shopify's default first image; when that
     // cover is a community submission, image_credit carries the contributor's
     // @handle so the detail view can credit them under the photo.
-    if (ov.image) item.image = ov.image;
-    if (ov.image_credit) item.imageCredit = ov.image_credit;
+    // NB: a handle-level cover must NOT paint expanded variant children —
+    // they share the parent handle but are each their own form, so one shot
+    // can't represent all of them. It lands on the hidden parent + genuine
+    // single cards only; variant children get their cover from
+    // applyVariantCovers (keyed by variant id) instead.
+    if (!item.isVariant) {
+      if (ov.image) item.image = ov.image;
+      if (ov.image_credit) item.imageCredit = ov.image_credit;
+    }
     // Tag overrides: re-categorise and/or force retired. categoryOverrideTag is
     // read by categoryOverride() below; retiredOverride drives itemStatus and
     // lets the modal prefill auto/active/retired.
@@ -743,12 +750,32 @@ function applyCatalogOverrides(shopifyProducts, overrides) {
   }
 }
 
+// Lay per-variant community covers onto expanded variant children, keyed by
+// Shopify variant id (catalog_variant_covers). This is the variant-aware
+// twin of the handle-level cover in applyCatalogOverrides: a multi-variant
+// product shows one card per variant, all sharing the parent handle, so each
+// variant carries its OWN cover here instead of a single handle shot painting
+// them all. Only isVariant children are touched; the hidden parent and
+// genuine single products keep using the handle-level override. Mutates rows.
+function applyVariantCovers(shopifyProducts, variantCovers) {
+  if (!Array.isArray(variantCovers) || variantCovers.length === 0) return;
+  const byVariant = new Map(variantCovers.map((c) => [String(c.variant_id), c]));
+  for (const item of shopifyProducts) {
+    if (!item.isVariant || !item.variantId) continue;
+    const cov = byVariant.get(String(item.variantId));
+    if (!cov) continue;
+    if (cov.image) item.image = cov.image;
+    if (cov.image_credit) item.imageCredit = cov.image_credit;
+    item.hasOverride = true;
+  }
+}
+
 async function mergeCustomCatalog(shopifyProducts) {
   try {
     // Lay any admin overrides on top of the live-parsed Shopify rows
     // first, then merge in the custom catalog_items. Both reads run in
     // parallel.
-    const [customsRaw, overrides] = await Promise.all([
+    const [customsRaw, overrides, variantCovers] = await Promise.all([
       data.listApprovedCatalogItems(),
       // Overrides carry every community cover + alt-lore retelling. If this
       // read fails (schema drift, RLS, network) we still render the store
@@ -763,8 +790,13 @@ async function mergeCustomCatalog(shopifyProducts) {
         }
         return [];
       }),
+      // Per-variant community covers (catalog_variant_covers). Non-fatal and
+      // additive — if it fails (e.g. db/0069 not yet applied) variant cards
+      // simply keep their per-variant store photo, so swallow quietly.
+      data.listVariantCovers().catch(() => []),
     ]);
     applyCatalogOverrides(shopifyProducts, overrides);
+    applyVariantCovers(shopifyProducts, variantCovers);
     // Hidden items (e.g. the Tom mascot) exist as catalog_items rows but
     // are kept out of the client catalog entirely — no grid, search, or
     // Own/Want. `hidden` is undefined on older rows → treated as visible.
@@ -947,6 +979,7 @@ function expandVariants(items) {
         handle: item.handle,             // Buy points at the parent product
         parentHandle: item.handle,
         parentId: item.id,
+        variantId: String(v.id),         // Shopify variant id — keys per-variant covers
         formLabel: v.title,              // the option value, e.g. 'Purple'
         isVariant: true,
         type: item.type,

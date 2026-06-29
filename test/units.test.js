@@ -379,3 +379,38 @@ test('compactViewAllowed gates the dense list to non-phone widths', () => {
   app.setGlobal('matchMedia', () => ({ matches: false }));
   assert.equal(call('compactViewAllowed'), true);
 });
+
+test('a handle cover skips variant children; a per-variant cover lands only on its own child', () => {
+  const vm = require('node:vm');
+  const result = vm.runInContext(`
+    (function () {
+      const norm = normalizeShopifyProduct({
+        id: '500', title: 'Jellybun', handle: 'jellybun', product_type: 'Plush', tags: ['plush'],
+        options: [{ name: 'Color', values: ['Blue', 'Orange'] }],
+        variants: [
+          { id: 10, title: 'Blue',   price: '40', available: true, featured_image: { src: 'https://cdn.shopify.com/blue.jpg' } },
+          { id: 11, title: 'Orange', price: '40', available: true, featured_image: { src: 'https://cdn.shopify.com/orange.jpg' } },
+        ],
+      });
+      const rows = expandVariants([norm]);
+      // A handle-level cover must paint ONLY the hidden parent, never the kids.
+      applyCatalogOverrides(rows, [{ handle: 'jellybun', image: 'https://r2/HANDLE.jpg', image_credit: '@x' }]);
+      // A per-variant cover lands only on its own child (Orange = variant 11).
+      applyVariantCovers(rows, [{ variant_id: '11', image: 'https://r2/ORANGE.jpg', image_credit: '@amber' }]);
+      const by = {}; rows.forEach((r) => { by[r.id] = r; });
+      return {
+        parentImage: by['500'].image,
+        blueImage: by['500::10'].image,   blueCredit: by['500::10'].imageCredit || null,
+        orangeImage: by['500::11'].image, orangeCredit: by['500::11'].imageCredit || null,
+        blueVariantId: by['500::10'].variantId, orangeVariantId: by['500::11'].variantId,
+      };
+    })()
+  `, app.ctx);
+  assert.equal(result.parentImage, 'https://r2/HANDLE.jpg');        // handle cover → parent only
+  assert.equal(result.blueImage, 'https://cdn.shopify.com/blue.jpg'); // Blue untouched (its store photo)
+  assert.equal(result.blueCredit, null);                            // no handle paint, no variant cover
+  assert.equal(result.orangeImage, 'https://r2/ORANGE.jpg');        // Orange got ONLY its per-variant cover
+  assert.equal(result.orangeCredit, '@amber');
+  assert.equal(result.blueVariantId, '10');                         // variant id tagged for keying
+  assert.equal(result.orangeVariantId, '11');
+});

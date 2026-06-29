@@ -1584,7 +1584,12 @@ data.catalogImageUrl = async function (path) {
 // read. The live catalog still resolves its cover from catalog_overrides.image
 // (the "render bridge"), so making a photo the cover mirrors its URL there.
 function _catPhotoTargetFilter(q, target) {
-  if (target.handle) return q.eq('target_handle', target.handle);
+  // A variant target is the most specific: its photos live under the parent
+  // handle but are tagged with the variant id, so filter on that alone.
+  if (target.variantId) return q.eq('target_variant_id', target.variantId);
+  // A plain handle target means the WHOLE product's photos — exclude any
+  // variant-tagged rows so a parent's gallery never absorbs its variants'.
+  if (target.handle) return q.eq('target_handle', target.handle).is('target_variant_id', null);
   if (target.catalogItemId) return q.eq('target_catalog_item_id', target.catalogItemId);
   if (target.penId) return q.eq('target_pen_id', target.penId);
   return null;
@@ -1598,7 +1603,7 @@ function _slotSort(a, b) {
 // List an item's photos, lettered-first, each with a resolved display `url`.
 data.adminListCatalogPhotos = async function (target) {
   let q = sb.from('catalog_photos').select(
-    'id, target_handle, target_catalog_item_id, target_pen_id, slot, image_path, image_url, bucket, source, source_url, credit, notes, is_primary');
+    'id, target_handle, target_catalog_item_id, target_pen_id, target_variant_id, slot, image_path, image_url, bucket, source, source_url, credit, notes, is_primary');
   q = _catPhotoTargetFilter(q, target);
   if (!q) return [];
   const { data: rows, error } = await q;
@@ -1622,7 +1627,13 @@ data.adminAddCatalogPhoto = async function (target, { slot, imageUrl = null, ima
     image_url: imageUrl, image_path: imagePath, source, credit, notes,
     submitted_by: window.currentUser?.id || null,
   };
-  if (target.handle) row.target_handle = target.handle;
+  if (target.variantId) {
+    // Variant photos sit under the parent handle AND carry the variant id, so
+    // the gallery groups under the product while staying scoped to one variant.
+    if (!target.handle) throw new Error('A variant photo needs its parent handle.');
+    row.target_handle = target.handle;
+    row.target_variant_id = target.variantId;
+  } else if (target.handle) row.target_handle = target.handle;
   else if (target.catalogItemId) row.target_catalog_item_id = target.catalogItemId;
   else if (target.penId) row.target_pen_id = target.penId;
   else throw new Error('No photo target.');
@@ -1667,10 +1678,16 @@ data.adminSetCatalogPhotoPrimary = async function (target, photoId) {
     // Only community shots earn a courtesy credit in the detail view.
     if (row.source === 'community') coverCredit = row.credit || null;
   }
-  // Mirror to the override (handle targets only). Touch ONLY the image +
-  // image_credit columns via merge-upsert so lore/alt_lore/etc. on the same
-  // row are never clobbered.
-  if (target.handle) {
+  // Mirror to the render bridge. A variant target writes catalog_variant_covers
+  // (keyed by variant id) so the cover lands ONLY on that variant's card; a
+  // plain handle target writes catalog_overrides, touching ONLY image +
+  // image_credit via merge-upsert so lore/alt_lore/etc. are never clobbered.
+  if (target.variantId) {
+    const { error } = await sb.from('catalog_variant_covers')
+      .upsert({ variant_id: target.variantId, handle: target.handle || null, image: coverUrl, image_credit: coverCredit, updated_by: window.currentUser?.id || null },
+              { onConflict: 'variant_id' });
+    if (error) throw error;
+  } else if (target.handle) {
     const { error } = await sb.from('catalog_overrides')
       .upsert({ handle: target.handle, image: coverUrl, image_credit: coverCredit, updated_by: window.currentUser?.id || null },
               { onConflict: 'handle' });
@@ -1821,6 +1838,36 @@ data.listCatalogOverrides = async function () {
     .select('handle, lore, alt_lore, symbolism, accessories, image, image_credit, category, retired');
   if (error) throw error;
   return rows || [];
+};
+
+// Per-variant community covers (catalog_variant_covers), keyed by Shopify
+// variant id. Read by everyone — applyVariantCovers lays each onto its
+// matching expanded variant child. Kept separate from listCatalogOverrides so
+// a missing db/0069 fails only the variant layer, not the whole catalog.
+data.listVariantCovers = async function () {
+  const { data: rows, error } = await sb
+    .from('catalog_variant_covers')
+    .select('variant_id, handle, image, image_credit');
+  if (error) throw error;
+  return rows || [];
+};
+
+// Admin: set (or clear) one variant's cover. image=null deletes the row so the
+// variant reverts cleanly to its own store photo. Mirrors the override flow but
+// keyed by variant id, so it never touches sibling variants.
+data.adminSetVariantCover = async function (variantId, handle, image, imageCredit) {
+  if (!variantId) throw new Error('A variant id is required.');
+  if (!image) {
+    const { error } = await sb.from('catalog_variant_covers').delete().eq('variant_id', variantId);
+    if (error) throw error;
+    return null;
+  }
+  const { data: saved, error } = await sb.from('catalog_variant_covers')
+    .upsert({ variant_id: variantId, handle: handle || null, image, image_credit: imageCredit || null, updated_by: window.currentUser?.id || null },
+            { onConflict: 'variant_id' })
+    .select().single();
+  if (error) throw error;
+  return saved;
 };
 
 // Admin upsert. patch carries { lore, symbolism, accessories, image } — any
