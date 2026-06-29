@@ -4504,9 +4504,10 @@ body.maint-locked { overflow: hidden; }
   background: var(--surface-1, rgba(0,0,0,0.1));
 }
 .co-photo-row .dim { flex: 1; }
-.co-photo-add { display: flex; gap: 8px; align-items: center; }
-.co-photo-add input[type="url"] { flex: 1; }
-.co-photo-slot { width: 64px; flex: none; text-align: center; }
+.co-photo-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.co-photo-add input[type="url"] { flex: 1 1 200px; min-width: 0; }
+.co-photo-slot { flex: 0 0 64px; width: 64px; text-align: center; }
+.co-photo-add .btn-primary { flex: 0 0 auto; }
 /* Category + Availability override controls sit two-up. */
 .co-tag-row { display: flex; gap: 12px; flex-wrap: wrap; }
 .co-tag-row .field { flex: 1 1 140px; min-width: 0; }
