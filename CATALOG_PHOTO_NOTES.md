@@ -3,22 +3,30 @@
 Working notes from the catalog photos pilot (`catalog_photos`, slot scheme:
 numbered = official PD, lettered "Picture A" = community). Not user-facing.
 
-## Picture A coverage (128 items, all in DB — no committed seed)
+## Picture A coverage (340 items, all in DB — no committed seed)
 
 - **10 from redrambler** (`source = 'owner:redrambler'`) — vetted, watermark-free
   owner photos copied into R2 `catalog/community/`. (commit ff0dd66)
-- **118 NOT from any site user** (`source = 'web'`) — copied into R2 `catalog/web/`:
+- **330 NOT from any site user** (`source = 'web'`) — copied into R2 `catalog/web/`:
   - 8 earliest: depression, dreadful-demon-forest-spirit, insomnia-moth,
     schizophrenia-rabbit-ii, ocd, borderline-personality-disorder, adhd-rabbit,
     bipolar-ii (sources: PD Okendo customer-review photos, eBay, Mercari, Poshmark).
   - 2 next: narcissistic-personality-disorder-rabbit, avoidant-personality-disorder-rabbit.
-  - **111 in the full "do the rest" sweep**: every remaining `type=plush` catalog
-    item that had Okendo customer-review photos. Best single front-facing shot per
-    item chosen by vision (14 parallel selector agents). All `credit='Customer
-    review photo'`, `source='web'`, mirrored into `catalog_overrides.image`.
+  - **111 — "do the rest" sweep over `type=plush`**: every remaining plush-typed
+    item with Okendo photos (14 parallel vision selectors).
+  - **209 — "can we get more" sweep beyond `type=plush`**: 212 plush-SHAPED items
+    (type `toy` = full-size plushies incl. Love Rabbit colourways, Victorian
+    McGee's line, Response rabbits, latte-lapins, fruit buns; `Keychain` = mini
+    plushies; plus a few `Plush Accessory`/`stuffed Toy`/`grab bag`), minus 3 dropped
+    (plague-and-war earlier; massive-star recovered). 18 parallel vision selectors,
+    color/edition-matched.
 
-All sourced from Plushie Dreadfuls' own Okendo customer reviews — genuine owner
-photos, never a PlushCrypt site user.
+All web photos sourced from Plushie Dreadfuls' own Okendo customer reviews — genuine
+owner shots, never a PlushCrypt site user. Merch types (sticker, tote, bracelet, pin,
+mousepad, card deck, etc.) were deliberately SKIPPED — a community "cover" adds nothing
+there. The `_raw` Okendo asset for a photo occasionally 404s/AccessDenies; pick another
+candidate from the same product's review set (that's how deafness-rabbit & massive-star
+were recovered).
 
 ## ⚠️ Variant products — one cover can't represent multiple variants
 
