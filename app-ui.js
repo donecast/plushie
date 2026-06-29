@@ -1125,14 +1125,16 @@ function openStirringItem(handle, fallbackName) {
     || state.catalog.find((c) => c.handle === handle)
   );
   if (raw) {
+    // Stirrings get the loud treatment: on the wide layout we light up the
+    // right-rail companion *and* throw open the full modal at once, so a change
+    // in the store lands right in the user's face instead of quietly in a
+    // column they might not be looking at. Narrow layouts just get the modal.
     if (railRightVisible()) {
       state.railDetailId = null;
       state.railCatalogId = raw.id;
-      maybeRefreshCatalogDetail(raw.id);
       renderRightRail();
-    } else {
-      openCatalogDetailModal(raw.id);
     }
+    openCatalogDetailModal(raw.id);
     return;
   }
   focusCatalogItem(fallbackName);
