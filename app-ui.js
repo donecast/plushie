@@ -838,7 +838,9 @@ function renderRailStirrings() {
       ${events.map((e) => {
         const m = STIR_META[e.kind] || { icon: '•', label: e.kind };
         const name = escapeHtml(e.name || e.handle || '');
-        return `<li class="rail-stir" data-tab="catalog" role="button" title="${m.label}: ${name}">
+        const handle = escapeHtml(e.handle || '');
+        const q = escapeHtml(cleanCatalogName ? cleanCatalogName(e.name || e.handle || '') : (e.name || e.handle || ''));
+        return `<li class="rail-stir" data-tab="catalog" data-stir-handle="${handle}" data-stir-name="${q}" role="button" title="${m.label}: ${name} — open this item">
           <span class="rail-stir-ico">${m.icon}</span>
           <span class="rail-stir-text">
             <span class="rail-stir-name">${name}</span>
@@ -1078,6 +1080,49 @@ function goToTab(tab) {
   return false;
 }
 
+// Focus the catalog on a single item by name — used by the Stirrings feed so a
+// change-feed entry links to the plush it refers to. We set the search box and
+// clear the other catalog filters so the target is guaranteed visible whatever
+// its status (a "sold out" stirring still surfaces its item, not an empty list).
+// The caller switches to the catalog tab right after, so render() re-syncs the
+// search input and repaints the filter chips from this state.
+function focusCatalogItem(name) {
+  if (!name) return;
+  state.catQuery = name;
+  state.catalogFilter = 'all';
+  state.catalogStatuses = new Set();
+  state.catalogTheme = 'all';
+  state.catalogColor = 'all';
+  state.catalogUnowned = false;
+  state.catalogOriginal = false;
+}
+
+// Open the exact catalog item a Stirrings entry refers to. Resolves the feed's
+// handle to its catalog row and opens that item's detail — the right-rail
+// master-detail on the wide layout, the full modal otherwise — reusing the same
+// path a catalog card's "details" tap uses. Falls back to a name-filtered
+// catalog view only when the handle isn't in the loaded catalog (e.g. removed),
+// so the user still lands somewhere sensible.
+function openStirringItem(handle, fallbackName) {
+  const raw = handle && (
+    state.catalog.find((c) => c.handle === handle && !c.isVariant && !c.isCustom)
+    || state.catalog.find((c) => c.handle === handle)
+  );
+  if (raw) {
+    if (railRightVisible()) {
+      state.railDetailId = null;
+      state.railCatalogId = raw.id;
+      maybeRefreshCatalogDetail(raw.id);
+      renderRightRail();
+    } else {
+      openCatalogDetailModal(raw.id);
+    }
+    return;
+  }
+  focusCatalogItem(fallbackName);
+  goToTab('catalog');
+}
+
 // When the app is launched from a tapped notification it carries the target
 // tab in the hash (./#trade). Land there, then strip the hash so a later
 // manual refresh doesn't keep forcing that tab.
@@ -1109,6 +1154,9 @@ function wireEvents() {
       if (!t) return;
       // A data-subtab (e.g. the wishlist thumbnails) lands on that crypt sub-tab.
       if (t.dataset.subtab) state.colSubTab = t.dataset.subtab;
+      // Stirrings feed entries open the exact item they refer to (detail rail or
+      // modal), rather than just switching tabs.
+      if (t.dataset.stirHandle) { openStirringItem(t.dataset.stirHandle, t.dataset.stirName || ''); return; }
       const top = document.querySelector(`header .tabs .tab[data-tab="${t.dataset.tab}"]`);
       if (top) { top.click(); return; }
       // No header tab (Admin lives in the user menu, not the top tab bar) —
