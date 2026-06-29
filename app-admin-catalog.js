@@ -843,9 +843,15 @@ function catalogDetailBodyHtml(cid, { forRail = false } = {}) {
     : (item.symbolism ? `<section class="cd-section"><h3>Symbolism</h3><p>${escapeHtml(item.symbolism).replace(/\n/g, '<br/>')}</p></section>` : '');
   const isEmpty = !accessoriesHtml && !loreHtml && !symHtml;
 
+  // Credit a community-submitted cover ("Image courtesy of @handle"), shown
+  // in italics directly under the photo. Only when there's an actual image.
+  const photoCredit = (thumb && item.imageCredit) ? String(item.imageCredit).trim() : '';
   return `
     <div class="cd-head">
-      <div class="cd-photo">${thumb ? `<img src="${escapeHtml(thumb)}" alt="${escapeHtml(display)}" />` : `<span class="no-photo">🖤</span>`}</div>
+      <div class="cd-photo-wrap">
+        <div class="cd-photo">${thumb ? `<img src="${escapeHtml(thumb)}" alt="${escapeHtml(display)}" />` : `<span class="no-photo">🖤</span>`}</div>
+        ${photoCredit ? `<p class="cd-credit">Image courtesy of ${escapeHtml(photoCredit)}</p>` : ''}
+      </div>
       <div class="cd-head-text">
         <div class="card-eyebrow">${escapeHtml(catalogCategoryLabel(item))}${item.releaseYear ? ` · ${item.releaseYear}` : ''}</div>
         <h2>${escapeHtml(display)}${formLabel ? ` <span class="card-form-label">${escapeHtml(formLabel)}</span>` : ''}</h2>

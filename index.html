@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=122" />
+  <link rel="stylesheet" href="./styles.css?v=123" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -1029,7 +1029,7 @@
               <li class="changelog-gated"><strong>Calmer restock signals.</strong> A plush has to be sold out for at least <strong>48 hours</strong> before a "Restocked" entry appears — a brief out-of-stock blip just quietly clears its "Sold out" entry, so the feed stops flapping on momentary stock wobbles.</li>
               <li class="changelog-gated"><strong>Catalog photo manager.</strong> The admin Edit-details panel now lists an item's <strong>community (A, B…)</strong> and <strong>official (0, 1…)</strong> pictures — lettered first — so you can <strong>add</strong>, <strong>remove</strong>, and pick any of them as the cover. Picture A now shows up in the cover dropdown (and is correctly preselected when it's the one on display).</li>
               <li><strong>Clearer category labels on item details.</strong> The little label above an item's name now reads <strong>Regular Size Plush</strong> for full-size buns (and <strong>Mini Plush</strong> for the minis), instead of the inconsistent "Toy" / "Plush" tags inherited from the shop — same kind of plushie, so now it says the same thing every time.</li>
-              <li class="changelog-gated"><strong>Photo suggestions now name the plush and the sender.</strong> The admin review queue shows <strong>which item</strong> a suggested photo is for and <strong>who submitted it</strong> (instead of bare IDs), and approving one records the contributor's <strong>@handle</strong> as the photo's credit — ready to show as "Image courtesy of @them" under the picture.</li>
+              <li class="changelog-gated"><strong>Photo suggestions now name the plush and the sender.</strong> The admin review queue shows <strong>which item</strong> a suggested photo is for and <strong>who submitted it</strong> (instead of bare IDs), and approving one records the contributor's <strong>@handle</strong> as the photo's credit — now shown as <em>"Image courtesy of @them"</em> in italics under the picture on the item's detail page.</li>
             </ul>
             <p class="changelog-fixes">Fixed <strong>deeply-nested replies</strong> getting crushed into an unreadable sliver — reply threads now stop indenting after one level, so a reply-to-a-reply lines up with its siblings instead of marching off the right edge. Also fixed <strong>editing a comment</strong> — the inline edit box now gives the text room and drops <strong>Save</strong>/<strong>Cancel</strong> onto a tidy row beneath, instead of squashing them into an unreadable sliver. Also fixed <strong>restock reminders</strong> still nagging about <strong>retired</strong> plushies right after opening the app — the reminder now waits for the catalog to load before deciding what's truly out of stock. Also fixed <strong>catalog cards ballooning</strong> when a search or filter returned only a few results — sparse result sets now keep a sensible card size instead of stretching one or two plushies across the whole row.</p>
           </div>
@@ -1594,14 +1594,14 @@
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=141"></script>
-  <script src="./app-catalog.js?v=141"></script>
-  <script src="./app-collection.js?v=141"></script>
-  <script src="./app-ui.js?v=141"></script>
-  <script src="./app-trade.js?v=141"></script>
-  <script src="./app-account.js?v=141"></script>
-  <script src="./app-admin.js?v=141"></script>
-  <script src="./app-admin-catalog.js?v=141"></script>
-  <script src="./app-social.js?v=141"></script>
+  <script src="./app-core.js?v=142"></script>
+  <script src="./app-catalog.js?v=142"></script>
+  <script src="./app-collection.js?v=142"></script>
+  <script src="./app-ui.js?v=142"></script>
+  <script src="./app-trade.js?v=142"></script>
+  <script src="./app-account.js?v=142"></script>
+  <script src="./app-admin.js?v=142"></script>
+  <script src="./app-admin-catalog.js?v=142"></script>
+  <script src="./app-social.js?v=142"></script>
 </body>
 </html>

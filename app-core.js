@@ -702,8 +702,11 @@ function applyCatalogOverrides(shopifyProducts, overrides) {
     if (Array.isArray(ov.accessories) && ov.accessories.length) {
       item.accessories = categoryHasAccessories(item) ? normalizeAccessories(ov.accessories) : [];
     }
-    // A picked cover photo replaces Shopify's default first image.
+    // A picked cover photo replaces Shopify's default first image; when that
+    // cover is a community submission, image_credit carries the contributor's
+    // @handle so the detail view can credit them under the photo.
     if (ov.image) item.image = ov.image;
+    if (ov.image_credit) item.imageCredit = ov.image_credit;
     // Tag overrides: re-categorise and/or force retired. categoryOverrideTag is
     // read by categoryOverride() below; retiredOverride drives itemStatus and
     // lets the modal prefill auto/active/retired.
