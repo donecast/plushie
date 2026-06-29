@@ -847,7 +847,7 @@ function catalogDetailBodyHtml(cid, { forRail = false } = {}) {
     <div class="cd-head">
       <div class="cd-photo">${thumb ? `<img src="${escapeHtml(thumb)}" alt="${escapeHtml(display)}" />` : `<span class="no-photo">🖤</span>`}</div>
       <div class="cd-head-text">
-        <div class="card-eyebrow">${escapeHtml(item.type || 'plush')}${item.releaseYear ? ` · ${item.releaseYear}` : ''}</div>
+        <div class="card-eyebrow">${escapeHtml(catalogCategoryLabel(item))}${item.releaseYear ? ` · ${item.releaseYear}` : ''}</div>
         <h2>${escapeHtml(display)}${formLabel ? ` <span class="card-form-label">${escapeHtml(formLabel)}</span>` : ''}</h2>
         ${item.price != null && !isLoyaltyReward(item) ? `<p class="cd-price">$${Number(item.price).toFixed(2)}</p>` : ''}
         <p class="dim">

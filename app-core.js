@@ -543,6 +543,34 @@ function catalogCategory(item) {
   return 'other';
 }
 
+// User-facing label for the canonical category. The upstream Shopify
+// product_type is a mess — full-size plushies are tagged 'toy' OR 'plush'
+// interchangeably (266 'toy' vs 133 'plush', all the same kind of item), so
+// surfacing it raw just confuses. We label off catalogCategory() instead, so
+// every full-size bun reads "Regular Size Plush" regardless of its feed type.
+const CATALOG_CATEGORY_LABELS = {
+  plush: 'Regular Size Plush',
+  mini: 'Mini Plush',
+  clothing: 'Clothing',
+  accessory: 'Accessory',
+  bundle: 'Bundle',
+  other: 'Other',
+};
+function catalogCategoryLabel(item) {
+  const cat = catalogCategory(item);
+  if (cat === 'other') {
+    // The 'other' bucket is diverse store merch (stickers, jewelry, mugs…)
+    // where the specific Shopify type is more useful than a generic "Other".
+    // Surface it title-cased — but never the ambiguous 'toy'/'plush' raw
+    // types the rest of the app deliberately collapses.
+    const t = (item.type || '').trim();
+    if (t && !/^(toy|plush|stuffed toy)$/i.test(t)) {
+      return t.replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+  }
+  return CATALOG_CATEGORY_LABELS[cat] || 'Other';
+}
+
 function isComingSoon(item) {
   const tags = (item.tags || []).map((t) => t.toLowerCase());
   if (tags.includes('coming soon') || tags.includes('tba')) return true;
