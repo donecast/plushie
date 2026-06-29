@@ -1562,8 +1562,9 @@ function wireEvents() {
     const open = userMenu.classList.contains('hidden');
     userMenu.classList.toggle('hidden', !open);
     userBadge.setAttribute('aria-expanded', open ? 'true' : 'false');
-    // Admin entry mirrors the old hidden admin tab's is_admin gate.
-    document.getElementById('menu-admin').classList.toggle('hidden', !window.currentUser?.isAdmin);
+    // Admin entry mirrors the old hidden admin tab's is_admin gate — now also
+    // shown to moderators, who get a reports-only view of the console.
+    document.getElementById('menu-admin').classList.toggle('hidden', !window.currentUser?.canModerate);
   });
   document.addEventListener('click', (e) => {
     if (userMenu.classList.contains('hidden')) return;

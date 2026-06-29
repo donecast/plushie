@@ -810,8 +810,8 @@ function applyFeatureFlags() {
   const railsOn = data.featureEnabled('feature.side_rails', false);
   document.body.classList.toggle('rails-on', railsOn);
   if (railsOn) { renderRailIdentity(); loadCatalogEvents(); }
-  // Admin lives in the left rail too, but only for admins.
-  document.querySelector('.rail-tab-admin')?.classList.toggle('hidden', !window.currentUser?.isAdmin);
+  // Admin lives in the left rail too — admins, plus moderators (reports-only).
+  document.querySelector('.rail-tab-admin')?.classList.toggle('hidden', !window.currentUser?.canModerate);
 }
 
 function render() {
@@ -1038,9 +1038,12 @@ function render() {
     document.getElementById('count-label').textContent = tradeCountLabel();
   } else if (tab === 'admin') {
     renderAdmin();
-    document.getElementById('count-label').textContent = state.adminUserView
-      ? `Inspecting @${state.adminUserView.user.username}`
-      : `${state.adminUsers.length} user${state.adminUsers.length === 1 ? '' : 's'}`;
+    const adminUserCount = (state.adminUsers || []).length;
+    document.getElementById('count-label').textContent = !window.currentUser?.isAdmin
+      ? `${(state.adminOpenReports || []).length} open report${(state.adminOpenReports || []).length === 1 ? '' : 's'}`
+      : state.adminUserView
+        ? `Inspecting @${state.adminUserView.user.username}`
+        : `${adminUserCount} user${adminUserCount === 1 ? '' : 's'}`;
   } else if (tab === 'home') {
     renderSocial();
   }

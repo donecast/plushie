@@ -11,7 +11,15 @@
 
 // ─── Admin ───────────────────────────────────────────────────────────
 async function loadAdminUsers() {
-  if (!window.currentUser?.isAdmin) return;
+  if (!window.currentUser?.canModerate) return;
+  // Pure moderators (not full admins) get the reports queue only — the admin
+  // user list and other queues are admin-gated by RLS and would just error.
+  if (!window.currentUser?.isAdmin) {
+    try {
+      state.adminOpenReports = await data.adminListReports('open');
+    } catch (err) { console.error('mod reports', err); }
+    return;
+  }
   try {
     state.adminUsers = await data.adminListUsers();
     // Also surface counts on the Tools strip badges. Non-fatal if any
@@ -33,8 +41,13 @@ async function loadAdminUsers() {
 }
 
 function renderAdmin() {
-  if (!window.currentUser?.isAdmin) {
+  if (!window.currentUser?.canModerate) {
     document.getElementById('admin-content').innerHTML = '<p class="dim">Not an admin.</p>';
+    return;
+  }
+  // A moderator who isn't a full admin sees only the reports queue.
+  if (!window.currentUser?.isAdmin) {
+    renderModeratorConsole();
     return;
   }
   if (state.adminUserView) {
@@ -42,6 +55,23 @@ function renderAdmin() {
   } else {
     renderAdminUserList();
   }
+}
+
+// Stripped console for pure moderators: just the user/content reports queue.
+function renderModeratorConsole() {
+  const openReports = (state.adminOpenReports || []).length;
+  document.getElementById('admin-content').innerHTML = `
+    <section class="admin-tools">
+      <h2 class="trader-head"><span>Moderation</span></h2>
+      <p class="dim">You're a moderator: review reports and remove posts or comments. Full admin tools aren't available.</p>
+      <div class="admin-tool">
+        <div>
+          <strong>User &amp; content reports ${openReports ? `<span class="badge badge-form">${openReports} open</span>` : ''}</strong>
+          <p class="dim">Posts, comments, and collectors reported by users. Review and remove the content or dismiss.</p>
+        </div>
+        <button data-admin-action="review-reports">Review</button>
+      </div>
+    </section>`;
 }
 
 function renderAdminUserList() {
@@ -284,6 +314,24 @@ async function onToggleGhostForUser(e) {
   }
 }
 
+async function onToggleModeratorForUser(e) {
+  const cb = e.target;
+  const userId = cb.dataset.userId;
+  const next = cb.checked;
+  cb.disabled = true;
+  try {
+    await data.adminSetModerator(userId, next);
+    if (state.adminUserView?.snapshot?.moderation) state.adminUserView.snapshot.moderation.is_moderator = next;
+    toast(next ? 'Moderator powers granted.' : 'Moderator powers removed.');
+    renderAdmin();
+  } catch (err) {
+    console.error(err);
+    cb.checked = !next;
+    cb.disabled = false;
+    toast('Could not save: ' + (err.message || err));
+  }
+}
+
 function renderAdminUserView() {
   const { user, snapshot } = state.adminUserView;
   // Compact, read-only row. The whole card opens a read-only detail modal
@@ -394,6 +442,16 @@ function renderAdminUserView() {
           <span>${mod.is_admin ? 'N/A (admin)' : (mod.ghosted ? 'Ghosted' : 'Visible')}</span>
         </label>
       </div>
+      <div class="admin-tool">
+        <div>
+          <strong>Moderator</strong>
+          <p class="dim">Can delete any post or comment and work the reports queue — but is not a full admin (no user list, catalog, or settings access). Moderators can't be blocked.</p>
+        </div>
+        <label class="checkbox" style="white-space:nowrap;">
+          <input type="checkbox" data-admin-toggle="moderator" data-user-id="${user.id}" ${mod.is_moderator ? 'checked' : ''} ${mod.is_admin ? 'disabled title="Admins already moderate"' : ''} />
+          <span>${mod.is_admin ? 'N/A (admin)' : (mod.is_moderator ? 'Moderator' : 'Member')}</span>
+        </label>
+      </div>
     </section>`;
     })()}
 
@@ -458,6 +516,8 @@ function renderAdminUserView() {
     ?.addEventListener('change', onToggleAppBlockForUser);
   document.querySelector('[data-admin-toggle="ghost"]')
     ?.addEventListener('change', onToggleGhostForUser);
+  document.querySelector('[data-admin-toggle="moderator"]')
+    ?.addEventListener('change', onToggleModeratorForUser);
 }
 
 // Read-only detail for an item in the admin collection/wishlist view —
