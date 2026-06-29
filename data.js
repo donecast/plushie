@@ -2068,12 +2068,14 @@ data.adminListPhotoSuggestions = async function (status = 'pending') {
   return rows;
 };
 
-// Approve a suggestion. If the target is a catalog_items UUID, the
-// image_path is copied onto that row. If the target is a raw Shopify
-// id, we now AUTO-CREATE a catalog_items row first using the Shopify
-// product info the caller passes in (name/handle/type — from
-// state.catalog client-side). Replaces the earlier 'create one first'
-// error path.
+// Approve a suggestion and route the photo to where its target renders:
+//   • pen  → pens.image_path (single image).
+//   • custom catalog_items UUID → that row's image_path/credit.
+//   • raw Shopify id → the photo enters the item's catalog_photos gallery as
+//     the new cover (slot A), bumping any existing A to the next free letter,
+//     and mirrors to catalog_overrides.image. Caller passes the upstream
+//     handle (from state.catalog). No shadow catalog_items row is created —
+//     that used to spawn a phantom duplicate card next to the Shopify item.
 data.adminApprovePhotoSuggestion = async function (suggestionId, shopifyProductIfNeeded) {
   const { data: row, error: e1 } = await sb
     .from('catalog_photo_suggestions')
@@ -2112,52 +2114,77 @@ data.adminApprovePhotoSuggestion = async function (suggestionId, shopifyProductI
     return;
   }
 
-  let targetCatalogId = row.target_catalog_item_id;
-
-  if (!targetCatalogId) {
-    if (!shopifyProductIfNeeded || !shopifyProductIfNeeded.name || !shopifyProductIfNeeded.handle) {
-      throw new Error('Shopify-targeted suggestion needs the upstream product info passed in.');
-    }
-    // Don't double-create if a catalog_items row already covers this
-    // Shopify product (matched on handle).
-    const { data: existing } = await sb
-      .from('catalog_items')
-      .select('id, image_path')
-      .eq('handle', shopifyProductIfNeeded.handle)
-      .maybeSingle();
-    if (existing) {
-      targetCatalogId = existing.id;
-    } else {
-      const created = await data.createCatalogItem({
-        name: shopifyProductIfNeeded.name,
-        handle: shopifyProductIfNeeded.handle,
-        type: shopifyProductIfNeeded.type || 'plush',
-        image_path: row.image_path,
-        image_credit: imageCredit,
+  // Flip the suggestion to approved — shared by every target branch below.
+  const markApproved = async () => {
+    const { error } = await sb
+      .from('catalog_photo_suggestions')
+      .update({
         status: 'approved',
-      });
-      targetCatalogId = created.id;
-    }
+        reviewed_by: window.currentUser.id,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq('id', suggestionId);
+    if (error) throw error;
+  };
+
+  // Custom catalog_items target — that row carries its own cover image, so
+  // copy the path (and credit) straight onto it.
+  if (row.target_catalog_item_id) {
+    const { error: e2 } = await sb
+      .from('catalog_items')
+      .update({ image_path: row.image_path, image_credit: imageCredit })
+      .eq('id', row.target_catalog_item_id);
+    if (e2) throw e2;
+    await markApproved();
+    return;
   }
 
-  // Always write the image_path through (handles the existing-catalog
-  // case AND the freshly-created case where image_path was set on insert).
-  // The credit follows the current cover, so write it alongside.
-  const { error: e2 } = await sb
-    .from('catalog_items')
-    .update({ image_path: row.image_path, image_credit: imageCredit })
-    .eq('id', targetCatalogId);
-  if (e2) throw e2;
+  // Shopify-product target (target_shopify_id). The approved photo joins the
+  // item's catalog_photos gallery as the new cover (slot A); making it primary
+  // mirrors its URL into catalog_overrides.image — the live render bridge.
+  // We deliberately do NOT create a shadow catalog_items row: that produced a
+  // phantom duplicate card sitting next to the real Shopify item.
+  const handle = shopifyProductIfNeeded && shopifyProductIfNeeded.handle;
+  if (!handle) {
+    throw new Error('Shopify-targeted suggestion needs the upstream product handle passed in.');
+  }
+  const target = { handle };
 
-  const { error: e3 } = await sb
-    .from('catalog_photo_suggestions')
-    .update({
-      status: 'approved',
-      reviewed_by: window.currentUser.id,
-      reviewed_at: new Date().toISOString(),
-    })
-    .eq('id', suggestionId);
-  if (e3) throw e3;
+  // The incoming shot always becomes Photo A. If an A already exists, bump it
+  // to the letter just past the highest lettered slot in use (A,B,C → old A
+  // becomes D; A only → old A becomes B) so the newest is always the cover.
+  const existing = await data.adminListCatalogPhotos(target);
+  const existingA = existing.find((p) => p.slot === 'A');
+  if (existingA) {
+    const codes = existing
+      .map((p) => String(p.slot))
+      .filter((s) => /^[A-Z]$/.test(s))
+      .map((s) => s.charCodeAt(0));
+    let bumpSlot;
+    const nextCode = Math.max(...codes) + 1;
+    if (nextCode <= 'Z'.charCodeAt(0)) {
+      bumpSlot = String.fromCharCode(nextCode);
+    } else {
+      // Alphabet exhausted (26 community shots) — drop into the lowest free gap.
+      const used = new Set(existing.map((p) => String(p.slot)));
+      for (let c = 'A'.charCodeAt(0); c <= 'Z'.charCodeAt(0) && !bumpSlot; c++) {
+        const ch = String.fromCharCode(c);
+        if (!used.has(ch)) bumpSlot = ch;
+      }
+      if (!bumpSlot) throw new Error('No free community photo slot (A–Z all taken).');
+    }
+    await data.adminSetCatalogPhotoSlot(existingA.id, bumpSlot);
+  }
+
+  const saved = await data.adminAddCatalogPhoto(target, {
+    slot: 'A',
+    imagePath: row.image_path,
+    source: 'community',
+    credit: imageCredit,
+  });
+  await data.adminSetCatalogPhotoPrimary(target, saved.id);
+
+  await markApproved();
 };
 
 data.adminRejectPhotoSuggestion = async function (suggestionId) {

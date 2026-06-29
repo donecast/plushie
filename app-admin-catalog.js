@@ -1230,9 +1230,9 @@ function renderPendingPhotoRow(row) {
 async function adminApprovePhotoSuggestion(id) {
   try {
     // For suggestions targeting a raw Shopify product, find the upstream
-    // product in state.catalog and pass its info through so
-    // adminApprovePhotoSuggestion can auto-create the catalog_items
-    // row instead of erroring.
+    // product in state.catalog and pass its handle through so
+    // adminApprovePhotoSuggestion can file the photo into that item's
+    // catalog_photos gallery (as the new cover) instead of erroring.
     const row = (state.adminPendingPhotos || []).find((r) => r.id === id);
     let shopifyInfo;
     if (row && row.target_shopify_id && !row.target_catalog_item_id) {
