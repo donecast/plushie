@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=127" />
+  <link rel="stylesheet" href="./styles.css?v=128" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -1037,6 +1037,7 @@
               <li><strong>Refreshing keeps your place.</strong> Reloading the page now leaves you on whichever tab you were viewing — Catalog, Crypt, Trade — instead of bouncing you back to Home. Coming back fresh in a new session still starts you on Home as before.</li>
               <li><strong>No more "everything's gone!" flash on refresh.</strong> While the crypt is still loading after a reload, each tab now shows a gentle <em>"Summoning…"</em> placeholder instead of briefly looking empty — so a slow connection no longer makes it seem like your collection, offerings or feed vanished for a moment.</li>
               <li class="changelog-gated"><strong>Status badges on the admin user list.</strong> Each collector now shows quick icons next to their name — <strong>🛡️ admin</strong>, <strong>⚖️ moderator</strong>, <strong>👻 ghosted</strong>, <strong>🚫 blocked from app</strong> — so you can see who's who at a glance without opening each profile.</li>
+              <li><strong>You can now delete your account.</strong> Under <strong>Account &amp; settings</strong>, a new <strong>Delete my account</strong> option closes your account and removes your collection, wish list, trades, and profile. We'll ask one quick, optional question on the way out — what made you want to leave — so we can do better.</li>
             </ul>
             <p class="changelog-fixes">Fixed <strong>deeply-nested replies</strong> getting crushed into an unreadable sliver — reply threads now stop indenting after one level, so a reply-to-a-reply lines up with its siblings instead of marching off the right edge. Also fixed <strong>editing a comment</strong> — the inline edit box now gives the text room and drops <strong>Save</strong>/<strong>Cancel</strong> onto a tidy row beneath, instead of squashing them into an unreadable sliver. Also fixed <strong>restock reminders</strong> still nagging about <strong>retired</strong> plushies right after opening the app — the reminder now waits for the catalog to load before deciding what's truly out of stock. Also fixed <strong>catalog cards ballooning</strong> when a search or filter returned only a few results — sparse result sets now keep a sensible card size instead of stretching one or two plushies across the whole row.</p>
           </div>
@@ -1521,6 +1522,14 @@
         </div>
       </section>
 
+      <section class="account-section account-danger">
+        <h3>Delete account</h3>
+        <p class="account-hint">Permanently closes your account and removes your collection, wish list, trades, and profile. This can't be undone.</p>
+        <div class="account-row right">
+          <button class="btn-ghost acct-delete-link" id="acct-delete">Delete my account…</button>
+        </div>
+      </section>
+
       </div>
     </div>
   </div>
@@ -1593,22 +1602,57 @@
     </div>
   </div>
 
+  <!-- Account-deleted takeover: shown by showDeletedScreen() to a user who
+       asked to delete their account (db/0068 profiles.deletion_requested_at).
+       To them the account is gone; really it's queued for admin review. -->
+  <div id="deleted-overlay" class="maint-overlay hidden" role="alert" aria-live="assertive">
+    <div class="maint-card">
+      <div class="maint-bat">🖤</div>
+      <h1>Your account has been deleted</h1>
+      <p class="maint-sub">Thank you for spending time in The Plush Crypt. Your account and its
+        contents have been closed. If you ever change your mind, reach out at
+        <a href="mailto:hello@plushcrypt.com">hello@plushcrypt.com</a>. 🖤</p>
+    </div>
+  </div>
+
+  <!-- Exit survey + final confirm shown by the "Delete my account" button in
+       Settings. The textarea is OPTIONAL (skippable); confirming queues the
+       account for admin review (db/0068) — it is not actually deleted here. -->
+  <div id="delete-account-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="delacct-title">
+    <div class="modal-backdrop" data-close-delacct></div>
+    <div class="modal-card">
+      <button class="modal-close" data-close-delacct aria-label="Close">×</button>
+      <h2 id="delacct-title">Delete your account?</h2>
+      <p class="account-hint">This permanently closes your account and removes your collection, wish
+        list, trades, and profile. This can't be undone.</p>
+      <label class="field" for="delacct-reason" style="margin-top:0.75rem;">
+        <span>Before you go — what made you want to leave, and what could we do better? <span class="dim">(optional)</span></span>
+        <textarea id="delacct-reason" rows="4" maxlength="2000"
+          placeholder="Your honest feedback helps us. Or leave this blank — totally fine."></textarea>
+      </label>
+      <div class="form-actions" style="margin-top:1rem;">
+        <button type="button" class="btn-ghost" data-close-delacct>Never mind</button>
+        <button type="button" class="btn-danger" id="delacct-confirm">Delete my account</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./config.js?v=53"></script>
-  <script src="./auth.js?v=61"></script>
+  <script src="./auth.js?v=62"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=83"></script>
+  <script src="./data.js?v=84"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=148"></script>
-  <script src="./app-catalog.js?v=148"></script>
-  <script src="./app-collection.js?v=148"></script>
-  <script src="./app-ui.js?v=148"></script>
-  <script src="./app-trade.js?v=148"></script>
-  <script src="./app-account.js?v=148"></script>
-  <script src="./app-admin.js?v=148"></script>
-  <script src="./app-admin-catalog.js?v=148"></script>
-  <script src="./app-social.js?v=148"></script>
+  <script src="./app-core.js?v=149"></script>
+  <script src="./app-catalog.js?v=149"></script>
+  <script src="./app-collection.js?v=149"></script>
+  <script src="./app-ui.js?v=149"></script>
+  <script src="./app-trade.js?v=149"></script>
+  <script src="./app-account.js?v=149"></script>
+  <script src="./app-admin.js?v=149"></script>
+  <script src="./app-admin-catalog.js?v=149"></script>
+  <script src="./app-social.js?v=149"></script>
 </body>
 </html>

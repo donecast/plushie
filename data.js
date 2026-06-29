@@ -1074,6 +1074,33 @@ data.adminResolveReport = async function (reportId, status, note) {
   if (error) throw error;
 };
 
+// ─── Account deletion review queue (db/0068) ────────────────────────────
+// Accounts whose owner asked to "delete" them, newest first. The flag lives
+// on profiles (admins read all rows); the exit-survey reason lives in
+// profile_private (admins read via pp_admin_read). Two reads, joined here.
+data.adminListDeletionRequests = async function () {
+  const { data: rows, error } = await sb.from('profiles')
+    .select('id, username, deletion_requested_at')
+    .not('deletion_requested_at', 'is', null)
+    .order('deletion_requested_at', { ascending: false });
+  if (error) throw error;
+  if (!rows || !rows.length) return [];
+  const ids = rows.map((r) => r.id);
+  const { data: priv } = await sb.from('profile_private')
+    .select('id, deletion_reason').in('id', ids);
+  const reasons = new Map((priv || []).map((p) => [p.id, p.deletion_reason]));
+  return rows.map((r) => ({ ...r, deletion_reason: reasons.get(r.id) || null }));
+};
+
+// Restore an account that had asked to be deleted — clears the flag (admin
+// escape hatch profiles_update_admin, db/0019) so the owner can sign in again.
+// The stale reason in profile_private is harmless and left as-is.
+data.adminClearDeletionRequest = async function (userId) {
+  const { error } = await sb.from('profiles')
+    .update({ deletion_requested_at: null }).eq('id', userId);
+  if (error) throw error;
+};
+
 // Remove the reported post or comment (admin delete grant from 0034).
 data.adminDeleteReportedContent = async function (targetType, targetId) {
   if (targetType === 'post') {
@@ -1371,6 +1398,30 @@ data.setMyName = async function ({ firstName, lastName, visibility }) {
   if (error) throw error;
 };
 
+// ─── Self-serve account deletion (db/0068) ──────────────────────────────
+// What the user experiences as "delete my account" is really a REQUEST: we
+// stamp profiles.deletion_requested_at (allowed by profiles_update_self) and
+// stash their optional exit-survey reason in the locked-down profile_private
+// table (admin + self read only — never world-readable like profiles rows).
+// The row is NOT deleted; an admin reviews the queue and either purges or
+// restores it. From this call on, boot shows them the "deleted" takeover and
+// is_suppressed() hides them from everyone else.
+data.requestAccountDeletion = async function (reason) {
+  const uid = window.currentUser.id;
+  const text = (reason || '').trim().slice(0, 2000);
+  // Save the reason first (best-effort) so it's in place before the flag flips;
+  // a failure here must not block the user from leaving.
+  if (text) {
+    const { error: rErr } = await sb.from('profile_private')
+      .upsert({ id: uid, deletion_reason: text });
+    if (rErr) console.warn('requestAccountDeletion: reason save skipped', rErr);
+  }
+  const { error } = await sb.from('profiles')
+    .update({ deletion_requested_at: new Date().toISOString() })
+    .eq('id', uid);
+  if (error) throw error;
+};
+
 // Best-effort heartbeat written once per app boot.
 data.touchLastSeen = async function () {
   try { await sb.rpc('touch_last_seen'); }
@@ -1489,10 +1540,27 @@ data.adminUserSnapshot = async function (userId) {
       is_moderator: prof.is_moderator === true,
     };
   }
+  // Self-requested deletion (db/0068): surfaced in the danger zone so an admin
+  // reviewing the account sees why they're here and their exit feedback. Both
+  // reads are best-effort — a missing column (migration not applied) just
+  // leaves deletion null.
+  let deletion = null;
+  try {
+    const { data: dp } = await sb.from('profiles')
+      .select('deletion_requested_at').eq('id', userId).maybeSingle();
+    if (dp && dp.deletion_requested_at) {
+      const { data: dpriv } = await sb.from('profile_private')
+        .select('deletion_reason').eq('id', userId).maybeSingle();
+      deletion = {
+        requested_at: dp.deletion_requested_at,
+        reason: (dpriv && dpriv.deletion_reason) || null,
+      };
+    }
+  } catch (e) { console.warn('deletion snapshot skipped', e); }
   return {
     collection: col, plushies, wishlist, pens,
     trades: trades || [], tradeItems: tradeItems || [],
-    blocksInitiated, blockedBy, feedback: fb, moderation,
+    blocksInitiated, blockedBy, feedback: fb, moderation, deletion,
   };
 };
 

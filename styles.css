@@ -2890,6 +2890,22 @@ body.cl-insider .changelog-gated strong { color: #2f6fed; }
   border-bottom: 1px solid var(--border-rose-vague);
 }
 .account-section:last-child { border-bottom: 0; }
+/* Self-serve account deletion (db/0068). The danger section sits last; the
+   trigger is a quiet, muted link so it never reads as a primary action. */
+.account-section.account-danger h3 { color: var(--danger-1); }
+.acct-delete-link {
+  color: var(--danger-1);
+  opacity: 0.85;
+  font-size: 0.9rem;
+}
+.acct-delete-link:hover { opacity: 1; }
+/* Deletion-request banner inside the admin user-detail danger zone. */
+.admin-deletion-note {
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed var(--negative-edge);
+}
+.admin-deletion-note p { font-family: var(--sans); font-style: normal; }
 .account-section h3 {
   font-family: var(--display);
   font-size: 0.95rem;

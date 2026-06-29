@@ -1581,6 +1581,17 @@ function showBlockedScreen() {
   document.body.classList.add('maint-locked');
 }
 
+// Full-screen "your account has been deleted" takeover for a user who asked to
+// delete their account (db/0068 profiles.deletion_requested_at). To them the
+// account is gone; really it's queued for admin review. Boot returns early so
+// the app never renders for them — the strongest form of the illusion.
+function showDeletedScreen() {
+  const el = document.getElementById('deleted-overlay');
+  if (!el) { showBlockedScreen(); return; } // fail closed onto the block takeover
+  el.classList.remove('hidden');
+  document.body.classList.add('maint-locked');
+}
+
 let eventsWired = false;
 async function boot() {
   if (!eventsWired) {
@@ -1596,6 +1607,14 @@ async function boot() {
   await handleJoinToken();        // ?join=<token> redeems and switches in
   await data.migrateFromIDB();    // one-time IDB → Supabase upload per account
   await data.loadAppSettings();   // feature flags (e.g. user photo uploads)
+  // Deletion gate: a user who asked to delete their account (db/0068) never
+  // boots — they get the "deleted" takeover. Checked first so a departing user
+  // always sees the goodbye, not a block or "resting" screen. canModerate
+  // (admin or moderator) is exempt so staff can't lock themselves out.
+  if (window.currentUser?.pendingDeletion && !window.currentUser?.canModerate) {
+    showDeletedScreen();
+    return;
+  }
   // App-block gate: a user an admin has fully blocked (db/0046) never boots —
   // they get a removal takeover instead. Checked before maintenance so a
   // blocked user sees the block, not the "resting" screen.

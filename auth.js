@@ -52,9 +52,17 @@ const auth = {
     // still sign in before all migrations have been applied.
     let { data, error } = await sb
       .from('profiles')
-      .select('id, username, is_admin, is_moderator, photo_uploads_enabled, custom_clothing_enabled, app_blocked, ghosted')
+      .select('id, username, is_admin, is_moderator, photo_uploads_enabled, custom_clothing_enabled, app_blocked, ghosted, deletion_requested_at')
       .eq('id', session.user.id)
       .maybeSingle();
+    if (error && /column.*deletion_requested_at/i.test(error.message || '')) {
+      console.warn('[auth] profiles.deletion_requested_at missing; run migration 0068');
+      ({ data, error } = await sb
+        .from('profiles')
+        .select('id, username, is_admin, is_moderator, photo_uploads_enabled, custom_clothing_enabled, app_blocked, ghosted')
+        .eq('id', session.user.id)
+        .maybeSingle());
+    }
     if (error && /column.*is_moderator/i.test(error.message || '')) {
       console.warn('[auth] profiles.is_moderator missing; run migration 0066');
       ({ data, error } = await sb
@@ -311,6 +319,13 @@ async function runAuthGate(onReady) {
         // doesn't apply, and a ghost should stay a ghost in any mode.
         appBlocked: profile.app_blocked === true,
         ghosted: profile.ghosted === true,
+        // Self-requested account deletion (db/0068). The user thinks they're
+        // gone; really the row is queued for admin review. Treated like
+        // app_blocked at boot — they get the "deleted" takeover and can't get
+        // back in — but kept distinct so admins can tell a self-request from a
+        // moderation ban. Not demo-suppressed (an admin/mod can't request-delete
+        // into a lockout of themselves: the boot gate exempts canModerate).
+        pendingDeletion: !!profile.deletion_requested_at,
       };
 
       // Real-name gate (see db/0045). A first name is required for everyone

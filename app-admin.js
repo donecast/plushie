@@ -24,16 +24,18 @@ async function loadAdminUsers() {
     state.adminUsers = await data.adminListUsers();
     // Also surface counts on the Tools strip badges. Non-fatal if any
     // of these fails — the queues still open from their buttons.
-    const [disp, cats, photos, reports] = await Promise.allSettled([
+    const [disp, cats, photos, reports, dels] = await Promise.allSettled([
       data.adminListDisputes(),
       data.adminListCatalogPending(),
       data.adminListPhotoSuggestions('pending'),
       data.adminListReports('open'),
+      data.adminListDeletionRequests(),
     ]);
     if (disp.status === 'fulfilled') state.adminOpenDisputes = disp.value;
     if (cats.status === 'fulfilled') state.adminPendingCatalog = cats.value;
     if (photos.status === 'fulfilled') state.adminPendingPhotos = photos.value;
     if (reports.status === 'fulfilled') state.adminOpenReports = reports.value;
+    if (dels.status === 'fulfilled') state.adminDeletionRequests = dels.value;
   } catch (err) {
     console.error('adminListUsers', err);
     toast('Could not load users.');
@@ -164,6 +166,14 @@ function renderAdminUserList() {
           <p class="dim">Collectors' photo proposals for items missing an image. Approve to set the catalog item's photo.</p>
         </div>
         <button data-admin-action="review-photo-suggestions">Review</button>
+      </div>
+
+      <div class="admin-tool">
+        <div>
+          <strong>Account deletion requests ${(state.adminDeletionRequests || []).length ? `<span class="badge badge-form">${state.adminDeletionRequests.length} waiting</span>` : ''}</strong>
+          <p class="dim">Users who asked to delete their account. They think it's gone and can't sign in — but nothing is deleted until you purge it here. Read their exit feedback, then purge or restore.</p>
+        </div>
+        <button data-admin-action="review-deletions">Review</button>
       </div>
 
       <div class="admin-tool">
@@ -507,6 +517,16 @@ function renderAdminUserView() {
 
     <section class="admin-danger">
       <h3 class="trader-head"><span>Danger zone</span></h3>
+      ${snapshot.deletion ? `
+      <div class="admin-deletion-note">
+        <p><strong>🖤 This user asked to delete their account${snapshot.deletion.requested_at ? ` on ${escapeHtml(new Date(snapshot.deletion.requested_at).toLocaleString())}` : ''}.</strong>
+          To them it's already gone (they can't sign in) — but nothing is deleted until you purge below. You can also restore them.</p>
+        ${snapshot.deletion.reason
+          ? `<p class="dim">Exit feedback:</p><p class="dispute-statement-box">${escapeHtml(snapshot.deletion.reason).replace(/\n/g, '<br/>')}</p>`
+          : '<p class="dim">No exit feedback left.</p>'}
+        <button class="btn-ghost" data-admin-action="restore-deletion"
+          data-uid="${user.id}" data-username="${escapeHtml(user.username)}">Restore (cancel deletion)</button>
+      </div>` : ''}
       <p class="dim">Purging an account cascades through every table the user touches —
         profile, collections, wishlist, pens, trade items, trades, feedback, addresses,
         consent log, and uploaded photos. <strong>Irreversible.</strong></p>
@@ -579,6 +599,9 @@ async function onAdminClick(e) {
     const uid = btn.dataset.uid;
     const user = state.adminUsers.find((u) => u.id === uid);
     if (!user) return;
+    // May have been launched from a queue modal (e.g. deletion requests) —
+    // close it so the user-detail view isn't hidden underneath.
+    document.getElementById('admin-queue-modal')?.classList.add('hidden');
     document.getElementById('admin-content').innerHTML = '<p class="dim">Loading…</p>';
     try {
       const snapshot = await data.adminUserSnapshot(uid);
@@ -667,6 +690,10 @@ async function onAdminClick(e) {
     await adminResolveReportAction(btn.dataset.id, btn.dataset.status);
   } else if (action === 'delete-reported') {
     await adminDeleteReportedAction(btn.dataset.id, btn.dataset.targetType, btn.dataset.targetId);
+  } else if (action === 'review-deletions') {
+    await openDeletionRequestsModal();
+  } else if (action === 'restore-deletion') {
+    await adminRestoreDeletionAction(btn.dataset.uid, btn.dataset.username);
   } else if (action === 'approve-catalog-item') {
     await adminApproveCatalogItem(btn.dataset.id);
   } else if (action === 'reject-catalog-item') {
@@ -921,6 +948,66 @@ async function adminDeleteReportedAction(reportId, targetType, targetId) {
   } catch (err) {
     console.error(err);
     toast('Could not remove that content.');
+  }
+}
+
+// ─── Account deletion requests queue (db/0068) ──────────────────────────
+// Self-requested "deletions" awaiting review. Each row: open the user (to read
+// everything and Purge for real from the Danger zone), or Restore (clear the
+// flag so they can sign in again). Nothing is deleted here automatically.
+async function openDeletionRequestsModal() {
+  const body = document.getElementById('aq-body');
+  document.getElementById('aq-title').textContent = 'Account deletion requests';
+  body.innerHTML = '<p class="dim">Loading…</p>';
+  document.getElementById('admin-queue-modal').classList.remove('hidden');
+  try {
+    const rows = await data.adminListDeletionRequests();
+    state.adminDeletionRequests = rows;
+    body.innerHTML = rows.length
+      ? rows.map(renderDeletionRow).join('')
+      : '<p class="dim">No pending deletion requests. ✨</p>';
+  } catch (err) {
+    console.error(err);
+    body.innerHTML = `<p class="dim">Couldn't load: ${escapeHtml(err.message || String(err))}</p>`;
+  }
+}
+
+function renderDeletionRow(r) {
+  const when = r.deletion_requested_at ? new Date(r.deletion_requested_at).toLocaleString() : '';
+  return `
+    <article class="catalog-pending-row">
+      <div class="catalog-pending-body">
+        <h3>@${escapeHtml(r.username || '?')}</h3>
+        <p class="dim">Asked to leave ${when ? `· ${escapeHtml(when)}` : ''}</p>
+        ${r.deletion_reason
+          ? `<p class="dispute-statement-box">${escapeHtml(r.deletion_reason).replace(/\n/g, '<br/>')}</p>`
+          : '<p class="dim">No exit feedback left.</p>'}
+        <div class="form-actions">
+          <button class="btn-primary" data-admin-action="open" data-uid="${r.id}">Inspect &amp; purge →</button>
+          <button class="btn-ghost" data-admin-action="restore-deletion" data-uid="${r.id}" data-username="${escapeHtml(r.username || '')}">Restore (cancel deletion)</button>
+        </div>
+      </div>
+    </article>`;
+}
+
+async function adminRestoreDeletionAction(userId, username) {
+  if (!confirm(`Restore @${username}'s account? They'll be able to sign in again.`)) return;
+  try {
+    await data.adminClearDeletionRequest(userId);
+    toast(`@${username} restored.`);
+    const queueOpen = !document.getElementById('admin-queue-modal')?.classList.contains('hidden');
+    if (queueOpen) {
+      await openDeletionRequestsModal();   // refresh the queue list in place
+    } else if (state.adminUserView) {
+      // Restored from the user-detail danger zone — re-pull the snapshot so the
+      // banner clears, and refresh queue counts for the dashboard.
+      state.adminUserView.snapshot = await data.adminUserSnapshot(userId);
+      await loadAdminUsers();
+      renderAdmin();
+    }
+  } catch (err) {
+    console.error(err);
+    toast('Could not restore that account.');
   }
 }
 
