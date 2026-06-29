@@ -1635,6 +1635,16 @@ main {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-8px); }
 }
+/* Loading variant of .empty — shown while a section's first data load is
+   still in flight (see state.ready). Gently pulses so it reads as "fetching",
+   not as a final "nothing here". */
+.empty.loading-ph {
+  animation: loadingPulse 1.4s ease-in-out infinite;
+}
+@keyframes loadingPulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.9; }
+}
 
 .hidden { display: none !important; }
 

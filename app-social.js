@@ -57,6 +57,9 @@ async function loadSocialData() {
   } catch (e) {
     console.error('loadSocialData', e);
     toast('Could not load the crypt social feed.');
+  } finally {
+    // Attempted — a genuinely quiet feed should show its real empty-state.
+    state.ready.add('social');
   }
 }
 
@@ -170,7 +173,9 @@ function renderFeed() {
     </div>`;
 
   const feed = state.socFeed.filter((p) => !isHiddenPost(p.id));
-  const posts = feed.length
+  const posts = !state.ready.has('social')
+    ? loadingPlaceholder('Summoning the crypt…')
+    : feed.length
     ? feed.map(renderPostCard).join('')
     : `<p class="empty-note">The crypt is quiet. Make the first post, or
         <button class="linklike" data-soc-action="go-friends">find some friends</button> to follow.</p>`;
@@ -1605,6 +1610,12 @@ async function boot() {
     return;
   }
   applyFeatureFlags();
+  // First paint, before any section data is in hand: with state.ready still
+  // empty every tab renders its "Summoning…" loading placeholder instead of a
+  // blank shell (or, worse, a misleading "nothing here" empty-state) during
+  // the loads below. The real render() further down replaces it once data
+  // lands. Guarded so a render hiccup never aborts boot.
+  try { render(); } catch (e) { console.warn('initial loading paint skipped', e); }
   await loadAll();
   state.pensOwned = await data.listPens();
   try { state.pensMeta = await data.listPenMeta(); } catch (e) { console.warn('pens meta load skipped', e); }
