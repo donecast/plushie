@@ -695,6 +695,11 @@ function toast(msg) {
 // kept in memory for the lifetime of the page so flipping between tabs
 // always lands where you left off.
 const FILTERS_KEY = 'filters';
+// The active tab lives in sessionStorage (not localStorage) on purpose: it
+// survives a page refresh within the same session but is cleared when the tab
+// /app is closed. So a manual refresh keeps you where you were, while coming
+// back fresh (a new visit) lands on the default Social tab.
+const SESSION_TAB_KEY = 'activeTab';
 const tabScroll = new Map();
 
 // Capture window.scrollY before an action that triggers render() and put
@@ -740,18 +745,29 @@ function saveFilters() {
       tradeSubTab: state.tradeSubTab,
     }));
   } catch { /* localStorage blocked or full — non-fatal */ }
+  // Remember the active tab for this session only, so a refresh restores it.
+  try { sessionStorage.setItem(SESSION_TAB_KEY, state.tab); } catch { /* blocked — non-fatal */ }
 }
 
 function loadFilters() {
+  // Restore the active tab from sessionStorage: present only when this is a
+  // refresh of an already-open session (kept you where you were), absent on a
+  // fresh return so the app lands on the default Social tab. Done before the
+  // filter parse so the legacy-tab migrations below also fix it up.
+  try {
+    const savedTab = sessionStorage.getItem(SESSION_TAB_KEY);
+    if (savedTab) state.tab = savedTab;
+  } catch { /* sessionStorage blocked — fall through to default tab */ }
   try {
     const raw = localStorage.getItem(FILTERS_KEY);
     if (!raw) return;
     const s = JSON.parse(raw);
     if (typeof s !== 'object' || !s) return;
     // Copy known scalar keys, fall back to current default if missing.
-    // Note: 'tab' is intentionally NOT restored — the app always lands on
-    // the Social tab (the default) when reopened. Filters/sub-tabs still
-    // persist so each tab keeps its settings once you switch to it.
+    // Note: 'tab' is NOT restored from localStorage — a fresh return lands on
+    // the default Social tab. (A same-session refresh restores it from
+    // sessionStorage above.) Filters/sub-tabs still persist so each tab keeps
+    // its settings once you switch to it.
     const scalars = [
       'colSubTab', 'filter', 'colCategory', 'colSort', 'colView', 'wishCategory', 'wishSort', 'wishView',
       'catalogFilter', 'catalogTheme', 'catalogColor', 'catalogSort',
