@@ -674,8 +674,13 @@ function applyCatalogOverrides(shopifyProducts, overrides) {
     if (Array.isArray(ov.accessories) && ov.accessories.length) {
       item.accessories = categoryHasAccessories(item) ? normalizeAccessories(ov.accessories) : [];
     }
-    // A picked cover photo replaces Shopify's default first image.
-    if (ov.image) item.image = ov.image;
+    // A picked cover photo replaces Shopify's default first image — but
+    // never on an expanded variant child. Blue/Orange/etc. variants share
+    // their parent's handle, so a by-handle cover would paint every variant
+    // with the same photo (the bug that made an Orange variant show the
+    // Blue shot). Each variant keeps its own featured_image; the cover only
+    // lands on the (hidden) parent and genuine single-card products.
+    if (ov.image && !item.isVariant) item.image = ov.image;
     // Tag overrides: re-categorise and/or force retired. categoryOverrideTag is
     // read by categoryOverride() below; retiredOverride drives itemStatus and
     // lets the modal prefill auto/active/retired.

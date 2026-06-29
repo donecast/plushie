@@ -3,11 +3,11 @@
 Working notes from the catalog photos pilot (`catalog_photos`, slot scheme:
 numbered = official PD, lettered "Picture A" = community). Not user-facing.
 
-## Picture A coverage (131 items, all in DB — no committed seed)
+## Picture A coverage (128 items, all in DB — no committed seed)
 
 - **10 from redrambler** (`source = 'owner:redrambler'`) — vetted, watermark-free
   owner photos copied into R2 `catalog/community/`. (commit ff0dd66)
-- **121 NOT from any site user** (`source = 'web'`) — copied into R2 `catalog/web/`:
+- **118 NOT from any site user** (`source = 'web'`) — copied into R2 `catalog/web/`:
   - 8 earliest: depression, dreadful-demon-forest-spirit, insomnia-moth,
     schizophrenia-rabbit-ii, ocd, borderline-personality-disorder, adhd-rabbit,
     bipolar-ii (sources: PD Okendo customer-review photos, eBay, Mercari, Poshmark).
@@ -17,9 +17,27 @@ numbered = official PD, lettered "Picture A" = community). Not user-facing.
     item chosen by vision (14 parallel selector agents). All `credit='Customer
     review photo'`, `source='web'`, mirrored into `catalog_overrides.image`.
 
-Result: 131 of 132 `type=plush` items now have a community Picture A. The rest are
-sourced from Plushie Dreadfuls' own Okendo customer reviews — genuine owner photos,
-never a PlushCrypt site user.
+All sourced from Plushie Dreadfuls' own Okendo customer reviews — genuine owner
+photos, never a PlushCrypt site user.
+
+## ⚠️ Variant products — one cover can't represent multiple variants
+
+A multi-variant collectible (one `color`/`type`/etc. option, ≥2 values) is expanded
+by `expandVariants` into one card PER variant, all sharing the parent handle, each
+with its own `featured_image`. `catalog_overrides`/`catalog_photos` key by handle —
+so a single Picture A painted EVERY variant with the same shot (e.g. the Orange
+"Understim" Sensory Processing jellyfish showed the Blue "Overstim" photo).
+
+- **Code fix** (app-core `applyCatalogOverrides`): a by-handle `image` cover no
+  longer overwrites an expanded variant child (`isVariant`) — variants keep their
+  own per-variant image; the cover only lands on the hidden parent + genuine single
+  cards. Regression test in `test/units.test.js`. (app-*.js v=136, sw CACHE v169)
+- **Data**: 3 of my sweep handles are variant-parents, so their community photo was
+  pulled (row + R2 + override image nulled) — they need PER-VARIANT photos, which the
+  current by-handle model can't store. To do later (target by variant id, or a new
+  `catalog_photos.target_variant`): `plushie-dreadfuls-sensory-processing-disorder-jellybun`
+  (Blue/Orange), `plushie-dreadfuls-taurus-rabbit`, `plushie-dreadfuls-anxiety-bunnies-set-of-5`.
+  (The other 21 variant-parents in the PD feed never had a community photo.)
 
 ### How the non-site-user photos were sourced (reproducible)
 PD uses **Okendo** reviews. Subscriber id: `6ac55ea6-967a-48aa-a7d9-0cd454ae4e18`.

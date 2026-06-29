@@ -150,6 +150,27 @@ test('expandVariants leaves single-variant and non-collectible-option products a
   assert.equal(out.every((i) => !i.isVariant && !i.variantParent), true);
 });
 
+test('applyCatalogOverrides image cover never clobbers an expanded variant child', () => {
+  // A by-handle cover photo must land on the hidden parent + genuine single
+  // cards, but NOT on Blue/Orange variant children (they share the handle and
+  // keep their own featured_image). Regression for variants all showing one shot.
+  const rows = [
+    { id: 'p',    handle: 'jelly', variantParent: true,  image: 'pd-parent.jpg' },
+    { id: 'p::1', handle: 'jelly', isVariant: true,      image: 'blue.jpg',   formLabel: 'Blue' },
+    { id: 'p::2', handle: 'jelly', isVariant: true,      image: 'orange.jpg', formLabel: 'Orange' },
+    { id: 's',    handle: 'solo',  image: 'pd-solo.jpg' },
+  ];
+  call('applyCatalogOverrides', rows, [
+    { handle: 'jelly', image: 'community.jpg' },
+    { handle: 'solo',  image: 'community-solo.jpg' },
+  ]);
+  const by = Object.fromEntries(rows.map((r) => [r.id, r.image]));
+  assert.equal(by['p::1'], 'blue.jpg');             // variant image preserved
+  assert.equal(by['p::2'], 'orange.jpg');           // variant image preserved
+  assert.equal(by.p, 'community.jpg');              // hidden parent takes cover (harmless)
+  assert.equal(by.s, 'community-solo.jpg');         // genuine single card takes cover
+});
+
 test('resolveCatalogItem backfills a feed variant from its umbrella parent', () => {
   const vm = require('node:vm');
   vm.runInContext(`
