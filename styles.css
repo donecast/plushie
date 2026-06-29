@@ -2368,7 +2368,7 @@ body.cl-insider .changelog-gated strong { color: #2f6fed; }
 }
 .cd-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .cd-credit {
-  margin: 8px 0 0;
+  margin: 3px 0 10px;
   text-align: center;
   font-style: italic;
   font-size: 0.78rem;

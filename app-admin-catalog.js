@@ -844,8 +844,12 @@ function catalogDetailBodyHtml(cid, { forRail = false } = {}) {
   const isEmpty = !accessoriesHtml && !loreHtml && !symHtml;
 
   // Credit a community-submitted cover ("Image courtesy of @handle"), shown
-  // in italics directly under the photo. Only when there's an actual image.
-  const photoCredit = (thumb && item.imageCredit) ? String(item.imageCredit).trim() : '';
+  // in italics directly under the photo. ONLY when the credit names a Plush
+  // Crypt user — i.e. an @handle (the format the suggestion-approval flow and
+  // the admin community-photo picker store). Free-text source credits an admin
+  // may type (e.g. "a customer review", a web/Okendo source) are NOT shown.
+  const rawCredit = (thumb && item.imageCredit) ? String(item.imageCredit).trim() : '';
+  const photoCredit = /^@\w/.test(rawCredit) ? rawCredit : '';
   return `
     <div class="cd-head">
       <div class="cd-photo-wrap">
