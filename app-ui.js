@@ -1703,6 +1703,11 @@ function wireEvents() {
     closeAccountModal();
     handleSignOut();
   });
+  // Delete account — opens the exit survey + final confirm (app-account.js).
+  document.getElementById('acct-delete')?.addEventListener('click', openDeleteAccountModal);
+  document.getElementById('delacct-confirm')?.addEventListener('click', submitAccountDeletion);
+  document.querySelectorAll('[data-close-delacct]').forEach((el) =>
+    el.addEventListener('click', closeDeleteAccountModal));
   // Demo mode: a per-device recording aid that hides everything non-public.
   // Reload so auth re-derives identity and every gate re-evaluates cleanly
   // (no half-applied UI). Writes nothing server-side; fully reversible.

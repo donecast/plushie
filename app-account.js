@@ -266,6 +266,39 @@ function closeAccountModal() {
   document.getElementById('settings-modal')?.classList.add('hidden');
 }
 
+// ─── Delete account (exit survey → admin-review queue, db/0068) ──────────
+// To the user this is a permanent deletion; under the hood it queues the
+// account for admin review (data.requestAccountDeletion) and never actually
+// deletes. The exit-survey reason is optional. On success we end the session
+// and show the "deleted" takeover so the illusion holds.
+function openDeleteAccountModal() {
+  closeAccountModal();
+  const ta = document.getElementById('delacct-reason');
+  if (ta) ta.value = '';
+  document.getElementById('delete-account-modal')?.classList.remove('hidden');
+}
+function closeDeleteAccountModal() {
+  document.getElementById('delete-account-modal')?.classList.add('hidden');
+}
+async function submitAccountDeletion() {
+  const btn = document.getElementById('delacct-confirm');
+  const reason = (document.getElementById('delacct-reason')?.value || '').trim();
+  if (btn) { btn.disabled = true; btn.textContent = 'Deleting…'; }
+  try {
+    await data.requestAccountDeletion(reason);
+    closeDeleteAccountModal();
+    // End the session in the background, then show the goodbye takeover. We do
+    // NOT reload (that would drop to the sign-in screen); the full-screen
+    // overlay is the clean last thing they see.
+    try { await auth.signOut(); } catch (e) { console.warn('signOut after delete', e); }
+    showDeletedScreen();
+  } catch (err) {
+    console.error('submitAccountDeletion', err);
+    toast('Could not delete your account. Please try again.');
+    if (btn) { btn.disabled = false; btn.textContent = 'Delete my account'; }
+  }
+}
+
 async function saveUsername() {
   const u = document.getElementById('acct-username').value.trim();
   if (!/^[a-zA-Z0-9_-]{3,20}$/.test(u)) {
