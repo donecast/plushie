@@ -339,6 +339,58 @@ async function toggleNotifications() {
   }
 }
 
+// Notifications default to ON. A brand-new user (no stored preference) is
+// treated as opted in: subscribe immediately if the OS already allows it,
+// otherwise ask for permission on their first interaction. iOS Safari only
+// shows the permission prompt from inside an installed PWA and only in
+// response to a user gesture, so we can't prompt on boot — we arm a one-shot
+// listener instead. An explicit OFF (notify_enabled === false) is always
+// respected: we never re-nag someone who turned reminders off, and an OS-level
+// block is likewise left alone.
+async function maybeAutoEnableNotifications() {
+  if (!('Notification' in window)) return;
+  const pref = await idb.getMeta('notify_enabled');
+  if (pref === false) return;                        // explicitly opted out
+  if (Notification.permission === 'denied') return;  // OS-blocked; can't prompt
+  if (Notification.permission === 'granted') {
+    // Already allowed at OS level → honor default-on: mark enabled (if the user
+    // never chose) and make sure this device is subscribed for real push.
+    if (pref == null) await idb.setMeta('notify_enabled', true);
+    updateNotifyButton();
+    ensurePushSubscription();
+    return;
+  }
+  // permission === 'default' and not opted out → ask on the first user gesture.
+  armNotifyPrompt();
+}
+
+// One-shot: the next tap/keypress requests notification permission, then
+// subscribes (grant) or remembers the refusal (deny, so we stop asking). A
+// dismissed prompt leaves the preference unset so we can gently ask again on a
+// later visit — that's the "default ON" intent.
+function armNotifyPrompt() {
+  if (window._notifyPromptArmed) return;
+  window._notifyPromptArmed = true;
+  const ask = async () => {
+    document.removeEventListener('pointerdown', ask, true);
+    document.removeEventListener('keydown', ask, true);
+    if (Notification.permission !== 'default') return;
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm === 'granted') {
+        await idb.setMeta('notify_enabled', true);
+        updateNotifyButton();
+        ensurePushSubscription();
+        scheduleReminderCheck();
+      } else if (perm === 'denied') {
+        await idb.setMeta('notify_enabled', false);  // honor the refusal; stop asking
+      }
+    } catch (e) { console.warn('auto notify prompt failed', e); }
+  };
+  document.addEventListener('pointerdown', ask, true);
+  document.addEventListener('keydown', ask, true);
+}
+
 // Reflect the current reminders state onto the Settings toggle (the header
 // bell is gone — notifications now live under Account & settings). Safe to
 // call any time; no-ops if the checkbox isn't in the DOM yet.

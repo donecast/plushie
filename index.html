@@ -532,6 +532,8 @@
       ·
       <button type="button" class="footer-link" data-open-legal="changelog">Change Log</button>
       ·
+      <button type="button" class="footer-link" data-open-legal="operator">Legal</button>
+      ·
       <a class="footer-link" href="mailto:support@plushcrypt.com">Contact</a>
     </p>
   </footer>
@@ -953,11 +955,12 @@
         <button class="subtab" data-legal-tab="privacy">Privacy</button>
         <button class="subtab" data-legal-tab="changelog">Change Log</button>
         <button class="subtab" data-legal-tab="about">About</button>
+        <button class="subtab" data-legal-tab="operator">Legal</button>
       </nav>
 
       <section class="legal-section" data-legal-section="terms">
         <h2>Terms of Use</h2>
-        <p>By using The Plush Crypt you agree to the following. These are short and plain — read them.</p>
+        <p>By using The Plush Crypt — operated by <strong>Chainsaw Enterprises</strong> (see <button type="button" class="inline-link" data-open-legal="operator">Legal</button>) — you agree to the following. These are short and plain — read them. "We," "us," and "our" mean Chainsaw Enterprises.</p>
         <ul>
           <li><strong>No warranty.</strong> The service is provided as-is. We don't guarantee uptime, data preservation, or that anything works.</li>
           <li><strong>You must be at least 16</strong> and old enough to agree to these terms where you live. The Crypt isn't built for children.</li>
@@ -976,7 +979,7 @@
 
       <section class="legal-section hidden" data-legal-section="privacy">
         <h2>Privacy</h2>
-        <p>What we store, who can see it, and the controls you have:</p>
+        <p>The Plush Crypt is operated by <strong>Chainsaw Enterprises</strong> (see <button type="button" class="inline-link" data-open-legal="operator">Legal</button>), the data controller for your information. What we store, who can see it, and the controls you have:</p>
         <ul>
           <li><strong>Account:</strong> your email (used for sign-in magic links) and your chosen username (changeable once every 30 days).</li>
           <li><strong>Profile:</strong> your bio, avatar, and Top 8 Buns showcase are visible to any signed-in user who views your profile.</li>
@@ -1008,6 +1011,8 @@
               <li class="changelog-gated"><strong>Admin moderation:</strong> per-user <strong>Block from app</strong> (full ban — removal screen at sign-in) and <strong>Ghost mode</strong> (shadow-ban — they can still use the app but see nothing from anyone else, and no one sees them). Both live in the admin user detail; admins can't be moderated.</li>
               <li><strong>Item lore, retold in our own voice.</strong> The story blurbs on plushies, minis and bundles are now written fresh in the same gothic-cute spirit, and any "set includes" items that were buried in the write-up have been tidied into the <strong>Set includes</strong> checklist where they belong.</li>
               <li class="changelog-gated"><strong>Community cover photos (pilot).</strong> A handful of catalog items now show a collector's own photo as their main image instead of the stock shot. Under the hood, photos now carry a slot — <strong>lettered</strong> (A, B…) for fan/community shots and <strong>numbered</strong> (0, 1…) for official ones — so an item can hold several pictures and grow into a gallery later. Rolling out gradually.</li>
+              <li><strong>Notifications are on by default now.</strong> The crypt will ask to send you alerts the first time you tap in, so you don't have to go digging in Settings — say yes and you'll get a buzz when someone <strong>comments on</strong>, <strong>likes</strong> or <strong>reacts to</strong> your posts, sends a <strong>friend request</strong>, or moves a <strong>trade</strong> along, even when the app is closed. Changed your mind? Flip <strong>Reminders &amp; alerts</strong> off under Account &amp; settings any time, and we won't ask again.</li>
+              <li><strong>Reactions now ping you.</strong> When someone reacts to one of your comments (👍 🖤 😂 😮 😢 😡), you'll get a notification — they used to slip by silently.</li>
             </ul>
             <p class="changelog-fixes">Fixed <strong>deeply-nested replies</strong> getting crushed into an unreadable sliver — reply threads now stop indenting after one level, so a reply-to-a-reply lines up with its siblings instead of marching off the right edge. Also fixed <strong>editing a comment</strong> — the inline edit box now gives the text room and drops <strong>Save</strong>/<strong>Cancel</strong> onto a tidy row beneath, instead of squashing them into an unreadable sliver. Also fixed <strong>restock reminders</strong> still nagging about <strong>retired</strong> plushies right after opening the app — the reminder now waits for the catalog to load before deciding what's truly out of stock.</p>
           </div>
@@ -1158,6 +1163,19 @@
         <p>The Plush Crypt is an independent, fan-made home for plushie collectors — catalog what you own, keep a wish list, trade with other collectors, and share it all through a small social layer of friends, posts, and your Top 8 Buns. Simple tools — blocking and reporting — help keep the crypt kind.</p>
         <p>We're not affiliated with, endorsed by, or sponsored by Plushie Dreadfuls Co. or any other plushie manufacturer. Product names, photos, and trademarks belong to their respective owners.</p>
         <p>Questions, takedown requests, or bug reports: <a href="mailto:support@plushcrypt.com">support@plushcrypt.com</a></p>
+      </section>
+
+      <section class="legal-section hidden" data-legal-section="operator">
+        <h2>Legal Notice</h2>
+        <p>The Plush Crypt is owned and operated by:</p>
+        <p>
+          <strong>Chainsaw Enterprises</strong><br>
+          121 W Lexington Dr, Suite 236<br>
+          Glendale, CA 91203<br>
+          United States
+        </p>
+        <p>Contact: <a href="mailto:scott@thebsgcompany.com">scott@thebsgcompany.com</a> (we don't operate a phone line). Legal, copyright, and takedown notices should be sent to this address.</p>
+        <p>The Plush Crypt is an independent, fan-made tracker. It is not affiliated with, endorsed by, or sponsored by Plushie Dreadfuls Co., Mysterious LLC, or any other plushie maker. Product names, photos, and trademarks belong to their respective owners.</p>
       </section>
     </div>
   </div>
@@ -1559,14 +1577,14 @@
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=134"></script>
-  <script src="./app-catalog.js?v=134"></script>
-  <script src="./app-collection.js?v=134"></script>
-  <script src="./app-ui.js?v=134"></script>
-  <script src="./app-trade.js?v=134"></script>
-  <script src="./app-account.js?v=134"></script>
-  <script src="./app-admin.js?v=134"></script>
-  <script src="./app-admin-catalog.js?v=134"></script>
-  <script src="./app-social.js?v=134"></script>
+  <script src="./app-core.js?v=135"></script>
+  <script src="./app-catalog.js?v=135"></script>
+  <script src="./app-collection.js?v=135"></script>
+  <script src="./app-ui.js?v=135"></script>
+  <script src="./app-trade.js?v=135"></script>
+  <script src="./app-account.js?v=135"></script>
+  <script src="./app-admin.js?v=135"></script>
+  <script src="./app-admin-catalog.js?v=135"></script>
+  <script src="./app-social.js?v=135"></script>
 </body>
 </html>
