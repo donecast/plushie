@@ -1013,7 +1013,8 @@
               <li class="changelog-gated"><strong>Community cover photos (pilot).</strong> A handful of catalog items now show a collector's own photo as their main image instead of the stock shot. Under the hood, photos now carry a slot — <strong>lettered</strong> (A, B…) for fan/community shots and <strong>numbered</strong> (0, 1…) for official ones — so an item can hold several pictures and grow into a gallery later. Rolling out gradually.</li>
               <li><strong>Notifications are on by default now.</strong> The crypt will ask to send you alerts the first time you tap in, so you don't have to go digging in Settings — say yes and you'll get a buzz when someone <strong>comments on</strong>, <strong>likes</strong> or <strong>reacts to</strong> your posts, sends a <strong>friend request</strong>, or moves a <strong>trade</strong> along, even when the app is closed. Changed your mind? Flip <strong>Reminders &amp; alerts</strong> off under Account &amp; settings any time, and we won't ask again.</li>
               <li><strong>Reactions now ping you.</strong> When someone reacts to one of your comments (👍 🖤 😂 😮 😢 😡), you'll get a notification — they used to slip by silently.</li>
-              <li class="changelog-gated"><strong>Stirrings now link to the plush.</strong> Tapping an entry in the left-rail <strong>Stirrings</strong> feed jumps to the Catalog filtered to that exact item, instead of just opening the catalog.</li>
+              <li class="changelog-gated"><strong>Stirrings now open the plush.</strong> Tapping an entry in the left-rail <strong>Stirrings</strong> feed opens that exact item's details, instead of just switching to the catalog.</li>
+              <li class="changelog-gated"><strong>Calmer restock signals.</strong> A plush has to be sold out for at least <strong>48 hours</strong> before a "Restocked" entry appears — a brief out-of-stock blip just quietly clears its "Sold out" entry, so the feed stops flapping on momentary stock wobbles.</li>
             </ul>
             <p class="changelog-fixes">Fixed <strong>deeply-nested replies</strong> getting crushed into an unreadable sliver — reply threads now stop indenting after one level, so a reply-to-a-reply lines up with its siblings instead of marching off the right edge. Also fixed <strong>editing a comment</strong> — the inline edit box now gives the text room and drops <strong>Save</strong>/<strong>Cancel</strong> onto a tidy row beneath, instead of squashing them into an unreadable sliver. Also fixed <strong>restock reminders</strong> still nagging about <strong>retired</strong> plushies right after opening the app — the reminder now waits for the catalog to load before deciding what's truly out of stock.</p>
           </div>
@@ -1578,14 +1579,14 @@
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=136"></script>
-  <script src="./app-catalog.js?v=136"></script>
-  <script src="./app-collection.js?v=136"></script>
-  <script src="./app-ui.js?v=136"></script>
-  <script src="./app-trade.js?v=136"></script>
-  <script src="./app-account.js?v=136"></script>
-  <script src="./app-admin.js?v=136"></script>
-  <script src="./app-admin-catalog.js?v=136"></script>
-  <script src="./app-social.js?v=136"></script>
+  <script src="./app-core.js?v=137"></script>
+  <script src="./app-catalog.js?v=137"></script>
+  <script src="./app-collection.js?v=137"></script>
+  <script src="./app-ui.js?v=137"></script>
+  <script src="./app-trade.js?v=137"></script>
+  <script src="./app-account.js?v=137"></script>
+  <script src="./app-admin.js?v=137"></script>
+  <script src="./app-admin-catalog.js?v=137"></script>
+  <script src="./app-social.js?v=137"></script>
 </body>
 </html>
