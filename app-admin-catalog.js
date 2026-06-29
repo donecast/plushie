@@ -1177,21 +1177,35 @@ function renderPendingPhotoRow(row) {
   const thumb = row.image
     ? `<img src="${escapeHtml(row.image)}" alt="" />`
     : `<span class="no-photo">🖤</span>`;
+  // Resolve the target to a human name + a dim id line. The name comes from
+  // the in-memory catalog (Shopify product, custom item) or the pens list, so
+  // the admin sees WHICH plush they're approving rather than a bare id.
+  let name = 'Photo suggestion';
   let target;
   if (row.target_pen_id) {
     const pen = activePens().find((p) => p.id === row.target_pen_id);
-    target = `Pen: <code>${escapeHtml(row.target_pen_id)}</code>${pen ? ` (${escapeHtml(pen.line)} — ${escapeHtml(pen.name)})` : ''}`;
+    if (pen) name = `${pen.line} — ${pen.name}`;
+    target = `Pen: <code>${escapeHtml(row.target_pen_id)}</code>`;
   } else if (row.target_catalog_item_id) {
+    const item = (state.catalog || []).find((c) => c.id === row.target_catalog_item_id);
+    if (item) name = cleanCatalogName(item.name);
     target = `catalog_items: <code>${escapeHtml(row.target_catalog_item_id)}</code>`;
   } else {
+    const prod = (state.catalog || []).find((c) => c.id === row.target_shopify_id && !c.isCustom);
+    if (prod) name = cleanCatalogName(prod.name);
     target = `Shopify id: <code>${escapeHtml(row.target_shopify_id || '?')}</code>`;
   }
+  // Who sent it — resolved to @handle by data.adminListPhotoSuggestions.
+  const submitter = row.submitted_by_username
+    ? `@${escapeHtml(row.submitted_by_username)}`
+    : `<span class="dim">unknown user</span>`;
   return `
     <article class="catalog-pending-row">
       <div class="catalog-pending-photo">${thumb}</div>
       <div class="catalog-pending-body">
-        <h3>Photo suggestion</h3>
+        <h3>${escapeHtml(name)}</h3>
         <p class="dim">${target}</p>
+        <p>Submitted by ${submitter}</p>
         ${row.notes ? `<p><em>"${escapeHtml(row.notes)}"</em></p>` : ''}
         <p class="dim">submitted ${new Date(row.submitted_at).toLocaleString()}</p>
       </div>

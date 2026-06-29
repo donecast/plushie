@@ -1666,6 +1666,7 @@ data.createCatalogItem = async function (record) {
     parent_handle: record.parent_handle || null,
     form_label: record.form_label || null,
     image_path: record.image_path || null,
+    image_credit: record.image_credit || null,
     description: record.description || null,
     lore: record.lore || null,
     alt_lore: record.alt_lore || null,
@@ -1947,8 +1948,18 @@ data.adminListPhotoSuggestions = async function (status = 'pending') {
     .eq('status', status)
     .order('submitted_at', { ascending: false });
   if (error) throw error;
+  // Resolve who submitted each shot so the admin queue can show "@handle"
+  // instead of a bare UUID (and so the same handle can become the photo
+  // credit on approval).
+  const submitterIds = [...new Set(rows.map((r) => r.submitted_by).filter(Boolean))];
+  let submitters = new Map();
+  if (submitterIds.length) {
+    const { data: profs } = await sb.from('profiles').select('id, username').in('id', submitterIds);
+    submitters = new Map((profs || []).map((p) => [p.id, p.username]));
+  }
   await Promise.all(rows.map(async (r) => {
     r.image = r.image_path ? await data.catalogImageUrl(r.image_path) : null;
+    r.submitted_by_username = submitters.get(r.submitted_by) || null;
   }));
   return rows;
 };
@@ -1966,6 +1977,17 @@ data.adminApprovePhotoSuggestion = async function (suggestionId, shopifyProductI
     .eq('id', suggestionId)
     .single();
   if (e1) throw e1;
+
+  // Resolve the contributor's @handle so the approved cover credits whoever
+  // sent it ("Image courtesy of @handle" in the detail view). Null if the
+  // submitter has no profile/username — we'd rather show no credit than a
+  // stale one carried over from a previous photo.
+  let imageCredit = null;
+  if (row.submitted_by) {
+    const { data: prof } = await sb
+      .from('profiles').select('username').eq('id', row.submitted_by).maybeSingle();
+    if (prof?.username) imageCredit = '@' + prof.username;
+  }
 
   // Pen target — direct path. Drop the image_path into the pens row.
   if (row.target_pen_id) {
@@ -2007,6 +2029,7 @@ data.adminApprovePhotoSuggestion = async function (suggestionId, shopifyProductI
         handle: shopifyProductIfNeeded.handle,
         type: shopifyProductIfNeeded.type || 'plush',
         image_path: row.image_path,
+        image_credit: imageCredit,
         status: 'approved',
       });
       targetCatalogId = created.id;
@@ -2015,9 +2038,10 @@ data.adminApprovePhotoSuggestion = async function (suggestionId, shopifyProductI
 
   // Always write the image_path through (handles the existing-catalog
   // case AND the freshly-created case where image_path was set on insert).
+  // The credit follows the current cover, so write it alongside.
   const { error: e2 } = await sb
     .from('catalog_items')
-    .update({ image_path: row.image_path })
+    .update({ image_path: row.image_path, image_credit: imageCredit })
     .eq('id', targetCatalogId);
   if (e2) throw e2;
 
