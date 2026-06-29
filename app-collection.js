@@ -1023,7 +1023,12 @@ function render() {
     syncCatalogChips();
     const items = filteredCatalog();
     const { owned, wished } = catalogIdMap();
-    document.getElementById('catalog-grid').innerHTML =
+    const catGrid = document.getElementById('catalog-grid');
+    // With auto-fit + 1fr, a handful of results stretch each card to fill the
+    // row — at 1-3 items the cards balloon. Cap their width and left-align when
+    // the result set is sparse so they stay a sensible size.
+    catGrid.classList.toggle('grid-few', items.length > 0 && items.length <= 3);
+    catGrid.innerHTML =
       items.map((i) => renderCatalogCard(i, owned, wished)).join('');
     const empty = state.catalog.length === 0;
     document.getElementById('catalog-empty').classList.toggle('hidden', !empty);
