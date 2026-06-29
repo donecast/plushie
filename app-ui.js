@@ -1493,6 +1493,9 @@ function wireEvents() {
   // Reject / Merge / Resolve buttons fire.
   document.getElementById('admin-queue-modal').addEventListener('click', onAdminClick);
   document.getElementById('dispute-review-modal')?.addEventListener('click', onAdminClick);
+  // The catalog override modal hosts the community/extra photos manager
+  // (Add / Delete use data-admin-action), so bind it to the same dispatcher.
+  document.getElementById('catalog-override-modal')?.addEventListener('click', onAdminClick);
 
   // Offer modal
   document.querySelectorAll('[data-close-offer]').forEach((el) =>

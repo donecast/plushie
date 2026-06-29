@@ -613,6 +613,10 @@ async function onAdminClick(e) {
     await adminApprovePhotoSuggestion(btn.dataset.id);
   } else if (action === 'reject-photo-suggestion') {
     await adminRejectPhotoSuggestion(btn.dataset.id);
+  } else if (action === 'catalog-photo-add') {
+    await catalogPhotoAdd();
+  } else if (action === 'catalog-photo-delete') {
+    await catalogPhotoDelete(btn.dataset.id);
   }
 }
 

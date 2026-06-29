@@ -1479,6 +1479,105 @@ data.catalogImageUrl = async function (path) {
   return await data._urlFor('catalog', path);
 };
 
+// ─── Catalog photos: admin gallery management ────────────────────────
+// The `catalog_photos` table is the system of record for an item's extra
+// pictures. Slots are LETTERED ('A','B',… = community/fan) or NUMBERED
+// ('0','1',… = official PD). Everywhere we list them, LETTERED sorts BEFORE
+// NUMBERED (Scott's rule). RLS lets admins insert/update/delete; everyone can
+// read. The live catalog still resolves its cover from catalog_overrides.image
+// (the "render bridge"), so making a photo the cover mirrors its URL there.
+function _catPhotoTargetFilter(q, target) {
+  if (target.handle) return q.eq('target_handle', target.handle);
+  if (target.catalogItemId) return q.eq('target_catalog_item_id', target.catalogItemId);
+  if (target.penId) return q.eq('target_pen_id', target.penId);
+  return null;
+}
+function _slotSort(a, b) {
+  const al = /^[A-Za-z]/.test(a.slot), bl = /^[A-Za-z]/.test(b.slot);
+  if (al !== bl) return al ? -1 : 1;                 // lettered before numbered
+  return String(a.slot).localeCompare(String(b.slot), undefined, { numeric: true });
+}
+
+// List an item's photos, lettered-first, each with a resolved display `url`.
+data.adminListCatalogPhotos = async function (target) {
+  let q = sb.from('catalog_photos').select(
+    'id, target_handle, target_catalog_item_id, target_pen_id, slot, image_path, image_url, bucket, source, source_url, credit, notes, is_primary');
+  q = _catPhotoTargetFilter(q, target);
+  if (!q) return [];
+  const { data: rows, error } = await q;
+  if (error) { console.warn('catalog photos load skipped', error); return []; }
+  const out = [];
+  for (const r of (rows || [])) {
+    const url = r.image_url || await data.catalogImageUrl(r.image_path);
+    out.push({ ...r, url });
+  }
+  out.sort(_slotSort);
+  return out;
+};
+
+// Add a photo. `imageUrl` is stored as a hot-link in image_url (the simplest
+// path for web/community shots); pass `imagePath` instead for an R2 key.
+data.adminAddCatalogPhoto = async function (target, { slot, imageUrl = null, imagePath = null, source = 'community', credit = null, notes = null }) {
+  if (!slot) throw new Error('A slot (A, B… or 0, 1…) is required.');
+  if (!imageUrl && !imagePath) throw new Error('A photo URL (or R2 path) is required.');
+  const row = {
+    slot: String(slot).trim(),
+    image_url: imageUrl, image_path: imagePath, source, credit, notes,
+    submitted_by: window.currentUser?.id || null,
+  };
+  if (target.handle) row.target_handle = target.handle;
+  else if (target.catalogItemId) row.target_catalog_item_id = target.catalogItemId;
+  else if (target.penId) row.target_pen_id = target.penId;
+  else throw new Error('No photo target.');
+  const { data: saved, error } = await sb.from('catalog_photos').insert(row).select().single();
+  if (error) throw error;
+  return saved;
+};
+
+data.adminDeleteCatalogPhoto = async function (photoId) {
+  const { error } = await sb.from('catalog_photos').delete().eq('id', photoId);
+  if (error) throw error;
+};
+
+// Relabel a slot (e.g. move a shot from numbered '1' to lettered 'B', or
+// reorder within a kind). Slot is just text; the lettered-first sort does the
+// rest at display time.
+data.adminSetCatalogPhotoSlot = async function (photoId, slot) {
+  if (!slot) throw new Error('Slot cannot be empty.');
+  const { error } = await sb.from('catalog_photos').update({ slot: String(slot).trim() }).eq('id', photoId);
+  if (error) throw error;
+};
+
+// Make a photo the item's cover: flip is_primary (one per target) AND mirror
+// its resolved URL into catalog_overrides.image so the live render path shows
+// it. Pass photoId=null to clear the primary (cover reverts to store default).
+// Only handle-targeted items use the override mirror; custom catalog_items
+// carry their own image elsewhere.
+data.adminSetCatalogPhotoPrimary = async function (target, photoId) {
+  let clr = sb.from('catalog_photos').update({ is_primary: false });
+  clr = _catPhotoTargetFilter(clr, target);
+  if (!clr) throw new Error('No photo target.');
+  { const { error } = await clr.eq('is_primary', true); if (error) throw error; }
+
+  let coverUrl = null;
+  if (photoId) {
+    const { data: row, error } = await sb.from('catalog_photos')
+      .update({ is_primary: true }).eq('id', photoId)
+      .select('image_path, image_url').single();
+    if (error) throw error;
+    coverUrl = row.image_url || await data.catalogImageUrl(row.image_path);
+  }
+  // Mirror to the override (handle targets only). Touch ONLY the image column
+  // via merge-upsert so lore/alt_lore/etc. on the same row are never clobbered.
+  if (target.handle) {
+    const { error } = await sb.from('catalog_overrides')
+      .upsert({ handle: target.handle, image: coverUrl, updated_by: window.currentUser?.id || null },
+              { onConflict: 'handle' });
+    if (error) throw error;
+  }
+  return coverUrl;
+};
+
 // Approved items only — fed into state.catalog merge.
 data.listApprovedCatalogItems = async function () {
   const { data: rows, error } = await sb

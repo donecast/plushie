@@ -338,6 +338,7 @@ function openCatalogOverrideModal(cid) {
   // live and reveal the dropdown once it's ready; if the fetch fails the
   // field just stays hidden and the rest of the editor works unchanged.
   populateCoverPhotoPicker(item);
+  renderCatalogPhotosManager(item);
 }
 
 // Strip the '?v=' cache token so two URLs for the same image compare equal
@@ -363,38 +364,140 @@ async function populateCoverPhotoPicker(item) {
   select.innerHTML = '';
   const handle = item.handle;
   if (!handle) return;
+  if (state.catalogOverride) state.catalogOverride.item = item;
+
+  // Community / extra pictures (catalog_photos) — lettered slots (A, B… =
+  // community) sort BEFORE numbered (0, 1… = official). These are the
+  // "Picture A" shots; surface them as cover options ABOVE the store's photos.
+  let community = [];
+  try { community = await data.adminListCatalogPhotos({ handle }); }
+  catch (e) { console.warn('community photos unavailable', e); }
+
+  // The store's own product photos (numbered). A failed fetch is non-fatal —
+  // we can still offer the community shots.
   let images = [];
   try {
     const r = await fetch(`${PRODUCT_URL_BASE}${encodeURIComponent(handle)}.json`, { mode: 'cors' });
-    if (!r.ok) throw new Error(`status ${r.status}`);
-    const json = await r.json();
-    images = (json.product?.images || [])
-      .slice()
-      .sort((a, b) => (a.position || 0) - (b.position || 0))
-      .map((im) => im.src)
-      .filter(Boolean);
+    if (r.ok) {
+      const json = await r.json();
+      images = (json.product?.images || [])
+        .slice()
+        .sort((a, b) => (a.position || 0) - (b.position || 0))
+        .map((im) => im.src)
+        .filter(Boolean);
+    }
   } catch (e) {
     console.warn('cover photo list unavailable', e);
-    return;
   }
   // The admin may have closed/switched modals while we were fetching.
   if (!state.catalogOverride || state.catalogOverride.handle !== handle) return;
-  // Nothing to choose between with 0–1 photos.
-  if (images.length < 2) return;
   state.catalogOverride.images = images;
-  images.forEach((src, i) => {
+  // Nothing to pick between: no community shots AND 0–1 store photos.
+  if (community.length === 0 && images.length < 2) return;
+
+  // Store default first (empty value === inherit the store's photo 1).
+  const def = document.createElement('option');
+  def.value = '';
+  def.textContent = 'Store default (Photo 1)';
+  select.appendChild(def);
+  // Community pictures, lettered-first (already ordered by the data layer).
+  community.forEach((p) => {
+    if (!p.url) return;
     const opt = document.createElement('option');
-    // Photo 1 is the store default — store null (inherit) for it.
-    opt.value = i === 0 ? '' : src;
-    opt.textContent = i === 0 ? 'Photo 1 (store default)' : `Photo ${i + 1}`;
+    opt.value = p.url;
+    opt.textContent = `Picture ${p.slot} — community`;
     select.appendChild(opt);
   });
-  // Preselect whatever's currently showing (the applied override, or photo 1).
-  const matchIdx = images.findIndex((src) => imageUrlBase(src) === imageUrlBase(item.image));
-  select.value = matchIdx > 0 ? images[matchIdx] : '';
+  // The store's remaining numbered photos (skip the default first one).
+  images.forEach((src, i) => {
+    if (i === 0) return;
+    const opt = document.createElement('option');
+    opt.value = src;
+    opt.textContent = `Photo ${i + 1}`;
+    select.appendChild(opt);
+  });
+  // Preselect whatever is actually the cover now — a community URL, a store
+  // photo, or the default — by matching the resolved override image.
+  const cur = imageUrlBase(item.image);
+  const match = [...select.options].find((o) => o.value && imageUrlBase(o.value) === cur);
+  select.value = match ? match.value : '';
   updateCoverPhotoPreview();
   field.classList.remove('hidden');
   state.catalogOverride.imagePickerReady = true;
+}
+
+// ─── Community / extra photos manager (catalog_photos) ───────────────
+// Lists an item's community (lettered) + official (numbered) shots, lettered
+// first, with add/remove. The COVER is chosen via the dropdown above (which
+// writes catalog_overrides.image on save); this panel manages the set itself.
+function nextLetteredSlot(photos) {
+  const letters = (photos || []).map((p) => p.slot)
+    .filter((s) => /^[A-Za-z]$/.test(s)).map((s) => s.toUpperCase()).sort();
+  if (!letters.length) return 'A';
+  const next = String.fromCharCode(letters[letters.length - 1].charCodeAt(0) + 1);
+  return next <= 'Z' ? next : '';
+}
+
+function renderCatalogPhotoRow(p) {
+  const cover = state.catalogOverride?.item && p.url
+    && imageUrlBase(p.url) === imageUrlBase(state.catalogOverride.item.image);
+  const thumb = p.url
+    ? `<img src="${escapeHtml(p.url)}" alt="" class="co-photo-thumb" />`
+    : '<span class="no-photo">🖤</span>';
+  return `
+    <div class="co-photo-row${cover ? ' is-cover' : ''}">
+      ${thumb}
+      <span class="co-photo-slot-label">${escapeHtml(p.slot)}</span>
+      <span class="dim">${escapeHtml(p.source || '')}${cover ? ' · cover' : ''}</span>
+      <button type="button" class="btn-danger" data-admin-action="catalog-photo-delete" data-id="${escapeHtml(p.id)}">Delete</button>
+    </div>`;
+}
+
+async function renderCatalogPhotosManager(item) {
+  const field = document.getElementById('co-photos-field');
+  const list = document.getElementById('co-photos-list');
+  field.classList.add('hidden');
+  list.innerHTML = '';
+  const handle = item.handle;
+  if (!handle) return;                          // Shopify-handle items only
+  if (state.catalogOverride) state.catalogOverride.item = item;
+  let photos = [];
+  try { photos = await data.adminListCatalogPhotos({ handle }); }
+  catch (e) { console.warn('photos manager load failed', e); return; }
+  if (!state.catalogOverride || state.catalogOverride.handle !== handle) return;
+  state.catalogOverride.photos = photos;
+  document.getElementById('co-photo-slot').value = nextLetteredSlot(photos);
+  list.innerHTML = photos.length
+    ? photos.map(renderCatalogPhotoRow).join('')
+    : '<p class="dim">No community/extra photos yet — add one below.</p>';
+  field.classList.remove('hidden');
+}
+
+async function catalogPhotoAdd() {
+  const ctx = state.catalogOverride;
+  if (!ctx?.handle) return;
+  const urlEl = document.getElementById('co-photo-url');
+  const slotEl = document.getElementById('co-photo-slot');
+  const url = (urlEl.value || '').trim();
+  const slot = (slotEl.value || '').trim();
+  if (!url) { toast('Paste an image URL first.'); return; }
+  if (!slot) { toast('Give it a slot — a letter (A, B…) for community, a number for official.'); return; }
+  try {
+    await data.adminAddCatalogPhoto({ handle: ctx.handle }, { slot, imageUrl: url, source: 'community' });
+    urlEl.value = '';
+    toast('Photo added.');
+    if (ctx.item) { await renderCatalogPhotosManager(ctx.item); await populateCoverPhotoPicker(ctx.item); }
+  } catch (e) { console.error(e); toast('Could not add: ' + (e.message || e)); }
+}
+
+async function catalogPhotoDelete(id) {
+  const ctx = state.catalogOverride;
+  if (!ctx?.handle || !id) return;
+  try {
+    await data.adminDeleteCatalogPhoto(id);
+    toast('Photo removed.');
+    if (ctx.item) { await renderCatalogPhotosManager(ctx.item); await populateCoverPhotoPicker(ctx.item); }
+  } catch (e) { console.error(e); toast('Could not remove: ' + (e.message || e)); }
 }
 
 async function submitCatalogOverrideForm(e) {
