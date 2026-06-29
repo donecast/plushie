@@ -477,17 +477,36 @@ async function catalogPhotoAdd() {
   const ctx = state.catalogOverride;
   if (!ctx?.handle) return;
   const urlEl = document.getElementById('co-photo-url');
+  const fileEl = document.getElementById('co-photo-file');
   const slotEl = document.getElementById('co-photo-slot');
   const url = (urlEl.value || '').trim();
+  const file = fileEl && fileEl.files && fileEl.files[0];
   const slot = (slotEl.value || '').trim();
-  if (!url) { toast('Paste an image URL first.'); return; }
+  if (!url && !file) { toast('Paste an image URL or choose a file first.'); return; }
   if (!slot) { toast('Give it a slot — a letter (A, B…) for community, a number for official.'); return; }
+  const btn = document.querySelector('[data-admin-action="catalog-photo-add"]');
+  if (btn) { btn.disabled = true; btn.textContent = file ? 'Uploading…' : 'Adding…'; }
   try {
-    await data.adminAddCatalogPhoto({ handle: ctx.handle }, { slot, imageUrl: url, source: 'community' });
+    let payload;
+    if (file) {
+      // Uploaded file → store in R2 (catalog bucket) and reference by path.
+      const path = await data.uploadCatalogPhotoFile(file, ctx.handle);
+      payload = { slot, imagePath: path, source: 'owner' };
+    } else {
+      // Hot-linked URL.
+      payload = { slot, imageUrl: url, source: 'community' };
+    }
+    await data.adminAddCatalogPhoto({ handle: ctx.handle }, payload);
     urlEl.value = '';
+    if (fileEl) fileEl.value = '';
     toast('Photo added.');
     if (ctx.item) { await renderCatalogPhotosManager(ctx.item); await populateCoverPhotoPicker(ctx.item); }
-  } catch (e) { console.error(e); toast('Could not add: ' + (e.message || e)); }
+  } catch (e) {
+    console.error(e);
+    toast('Could not add: ' + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Add photo'; }
+  }
 }
 
 async function catalogPhotoDelete(id) {

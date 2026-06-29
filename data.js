@@ -1618,6 +1618,19 @@ data.uploadCatalogImage = async function (blob, slug) {
   return await data._uploadToStorage('catalog', path, blob);
 };
 
+// Upload a community/extra photo file to the 'catalog' bucket (community/
+// prefix) and return its path, for catalog_photos.image_path. Mirrors the
+// proven uploadCatalogImage flow; admin-only (the catalog bucket gates writes).
+data.uploadCatalogPhotoFile = async function (blob, handle) {
+  const ext = (blob.type && blob.type.split('/')[1]) || 'jpg';
+  const safe = (handle || 'item').replace(/[^a-z0-9-]/gi, '-').slice(0, 60);
+  const rand = Math.random().toString(36).slice(2, 8);
+  // Use the same 'items/' prefix as uploadCatalogImage — the one the R2 Worker
+  // is already known to authorize for admin client writes.
+  const path = `items/${safe}-${rand}.${ext === 'jpeg' ? 'jpg' : ext}`;
+  return await data._uploadToStorage('catalog', path, blob);
+};
+
 // Upload to suggestions/ prefix instead. Anyone authenticated can do
 // this (the suggestions RLS policy permits it). The catalog_items
 // row's image_path stays null until admin approves a suggestion.
