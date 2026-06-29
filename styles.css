@@ -4506,6 +4506,7 @@ body.maint-locked { overflow: hidden; }
 .co-photo-row .dim { flex: 1; }
 .co-photo-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .co-photo-add input[type="url"] { flex: 1 1 200px; min-width: 0; }
+.co-photo-file { flex: 1 1 160px; min-width: 0; font-size: 0.85em; }
 .co-photo-slot { flex: 0 0 64px; width: 64px; text-align: center; }
 .co-photo-add .btn-primary { flex: 0 0 auto; }
 /* Category + Availability override controls sit two-up. */
