@@ -990,7 +990,12 @@ function render() {
       }
     }
     const tabTotal = mainItems.length + closetItems.length;
-    document.getElementById('collection-empty').classList.toggle('hidden', tabTotal > 0);
+    const colReady = state.ready.has('collection');
+    // While the first collection load is still in flight, show a loading
+    // placeholder rather than the "your crypt is empty" prompt (which on a
+    // refresh looks like the collection got wiped).
+    if (!colReady && tabTotal === 0) colGrid.innerHTML = loadingPlaceholder('Summoning your crypt…');
+    document.getElementById('collection-empty').classList.toggle('hidden', tabTotal > 0 || !colReady);
     document.getElementById('count-label').textContent =
       `${tabTotal} of ${state.collection.length} item${state.collection.length === 1 ? '' : 's'}`;
 
@@ -1015,8 +1020,10 @@ function render() {
     const wishHint = state.wishArranging && items.length > 1
       ? '<p class="subview-hint">↕ Drag the ☰ grip or use ▲▼ to set your wish-list priority — the top of the list shows in your Crypt Vitals.</p>'
       : '';
-    wlGrid.innerHTML = wishHint + items.map((i) => renderCard(i, 'wishlist')).join('');
-    document.getElementById('wishlist-empty').classList.toggle('hidden', items.length > 0);
+    const wishReady = state.ready.has('collection');   // wishlist loads with the collection
+    if (!wishReady && items.length === 0) wlGrid.innerHTML = loadingPlaceholder('Summoning your wish list…');
+    else wlGrid.innerHTML = wishHint + items.map((i) => renderCard(i, 'wishlist')).join('');
+    document.getElementById('wishlist-empty').classList.toggle('hidden', items.length > 0 || !wishReady);
     document.getElementById('count-label').textContent =
       `${items.length} of ${state.wishlist.length} item${state.wishlist.length === 1 ? '' : 's'}`;
   } else if (tab === 'catalog') {
@@ -1028,10 +1035,18 @@ function render() {
     // row — at 1-3 items the cards balloon. Cap their width and left-align when
     // the result set is sparse so they stay a sensible size.
     catGrid.classList.toggle('grid-few', items.length > 0 && items.length <= 3);
-    catGrid.innerHTML =
-      items.map((i) => renderCatalogCard(i, owned, wished)).join('');
-    const empty = state.catalog.length === 0;
-    document.getElementById('catalog-empty').classList.toggle('hidden', !empty);
+    // The catalog finishes loading *after* the first paint (deferred in boot),
+    // so until it's ready show a loading placeholder instead of the empty box.
+    const catReady = state.ready.has('catalog');
+    if (!catReady && state.catalog.length === 0) {
+      catGrid.innerHTML = loadingPlaceholder('Summoning the catalog…');
+      document.getElementById('catalog-empty').classList.add('hidden');
+    } else {
+      catGrid.innerHTML =
+        items.map((i) => renderCatalogCard(i, owned, wished)).join('');
+      const empty = state.catalog.length === 0;
+      document.getElementById('catalog-empty').classList.toggle('hidden', !empty);
+    }
     renderActiveFilters(items.length);
   } else if (tab === 'trade') {
     renderTrade();

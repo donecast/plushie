@@ -44,6 +44,13 @@ const state = {
   editingId: null,
   railDetailId: null,         // collection/wishlist item shown in the right-rail master-detail
   railCatalogId: null,        // catalog item shown in the right-rail master-detail (richer detail)
+  // Which sections have completed their first data load this session
+  // ('collection' | 'catalog' | 'trade' | 'social'). Until a section is in
+  // here we show a "Summoning…" loading placeholder instead of its empty
+  // state — so a refresh reads as "loading", not "your data vanished". A
+  // section is added once it has *attempted* a load (success OR handled
+  // failure), so a genuine empty still shows its real empty-state.
+  ready: new Set(),
   collection: [],
   wishlist: [],
   catalog: [],                // loaded from catalog.json
@@ -651,10 +658,20 @@ function revokeAllBlobUrls() {
   state.blobUrls.clear();
 }
 
+// A gentle, on-brand "still summoning your data" placeholder. Shown in a
+// section's grid/list in place of its empty-state while its first load is
+// still in flight (see state.ready) — so a slow boot or refresh doesn't
+// flash a misleading "nothing here" / "your crypt is empty" message.
+function loadingPlaceholder(msg = 'Summoning from the crypt…') {
+  return `<div class="empty loading-ph"><div class="ghost">🕯</div>
+    <p>${msg}</p></div>`;
+}
+
 // ─── Data load ───────────────────────────────────────────────────────
 async function loadAll() {
   state.collection = (await data.list('collection')).sort(byNewest);
   state.wishlist = (await data.list('wishlist')).sort(byNewest);
+  state.ready.add('collection');
 }
 
 async function loadCatalog() {
@@ -668,6 +685,7 @@ async function loadCatalog() {
     console.warn('catalog load failed', e);
     state.catalog = [];
   }
+  state.ready.add('catalog');
 }
 
 // Merge admin-curated catalog_items into the Shopify-derived list so

@@ -41,6 +41,10 @@ async function loadTradeData() {
   } catch (err) {
     console.error('loadTradeData', err);
     toast('Could not load trade data.');
+  } finally {
+    // Mark attempted either way: a genuine empty browse should show its
+    // real empty-state, not a forever "Summoning…" spinner.
+    state.ready.add('trade');
   }
 }
 
@@ -286,6 +290,10 @@ function renderTrade() {
 
 function renderBrowse() {
   const list = state.tradeBrowse;
+  if (!state.ready.has('trade')) {
+    document.getElementById('subtab-browse').innerHTML = loadingPlaceholder('Summoning offerings…');
+    return;
+  }
   if (list.length === 0) {
     document.getElementById('subtab-browse').innerHTML = `
       <div class="empty"><div class="ghost">🕯</div>
