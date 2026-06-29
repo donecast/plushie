@@ -1484,8 +1484,13 @@ async function boot() {
   scheduleSocialCheck();  // keep polling for new requests while the app is open
   updateNotifyButton();
   registerSW();
+  // Notifications default to ON: subscribe now if the OS already permits it,
+  // otherwise arm a one-shot permission prompt for the first user gesture. An
+  // explicit OFF (notify_enabled === false) or an OS-level block is respected.
+  // For an already-granted first-time user this sets notify_enabled = true, so
+  // the reminder scheduler below picks it up this same boot.
+  await maybeAutoEnableNotifications();
   const notifyEnabled = await idb.getMeta('notify_enabled');
-  if (notifyEnabled) ensurePushSubscription();
   // Catalog: ship the baked copy immediately, then try to refresh from live
   // Shopify in the background. Falls back silently if CORS or network blocks it.
   loadCatalog().then(() => {
