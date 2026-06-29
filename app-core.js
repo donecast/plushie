@@ -735,6 +735,7 @@ async function mergeCustomCatalog(shopifyProducts) {
         handle: c.handle,
         type: c.type || 'plush',
         image: c.image || null,         // signed URL produced by data.listApprovedCatalogItems
+        imageCredit: c.image_credit || null, // contributor @handle for a community cover
         price: null,
         available: !!c.available,
         retired: !!c.retired,
