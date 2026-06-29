@@ -3004,6 +3004,11 @@ body.cl-insider .changelog-gated strong { color: #2f6fed; }
 .role-tag.editor { background: var(--rose); color: var(--text-on-rose); }
 .role-tag.viewer { background: var(--ink-dim); color: var(--bg); }
 
+/* Status badges in the admin user list — 🛡️ admin · ⚖️ moderator ·
+   👻 ghosted · 🚫 blocked. Sit just right of the @name. */
+.admin-status-badges { white-space: nowrap; }
+.admin-status-badge { margin-left: 4px; font-size: 0.95em; cursor: default; vertical-align: middle; }
+
 .invite-link-wrap {
   display: flex;
   gap: 6px;

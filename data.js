@@ -1288,14 +1288,35 @@ data.updateEmail = async function (email) {
 // These all rely on the RLS policies from migration 0005 — non-admins will
 // see only their own data even if they call these.
 
+// Per-user role/moderation flags for the admin-list badges (is_moderator from
+// db/0066, ghosted/app_blocked from db/0046). The overview RPC doesn't carry
+// these, so fetch them in one shot — admins can read every profiles row — and
+// merge by id. Degrades gracefully if a column isn't migrated yet.
+data._adminModerationFlags = async function () {
+  let { data: rows, error } = await sb.from('profiles').select('id, is_moderator, ghosted, app_blocked');
+  if (error && /column.*is_moderator/i.test(error.message || '')) {
+    ({ data: rows } = await sb.from('profiles').select('id, ghosted, app_blocked'));
+  } else if (error && /column.*(ghosted|app_blocked)/i.test(error.message || '')) {
+    ({ data: rows } = await sb.from('profiles').select('id'));
+  } else if (error) {
+    console.warn('adminModerationFlags', error);
+  }
+  return new Map((rows || []).map((r) => [r.id, r]));
+};
+
 data.adminListUsers = async function () {
   // One round trip: per-user counts (collection / wish list / for trade),
   // last seen, full name, and feedback tallies. Falls back to the old
   // profiles+summary path if migration 0045 hasn't been applied yet.
+  const flags = await data._adminModerationFlags().catch(() => new Map());
+  const withFlags = (id, base) => {
+    const f = flags.get(id) || {};
+    return { ...base, is_moderator: f.is_moderator === true, ghosted: f.ghosted === true, app_blocked: f.app_blocked === true };
+  };
   try {
     const { data: rows, error } = await sb.rpc('admin_user_overview');
     if (error) throw error;
-    return (rows || []).map((r) => ({
+    return (rows || []).map((r) => withFlags(r.id, {
       id: r.id,
       username: r.username,
       is_admin: r.is_admin,
@@ -1320,7 +1341,7 @@ data.adminListUsers = async function () {
     if (error) throw error;
     const { data: fb } = await sb.from('user_feedback_summary').select('*');
     const byId = new Map((fb || []).map((f) => [f.user_id, f]));
-    return rows.map((r) => ({ ...r, feedback: byId.get(r.id) || null }));
+    return rows.map((r) => withFlags(r.id, { ...r, feedback: byId.get(r.id) || null }));
   }
 };
 
