@@ -3,23 +3,33 @@
 Working notes from the catalog photos pilot (`catalog_photos`, slot scheme:
 numbered = official PD, lettered "Picture A" = community). Not user-facing.
 
-## Picture A coverage (340 items, all in DB — no committed seed)
+## WHY THIS EXISTS (read first)
+
+Goal is **legal, not cosmetic**: replace Plushie Dreadfuls' own product images
+(`cdn.shopify.com` studio shots) with genuine non-PD photos so PlushCrypt holds as
+little PD-owned material as possible if PD ever sends a C&D. **Dream: 0 PD images used.**
+Replacement **priority: Plush > Minis > Clothing > Bundles > Everything Else** — which is
+why even "dumb" merch is worth covering: every replaced image lowers exposure. Metric that
+matters: "items still rendering a `cdn.shopify.com` cover" (= uncovered items).
+
+## Picture A coverage (444 / 702 items, all in DB — no committed seed)
 
 - **10 from redrambler** (`source = 'owner:redrambler'`) — vetted, watermark-free
   owner photos copied into R2 `catalog/community/`. (commit ff0dd66)
-- **330 NOT from any site user** (`source = 'web'`) — copied into R2 `catalog/web/`:
-  - 8 earliest: depression, dreadful-demon-forest-spirit, insomnia-moth,
-    schizophrenia-rabbit-ii, ocd, borderline-personality-disorder, adhd-rabbit,
-    bipolar-ii (sources: PD Okendo customer-review photos, eBay, Mercari, Poshmark).
-  - 2 next: narcissistic-personality-disorder-rabbit, avoidant-personality-disorder-rabbit.
-  - **111 — "do the rest" sweep over `type=plush`**: every remaining plush-typed
-    item with Okendo photos (14 parallel vision selectors).
-  - **209 — "can we get more" sweep beyond `type=plush`**: 212 plush-SHAPED items
-    (type `toy` = full-size plushies incl. Love Rabbit colourways, Victorian
-    McGee's line, Response rabbits, latte-lapins, fruit buns; `Keychain` = mini
-    plushies; plus a few `Plush Accessory`/`stuffed Toy`/`grab bag`), minus 3 dropped
-    (plague-and-war earlier; massive-star recovered). 18 parallel vision selectors,
-    color/edition-matched.
+- **434 NOT from any site user** (`source = 'web'`) — copied into R2 `catalog/web/`:
+  - 8 earliest + 2 (narcissistic, avoidant) — mixed PD-Okendo / eBay / Mercari / Poshmark.
+  - **111 — "do the rest" sweep over `type=plush`** (14 vision selectors).
+  - **209 — "can we get more" beyond `type=plush`**: 212 plush-SHAPED items
+    (`toy` full-size plushies, `Keychain` minis, a few `Plush Accessory`/`stuffed Toy`/
+    `grab bag`), minus dropped (18 vision selectors, color-matched).
+  - **104 — "the dumb stuff" sweep (C&D lower tiers)**: clothing (34), bundles (4, incl.
+    plague-and-war-set recovered with a proper both-bunsmen shot), accessories (8),
+    other/merch (58) — 9 vision selectors, lower curation bar (any clear genuine photo).
+
+Coverage by tier (covered / still-PD): **plush 280/111, mini 45/6, clothing 34/39,
+bundle 10/8, accessory 17/12, other 58/82.** Coverable-now pool is **exhausted** — every
+remaining still-PD item has NO customer photo yet (coming-soon/FYC/no-review) or is a
+variant-parent. Plush & minis are maxed on available photos.
 
 All web photos sourced from Plushie Dreadfuls' own Okendo customer reviews — genuine
 owner shots, never a PlushCrypt site user. Merch types (sticker, tote, bracelet, pin,
@@ -67,12 +77,6 @@ Marketplaces (eBay/Mercari/Poshmark) are bot-blocked for direct fetch.
   placeholder"). No real product was made, so **no genuine owner photo exists**
   anywhere — can't get a community Picture A for it. Decide whether to keep it
   in the catalog or mark it as concept/unreleased.
-
-- **Plague and War Set** (`plushie-dreadfuls-plague-and-war-set`) — a Picture A WAS
-  inserted in the sweep then **pulled**: the only photo Okendo associated with this
-  product was a single pink bunny that doesn't match a "Plague and War" set (likely
-  a mis-tagged review). No reliable owner photo of the actual set — needs a hand-
-  picked image or skip.
 
 ### Plush items with NO pullable photo (skipped in the sweep)
 These 10 `type=plush` items returned **zero** Okendo customer-review photos — i.e.
