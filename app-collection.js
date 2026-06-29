@@ -327,8 +327,30 @@ function catalogIdMap() {
 
 const CATALOG_CATEGORIES = new Set(['all', 'plush', 'mini', 'clothing', 'accessory', 'bundle', 'other']);
 
+// Hidden curation filter. Typing exactly "store only" in catalog search
+// surfaces products still riding their original store (Shopify) photo with no
+// community photo adopted — i.e. no Picture A credit and a store-CDN cover.
+// It's a private spotter for which items still need community photos sourced
+// (the C&D-shelter goal of replacing PD imagery), so it isn't advertised in
+// the UI; you have to know the phrase. The full catalog_photos list isn't
+// loaded client-side, so this keys off the cover the same way the grid renders
+// it: an item showing a community/R2-hosted cover (or a custom row, which has
+// no store photo at all) is excluded.
+const MAGIC_STORE_ONLY = 'store only';
+function usesOnlyStorePhoto(it) {
+  if (!it || it.isCustom) return false;
+  // A community cover carries an @handle credit — that's a Photo A in use.
+  const credit = it.imageCredit ? String(it.imageCredit).trim() : '';
+  if (/^@\w/.test(credit)) return false;
+  // The cover must be a Shopify store image (or unset → the store default).
+  // Any other URL (R2/Storage) means a non-store photo is the cover.
+  if (it.image && !/^https:\/\/cdn\.shopify\.com\//.test(it.image)) return false;
+  return true;
+}
+
 function filteredCatalog() {
   const q = state.catQuery.trim().toLowerCase();
+  const magicStoreOnly = q === MAGIC_STORE_ONLY;
   const { owned } = catalogIdMap();
   const cat = CATALOG_CATEGORIES.has(state.catalogFilter) ? state.catalogFilter : 'all';
   const statuses = state.catalogStatuses;
@@ -365,6 +387,8 @@ function filteredCatalog() {
       // Substring match so 'pink' catches 'hot pink', 'light pink', etc.
       if (!tags.some((t) => t.includes(state.catalogColor))) return false;
     }
+    // Hidden "store only" token: bypass text search and match on photo source.
+    if (magicStoreOnly) return usesOnlyStorePhoto(it);
     if (!q) return true;
     // Name, tags, AND the parsed 'Set Includes' contents form one haystack so a
     // term can match the plush itself, a theme tag, or an accessory it ships
