@@ -290,11 +290,21 @@ function openCatalogOverrideModal(cid) {
     return;
   }
   if (!item.handle) { toast("This item has no handle to attach an edit to."); return; }
-  state.catalogOverride = { handle: item.handle, cid, imagePickerReady: false };
+  // A variant child shares its parent's handle but gets its OWN cover (keyed by
+  // variant id). Carry the variant id so the photo picker/manager and the save
+  // target that one card; lore/symbolism/tags still save to the shared handle.
+  state.catalogOverride = {
+    handle: item.handle,
+    variantId: item.isVariant ? item.variantId : null,
+    cid, imagePickerReady: false,
+  };
 
   document.getElementById('catalog-override-form').reset();
   document.getElementById('co-error').classList.add('hidden');
-  document.getElementById('co-subtitle').textContent = cleanCatalogName(item.name);
+  // Name the exact variant being edited so it's clear the cover is per-variant.
+  document.getElementById('co-subtitle').textContent = item.isVariant && item.formLabel
+    ? `${cleanCatalogName(item.name)} — ${item.formLabel}`
+    : cleanCatalogName(item.name);
 
   // "Lore" on plush/mini/bundle reads as "Notes" on merch — match the
   // detail modal's heading so the field label isn't jarring.
@@ -347,6 +357,14 @@ function imageUrlBase(url) {
   return String(url || '').split('?')[0];
 }
 
+// The catalog_photos / cover target for the override modal's current item: a
+// variant child targets its variant id (under the parent handle), everything
+// else targets the bare handle. Drives the photo manager, picker, and save.
+function coPhotoTarget(ctx) {
+  if (!ctx) return null;
+  return ctx.variantId ? { handle: ctx.handle, variantId: ctx.variantId } : { handle: ctx.handle };
+}
+
 function updateCoverPhotoPreview() {
   const select = document.getElementById('co-image');
   const preview = document.getElementById('co-image-preview');
@@ -370,8 +388,16 @@ async function populateCoverPhotoPicker(item) {
   // community) sort BEFORE numbered (0, 1… = official). These are the
   // "Picture A" shots; surface them as cover options ABOVE the store's photos.
   let community = [];
-  try { community = await data.adminListCatalogPhotos({ handle }); }
+  try { community = await data.adminListCatalogPhotos(coPhotoTarget(state.catalogOverride) || { handle }); }
   catch (e) { console.warn('community photos unavailable', e); }
+  // Remember each community shot's credit by its URL so the save step can
+  // attribute the picked cover (e.g. "@redrambler") — only community-sourced
+  // shots earn a courtesy credit, mirroring adminSetCatalogPhotoPrimary.
+  if (state.catalogOverride) {
+    const credits = {};
+    community.forEach((p) => { if (p.url) credits[imageUrlBase(p.url)] = p.source === 'community' ? (p.credit || null) : null; });
+    state.catalogOverride.coverCredits = credits;
+  }
 
   // The store's own product photos (numbered). A failed fetch is non-fatal —
   // we can still offer the community shots.
@@ -462,7 +488,7 @@ async function renderCatalogPhotosManager(item) {
   if (!handle) return;                          // Shopify-handle items only
   if (state.catalogOverride) state.catalogOverride.item = item;
   let photos = [];
-  try { photos = await data.adminListCatalogPhotos({ handle }); }
+  try { photos = await data.adminListCatalogPhotos(coPhotoTarget(state.catalogOverride) || { handle }); }
   catch (e) { console.warn('photos manager load failed', e); return; }
   if (!state.catalogOverride || state.catalogOverride.handle !== handle) return;
   state.catalogOverride.photos = photos;
@@ -496,7 +522,7 @@ async function catalogPhotoAdd() {
       // Hot-linked URL.
       payload = { slot, imageUrl: url, source: 'community' };
     }
-    await data.adminAddCatalogPhoto({ handle: ctx.handle }, payload);
+    await data.adminAddCatalogPhoto(coPhotoTarget(ctx), payload);
     urlEl.value = '';
     if (fileEl) fileEl.value = '';
     toast('Photo added.');
@@ -543,16 +569,29 @@ async function submitCatalogOverrideForm(e) {
   const retired = retSel === 'retired' ? true : retSel === 'active' ? false : null;
   const patch = { lore, altLore, symbolism, accessories, category, retired };
   // Cover photo: '' = store default (inherit), otherwise the picked image URL.
-  // Only touch the image column when the picker actually loaded — if its live
-  // image list was unavailable (offline / CORS) we leave any existing cover
-  // override untouched rather than silently clearing it.
-  if (ctx.imagePickerReady) patch.image = document.getElementById('co-image').value.trim() || null;
+  // Only touch the cover when the picker actually loaded — if its live image
+  // list was unavailable (offline / CORS) we leave any existing cover untouched
+  // rather than silently clearing it.
+  const isVariant = !!ctx.variantId;
+  let coverUrl, coverCredit;
+  if (ctx.imagePickerReady) {
+    coverUrl = document.getElementById('co-image').value.trim() || null;
+    coverCredit = coverUrl ? (ctx.coverCredits?.[imageUrlBase(coverUrl)] || null) : null;
+    // A variant's cover lives in catalog_variant_covers (per variant id), NOT
+    // the shared handle override — so it can't paint its sibling variants.
+    // lore/symbolism/tags below still save to the shared handle, which is
+    // correct: variants of one product share those.
+    if (!isVariant) patch.image = coverUrl;
+  }
 
   const submit = document.getElementById('co-submit');
   submit.disabled = true;
   submit.textContent = 'Saving…';
   try {
     await data.adminUpsertCatalogOverride(ctx.handle, patch);
+    if (isVariant && ctx.imagePickerReady) {
+      await data.adminSetVariantCover(ctx.variantId, ctx.handle, coverUrl, coverCredit);
+    }
     toast('Catalog details saved.');
     document.getElementById('catalog-override-modal').classList.add('hidden');
     // Do NOT call loadCatalog() here: it reloads catalog.json, which
@@ -565,7 +604,11 @@ async function submitCatalogOverrideForm(e) {
     // memory so we still never drop the parsed data.
     const refreshed = await refreshCatalogLive();
     if (!refreshed) {
-      applyCatalogOverrides(state.catalog, [{ handle: ctx.handle, ...patch }]);
+      if (isVariant) {
+        applyVariantCovers(state.catalog, [{ variant_id: ctx.variantId, image: coverUrl, image_credit: coverCredit }]);
+      } else {
+        applyCatalogOverrides(state.catalog, [{ handle: ctx.handle, ...patch }]);
+      }
       if (state.tab === 'catalog') render();
     }
     // Repaint the detail modal if it's still open behind this one.
