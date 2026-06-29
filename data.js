@@ -1560,18 +1560,22 @@ data.adminSetCatalogPhotoPrimary = async function (target, photoId) {
   { const { error } = await clr.eq('is_primary', true); if (error) throw error; }
 
   let coverUrl = null;
+  let coverCredit = null;
   if (photoId) {
     const { data: row, error } = await sb.from('catalog_photos')
       .update({ is_primary: true }).eq('id', photoId)
-      .select('image_path, image_url').single();
+      .select('image_path, image_url, source, credit').single();
     if (error) throw error;
     coverUrl = row.image_url || await data.catalogImageUrl(row.image_path);
+    // Only community shots earn a courtesy credit in the detail view.
+    if (row.source === 'community') coverCredit = row.credit || null;
   }
-  // Mirror to the override (handle targets only). Touch ONLY the image column
-  // via merge-upsert so lore/alt_lore/etc. on the same row are never clobbered.
+  // Mirror to the override (handle targets only). Touch ONLY the image +
+  // image_credit columns via merge-upsert so lore/alt_lore/etc. on the same
+  // row are never clobbered.
   if (target.handle) {
     const { error } = await sb.from('catalog_overrides')
-      .upsert({ handle: target.handle, image: coverUrl, updated_by: window.currentUser?.id || null },
+      .upsert({ handle: target.handle, image: coverUrl, image_credit: coverCredit, updated_by: window.currentUser?.id || null },
               { onConflict: 'handle' });
     if (error) throw error;
   }
@@ -1709,7 +1713,7 @@ data.adminUpdateCatalogItem = async function (id, patch) {
 data.listCatalogOverrides = async function () {
   const { data: rows, error } = await sb
     .from('catalog_overrides')
-    .select('handle, lore, alt_lore, symbolism, accessories, image, category, retired');
+    .select('handle, lore, alt_lore, symbolism, accessories, image, image_credit, category, retired');
   if (error) { console.warn('catalog overrides load skipped', error); return []; }
   return rows || [];
 };
@@ -1730,6 +1734,11 @@ data.adminUpsertCatalogOverride = async function (handle, patch) {
   // is present, '' / null clears it.
   const hasImage = Object.prototype.hasOwnProperty.call(patch, 'image');
   const image = patch.image || null;
+  // Cover attribution rides with the image: a community cover carries the
+  // submitter's display credit (e.g. '@redrambler'); a store/official cover
+  // clears it. It's only meaningful alongside a cover, so we write it on the
+  // same condition as `image` and let it follow the cover's lifecycle.
+  const imageCredit = patch.imageCredit || null;
   // Tag overrides: category (null = inherit) and retired (true/false = force,
   // null = inherit).
   const category = patch.category || null;
@@ -1744,7 +1753,7 @@ data.adminUpsertCatalogOverride = async function (handle, patch) {
     return null;
   }
   const row = { handle, lore, alt_lore: altLore, symbolism, accessories, category, retired, updated_by: window.currentUser.id };
-  if (hasImage) row.image = image;
+  if (hasImage) { row.image = image; row.image_credit = imageCredit; }
   const { data: saved, error } = await sb
     .from('catalog_overrides')
     .upsert(row, { onConflict: 'handle' })
