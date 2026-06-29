@@ -1738,13 +1738,20 @@ data.adminUpdateCatalogItem = async function (id, patch) {
 
 // ─── Catalog overrides (hand-edited fields on Shopify-fed items) ──
 // Read every override row. The catalog merge lays these on top of the
-// live-parsed Shopify data, keyed by handle. Returns [] on any error so
-// a missing table / RLS hiccup never blanks the catalog.
+// live-parsed Shopify data, keyed by handle.
+//
+// THROW on error — do NOT mask a failed query as an empty result. A
+// silent `return []` here is indistinguishable from "no overrides," so a
+// single broken column (e.g. selecting `image_credit` before its
+// migration is applied) would blank EVERY community photo and retelling
+// catalog-wide and look exactly like data loss. The caller decides how to
+// degrade (it falls back to the store base + a loud, visible warning), but
+// it can only do that if it can tell an error from genuine emptiness.
 data.listCatalogOverrides = async function () {
   const { data: rows, error } = await sb
     .from('catalog_overrides')
     .select('handle, lore, alt_lore, symbolism, accessories, image, image_credit, category, retired');
-  if (error) { console.warn('catalog overrides load skipped', error); return []; }
+  if (error) throw error;
   return rows || [];
 };
 

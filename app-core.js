@@ -739,10 +739,22 @@ async function mergeCustomCatalog(shopifyProducts) {
   try {
     // Lay any admin overrides on top of the live-parsed Shopify rows
     // first, then merge in the custom catalog_items. Both reads run in
-    // parallel; overrides fall back to [] so the catalog still renders.
+    // parallel.
     const [customsRaw, overrides] = await Promise.all([
       data.listApprovedCatalogItems(),
-      data.listCatalogOverrides().catch(() => []),
+      // Overrides carry every community cover + alt-lore retelling. If this
+      // read fails (schema drift, RLS, network) we still render the store
+      // base so the catalog isn't dead — but LOUDLY, never silently: a
+      // swallowed failure here once masqueraded as a total content wipe.
+      data.listCatalogOverrides().catch((e) => {
+        console.error(
+          'Catalog overrides failed to load — every item is falling back to its '
+          + 'store photo/lore until this is fixed (often a db/00NN migration not yet applied).', e);
+        if (window.currentUser?.isAdmin) {
+          toast('⚠️ Catalog overrides failed to load — showing store photos/lore. See console.');
+        }
+        return [];
+      }),
     ]);
     applyCatalogOverrides(shopifyProducts, overrides);
     // Hidden items (e.g. the Tom mascot) exist as catalog_items rows but
