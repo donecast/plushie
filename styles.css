@@ -4485,6 +4485,28 @@ body.maint-locked { overflow: hidden; }
   background: var(--surface-2, rgba(0,0,0,0.06));
 }
 .co-image-preview:not([src]), .co-image-preview[src=""] { visibility: hidden; }
+/* Community / extra photos manager (catalog_photos) */
+.co-photos-list { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px; }
+.co-photo-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 4px 6px; border-radius: 8px;
+  background: var(--surface-2, rgba(0,0,0,0.06));
+}
+.co-photo-row.is-cover { outline: 2px solid var(--accent, #b07cff); }
+.co-photo-thumb {
+  width: 40px; height: 40px; flex: none;
+  object-fit: cover; border-radius: 6px;
+  background: var(--surface-2, rgba(0,0,0,0.06));
+}
+.co-photo-slot-label {
+  font-weight: 700; min-width: 1.4em; text-align: center;
+  padding: 1px 6px; border-radius: 6px;
+  background: var(--surface-1, rgba(0,0,0,0.1));
+}
+.co-photo-row .dim { flex: 1; }
+.co-photo-add { display: flex; gap: 8px; align-items: center; }
+.co-photo-add input[type="url"] { flex: 1; }
+.co-photo-slot { width: 64px; flex: none; text-align: center; }
 /* Category + Availability override controls sit two-up. */
 .co-tag-row { display: flex; gap: 12px; flex-wrap: wrap; }
 .co-tag-row .field { flex: 1 1 140px; min-width: 0; }
