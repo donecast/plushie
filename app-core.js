@@ -543,6 +543,34 @@ function catalogCategory(item) {
   return 'other';
 }
 
+// User-facing label for the canonical category. The upstream Shopify
+// product_type is a mess — full-size plushies are tagged 'toy' OR 'plush'
+// interchangeably (266 'toy' vs 133 'plush', all the same kind of item), so
+// surfacing it raw just confuses. We label off catalogCategory() instead, so
+// every full-size bun reads "Regular Size Plush" regardless of its feed type.
+const CATALOG_CATEGORY_LABELS = {
+  plush: 'Regular Size Plush',
+  mini: 'Mini Plush',
+  clothing: 'Clothing',
+  accessory: 'Accessory',
+  bundle: 'Bundle',
+  other: 'Other',
+};
+function catalogCategoryLabel(item) {
+  const cat = catalogCategory(item);
+  if (cat === 'other') {
+    // The 'other' bucket is diverse store merch (stickers, jewelry, mugs…)
+    // where the specific Shopify type is more useful than a generic "Other".
+    // Surface it title-cased — but never the ambiguous 'toy'/'plush' raw
+    // types the rest of the app deliberately collapses.
+    const t = (item.type || '').trim();
+    if (t && !/^(toy|plush|stuffed toy)$/i.test(t)) {
+      return t.replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+  }
+  return CATALOG_CATEGORY_LABELS[cat] || 'Other';
+}
+
 function isComingSoon(item) {
   const tags = (item.tags || []).map((t) => t.toLowerCase());
   if (tags.includes('coming soon') || tags.includes('tba')) return true;
@@ -674,8 +702,11 @@ function applyCatalogOverrides(shopifyProducts, overrides) {
     if (Array.isArray(ov.accessories) && ov.accessories.length) {
       item.accessories = categoryHasAccessories(item) ? normalizeAccessories(ov.accessories) : [];
     }
-    // A picked cover photo replaces Shopify's default first image.
+    // A picked cover photo replaces Shopify's default first image; when that
+    // cover is a community submission, image_credit carries the contributor's
+    // @handle so the detail view can credit them under the photo.
     if (ov.image) item.image = ov.image;
+    if (ov.image_credit) item.imageCredit = ov.image_credit;
     // Tag overrides: re-categorise and/or force retired. categoryOverrideTag is
     // read by categoryOverride() below; retiredOverride drives itemStatus and
     // lets the modal prefill auto/active/retired.
@@ -707,6 +738,7 @@ async function mergeCustomCatalog(shopifyProducts) {
         handle: c.handle,
         type: c.type || 'plush',
         image: c.image || null,         // signed URL produced by data.listApprovedCatalogItems
+        imageCredit: c.image_credit || null, // contributor @handle for a community cover
         price: null,
         available: !!c.available,
         retired: !!c.retired,

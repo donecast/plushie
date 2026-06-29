@@ -843,11 +843,17 @@ function catalogDetailBodyHtml(cid, { forRail = false } = {}) {
     : (item.symbolism ? `<section class="cd-section"><h3>Symbolism</h3><p>${escapeHtml(item.symbolism).replace(/\n/g, '<br/>')}</p></section>` : '');
   const isEmpty = !accessoriesHtml && !loreHtml && !symHtml;
 
+  // Credit a community-submitted cover ("Image courtesy of @handle"), shown
+  // in italics directly under the photo. Only when there's an actual image.
+  const photoCredit = (thumb && item.imageCredit) ? String(item.imageCredit).trim() : '';
   return `
     <div class="cd-head">
-      <div class="cd-photo">${thumb ? `<img src="${escapeHtml(thumb)}" alt="${escapeHtml(display)}" />` : `<span class="no-photo">🖤</span>`}</div>
+      <div class="cd-photo-wrap">
+        <div class="cd-photo">${thumb ? `<img src="${escapeHtml(thumb)}" alt="${escapeHtml(display)}" />` : `<span class="no-photo">🖤</span>`}</div>
+        ${photoCredit ? `<p class="cd-credit">Image courtesy of ${escapeHtml(photoCredit)}</p>` : ''}
+      </div>
       <div class="cd-head-text">
-        <div class="card-eyebrow">${escapeHtml(item.type || 'plush')}${item.releaseYear ? ` · ${item.releaseYear}` : ''}</div>
+        <div class="card-eyebrow">${escapeHtml(catalogCategoryLabel(item))}${item.releaseYear ? ` · ${item.releaseYear}` : ''}</div>
         <h2>${escapeHtml(display)}${formLabel ? ` <span class="card-form-label">${escapeHtml(formLabel)}</span>` : ''}</h2>
         ${item.price != null && !isLoyaltyReward(item) ? `<p class="cd-price">$${Number(item.price).toFixed(2)}</p>` : ''}
         <p class="dim">
@@ -1177,21 +1183,35 @@ function renderPendingPhotoRow(row) {
   const thumb = row.image
     ? `<img src="${escapeHtml(row.image)}" alt="" />`
     : `<span class="no-photo">🖤</span>`;
+  // Resolve the target to a human name + a dim id line. The name comes from
+  // the in-memory catalog (Shopify product, custom item) or the pens list, so
+  // the admin sees WHICH plush they're approving rather than a bare id.
+  let name = 'Photo suggestion';
   let target;
   if (row.target_pen_id) {
     const pen = activePens().find((p) => p.id === row.target_pen_id);
-    target = `Pen: <code>${escapeHtml(row.target_pen_id)}</code>${pen ? ` (${escapeHtml(pen.line)} — ${escapeHtml(pen.name)})` : ''}`;
+    if (pen) name = `${pen.line} — ${pen.name}`;
+    target = `Pen: <code>${escapeHtml(row.target_pen_id)}</code>`;
   } else if (row.target_catalog_item_id) {
+    const item = (state.catalog || []).find((c) => c.id === row.target_catalog_item_id);
+    if (item) name = cleanCatalogName(item.name);
     target = `catalog_items: <code>${escapeHtml(row.target_catalog_item_id)}</code>`;
   } else {
+    const prod = (state.catalog || []).find((c) => c.id === row.target_shopify_id && !c.isCustom);
+    if (prod) name = cleanCatalogName(prod.name);
     target = `Shopify id: <code>${escapeHtml(row.target_shopify_id || '?')}</code>`;
   }
+  // Who sent it — resolved to @handle by data.adminListPhotoSuggestions.
+  const submitter = row.submitted_by_username
+    ? `@${escapeHtml(row.submitted_by_username)}`
+    : `<span class="dim">unknown user</span>`;
   return `
     <article class="catalog-pending-row">
       <div class="catalog-pending-photo">${thumb}</div>
       <div class="catalog-pending-body">
-        <h3>Photo suggestion</h3>
+        <h3>${escapeHtml(name)}</h3>
         <p class="dim">${target}</p>
+        <p>Submitted by ${submitter}</p>
         ${row.notes ? `<p><em>"${escapeHtml(row.notes)}"</em></p>` : ''}
         <p class="dim">submitted ${new Date(row.submitted_at).toLocaleString()}</p>
       </div>
