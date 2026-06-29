@@ -1030,6 +1030,7 @@
               <li class="changelog-gated"><strong>Catalog photo manager.</strong> The admin Edit-details panel now lists an item's <strong>community (A, B…)</strong> and <strong>official (0, 1…)</strong> pictures — lettered first — so you can <strong>add</strong>, <strong>remove</strong>, and pick any of them as the cover. Picture A now shows up in the cover dropdown (and is correctly preselected when it's the one on display).</li>
               <li><strong>Clearer category labels on item details.</strong> The little label above an item's name now reads <strong>Regular Size Plush</strong> for full-size buns (and <strong>Mini Plush</strong> for the minis), instead of the inconsistent "Toy" / "Plush" tags inherited from the shop — same kind of plushie, so now it says the same thing every time.</li>
               <li class="changelog-gated"><strong>Photo suggestions now name the plush and the sender.</strong> The admin review queue shows <strong>which item</strong> a suggested photo is for and <strong>who submitted it</strong> (instead of bare IDs), and approving one records the contributor's <strong>@handle</strong> as the photo's credit — now shown as <em>"Image courtesy of @them"</em> in italics under the picture on the item's detail page.</li>
+              <li><strong>Refreshing keeps your place.</strong> Reloading the page now leaves you on whichever tab you were viewing — Catalog, Crypt, Trade — instead of bouncing you back to Home. Coming back fresh in a new session still starts you on Home as before.</li>
             </ul>
             <p class="changelog-fixes">Fixed <strong>deeply-nested replies</strong> getting crushed into an unreadable sliver — reply threads now stop indenting after one level, so a reply-to-a-reply lines up with its siblings instead of marching off the right edge. Also fixed <strong>editing a comment</strong> — the inline edit box now gives the text room and drops <strong>Save</strong>/<strong>Cancel</strong> onto a tidy row beneath, instead of squashing them into an unreadable sliver. Also fixed <strong>restock reminders</strong> still nagging about <strong>retired</strong> plushies right after opening the app — the reminder now waits for the catalog to load before deciding what's truly out of stock. Also fixed <strong>catalog cards ballooning</strong> when a search or filter returned only a few results — sparse result sets now keep a sensible card size instead of stretching one or two plushies across the whole row.</p>
           </div>
@@ -1594,14 +1595,14 @@
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=142"></script>
-  <script src="./app-catalog.js?v=142"></script>
-  <script src="./app-collection.js?v=142"></script>
-  <script src="./app-ui.js?v=142"></script>
-  <script src="./app-trade.js?v=142"></script>
-  <script src="./app-account.js?v=142"></script>
-  <script src="./app-admin.js?v=142"></script>
-  <script src="./app-admin-catalog.js?v=142"></script>
-  <script src="./app-social.js?v=142"></script>
+  <script src="./app-core.js?v=143"></script>
+  <script src="./app-catalog.js?v=143"></script>
+  <script src="./app-collection.js?v=143"></script>
+  <script src="./app-ui.js?v=143"></script>
+  <script src="./app-trade.js?v=143"></script>
+  <script src="./app-account.js?v=143"></script>
+  <script src="./app-admin.js?v=143"></script>
+  <script src="./app-admin-catalog.js?v=143"></script>
+  <script src="./app-social.js?v=143"></script>
 </body>
 </html>
