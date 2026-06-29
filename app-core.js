@@ -482,6 +482,14 @@ function isMiniPlushie(item) {
   // Mini-plush keychains: explicitly tagged mini, or keychain-type plushies.
   if (type === 'keychain' && (tags.includes('plush') || tags.includes('plushie') || name.includes('plush'))) return true;
   if (tags.includes('mini') && (tags.includes('plush') || tags.includes('plushie'))) return true;
+  // "Mini" in a plush's name means mini-scale by definition — PD doesn't always
+  // add the 'mini' tag (e.g. Mini Worry Bunnies, Mini Scruffy Bumps). Gated to
+  // plush/toy types and not-clothing so mini-scale garments ("Mini Plush Outfit
+  // …", accessory-typed) and DIY "Plush Accessory" notions stay out of the
+  // mini-plush bucket. Word-bounded so it can't match inside another word.
+  if (/\bmini\b/.test(name)
+      && (type === 'plush' || type === 'toy' || type === 'stuffed toy')
+      && !catalogIsClothing(item)) return true;
   return false;
 }
 
