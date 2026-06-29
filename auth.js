@@ -52,9 +52,17 @@ const auth = {
     // still sign in before all migrations have been applied.
     let { data, error } = await sb
       .from('profiles')
-      .select('id, username, is_admin, photo_uploads_enabled, custom_clothing_enabled, app_blocked, ghosted')
+      .select('id, username, is_admin, is_moderator, photo_uploads_enabled, custom_clothing_enabled, app_blocked, ghosted')
       .eq('id', session.user.id)
       .maybeSingle();
+    if (error && /column.*is_moderator/i.test(error.message || '')) {
+      console.warn('[auth] profiles.is_moderator missing; run migration 0066');
+      ({ data, error } = await sb
+        .from('profiles')
+        .select('id, username, is_admin, photo_uploads_enabled, custom_clothing_enabled, app_blocked, ghosted')
+        .eq('id', session.user.id)
+        .maybeSingle());
+    }
     if (error && /column.*(app_blocked|ghosted)/i.test(error.message || '')) {
       console.warn('[auth] profiles.app_blocked/ghosted missing; run migration 0046');
       ({ data, error } = await sb
@@ -270,6 +278,7 @@ async function runAuthGate(onReady) {
       // only — the server still enforces the real RLS — and it touches no
       // stored state, so flipping it off restores everything on next boot.
       const realIsAdmin = !!profile.is_admin;
+      const realIsModerator = !!profile.is_moderator;
       const uname = (profile.username || '').toLowerCase();
       const realInsider = realIsAdmin ||
         (window.data?.ALWAYS_GRANTED_USERNAMES || []).includes(uname);
@@ -280,6 +289,12 @@ async function runAuthGate(onReady) {
         email: session.user.email,
         username: profile.username,
         isAdmin: demo ? false : realIsAdmin,
+        // Moderator role (db/0066). Can delete any post/comment and work the
+        // reports queue, but is NOT a full admin. canModerate is the single
+        // client gate for those powers (admins moderate too). Demo-suppressed
+        // like isAdmin so the demo view stays a plain member.
+        isModerator: demo ? false : realIsModerator,
+        canModerate: demo ? false : (realIsAdmin || realIsModerator),
         // Pictures off by default: a user is "cleared for images" only
         // when photo_uploads_enabled is explicitly true. Admins get
         // access via the override in data.featureEnabled().

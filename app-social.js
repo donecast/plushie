@@ -169,8 +169,9 @@ function renderFeed() {
       </div>
     </div>`;
 
-  const posts = state.socFeed.length
-    ? state.socFeed.map(renderPostCard).join('')
+  const feed = state.socFeed.filter((p) => !isHiddenPost(p.id));
+  const posts = feed.length
+    ? feed.map(renderPostCard).join('')
     : `<p class="empty-note">The crypt is quiet. Make the first post, or
         <button class="linklike" data-soc-action="go-friends">find some friends</button> to follow.</p>`;
 
@@ -266,11 +267,14 @@ function renderComment(c, postId, depth = 0) {
         </span>
         <button class="linklike soc-act-reply" data-soc-action="reply-comment" data-comment-id="${c.id}" data-post-id="${postId}">Reply</button>
         <span class="soc-act-time" title="${escapeHtml(new Date(c.createdAt).toLocaleString())}">${escapeHtml(socTimeAgo(c.createdAt))}</span>
-        <span class="soc-comment-controls">
-          ${c.mine ? `<button class="soc-comment-edit" data-soc-action="edit-comment" data-comment-id="${c.id}" title="Edit">✎</button>` : ''}
-          ${c.canDelete ? `<button class="soc-comment-del" data-soc-action="delete-comment" data-comment-id="${c.id}" title="Delete">×</button>` : ''}
-          ${!c.mine ? `<button class="soc-comment-flag" data-soc-action="report-comment" data-comment-id="${c.id}" data-owner="${c.authorId}" data-name="${escapeHtml(c.authorName)}" title="Report this comment">🚩</button>` : ''}
-        </span>
+        ${socKebab(`comment-${c.id}`, [
+          c.mine ? socMenuItem('edit-comment', '✎ Edit', `data-comment-id="${c.id}"`) : '',
+          c.canDelete ? socMenuItem('delete-comment', `🗑 Delete${(!c.mine && window.currentUser?.canModerate) ? ' (mod)' : ''}`, `data-comment-id="${c.id}"`, true) : '',
+          !c.mine ? socMenuItem('hide-comment', '🙈 Hide', `data-comment-id="${c.id}"`) : '',
+          !c.mine ? socMenuItem('report-comment', '🚩 Report', `data-comment-id="${c.id}" data-owner="${c.authorId}" data-name="${escapeHtml(c.authorName)}"`) : '',
+          (!c.mine && !data.isUnblockable({ username: c.authorName }))
+            ? socMenuItem('block-user', `🚫 Block @${escapeHtml(c.authorName)}`, `data-uid="${c.authorId}" data-name="${escapeHtml(c.authorName)}"`, true) : '',
+        ])}
       </div>`;
 
   return `
@@ -291,12 +295,17 @@ function renderComment(c, postId, depth = 0) {
 function renderPostCard(p) {
   const img = p.photoUrl || catalogImageFor(p.catalogId);
   const expanded = state.socExpandedComments.has(p.id);
-  const commentCount = p.commentCount ?? p.comments.length;
+  const subtreeSize = (c) => 1 + (c.replies || []).reduce((n, r) => n + subtreeSize(r), 0);
+  const treeSize = (list) => (list || []).reduce((n, c) => n + subtreeSize(c), 0);
+  // Drop any comments the viewer chose to hide (client-only), and discount the
+  // server's comment total by however many we removed so the counts stay honest.
+  const comments = pruneHiddenComments(p.comments);
+  const hiddenRemoved = treeSize(p.comments) - treeSize(comments);
+  const commentCount = (p.commentCount ?? p.comments.length) - hiddenRemoved;
   // Collapsed: show the last 2 top-level threads; expanded: all. A shown thread
   // now surfaces its entire (flattened) subtree, so count whole subtrees when
   // working out how many comments are still hidden behind "View more".
-  const shownComments = expanded ? p.comments : p.comments.slice(-2);
-  const subtreeSize = (c) => 1 + (c.replies || []).reduce((n, r) => n + subtreeSize(r), 0);
+  const shownComments = expanded ? comments : comments.slice(-2);
   const moreCount = commentCount - shownComments.reduce((n, c) => n + subtreeSize(c), 0);
 
   return `
@@ -307,9 +316,15 @@ function renderPostCard(p) {
         <span class="soc-post-author">@${escapeHtml(p.authorName)}</span>
       </button>
       <span class="soc-post-meta">${visBadge(p.visibility)} · ${escapeHtml(socTimeAgo(p.createdAt))}${p.edited ? ' · edited' : ''}</span>
-      ${p.mine ? `<button class="soc-post-edit" data-soc-action="edit-post" data-post-id="${p.id}" title="Edit">✏️</button>
-                  <button class="soc-post-del" data-soc-action="delete-post" data-post-id="${p.id}" title="Delete">🗑</button>`
-              : `<button class="soc-post-flag" data-soc-action="report-post" data-post-id="${p.id}" data-owner="${p.authorId}" data-name="${escapeHtml(p.authorName)}" title="Report this post">🚩</button>`}
+      ${socKebab(`post-${p.id}`, [
+        p.mine ? socMenuItem('edit-post', '✏️ Edit', `data-post-id="${p.id}"`) : '',
+        (p.mine || window.currentUser?.canModerate)
+          ? socMenuItem('delete-post', `🗑 Delete${(!p.mine && window.currentUser?.canModerate) ? ' (mod)' : ''}`, `data-post-id="${p.id}"`, true) : '',
+        !p.mine ? socMenuItem('hide-post', '🙈 Hide from my feed', `data-post-id="${p.id}"`) : '',
+        !p.mine ? socMenuItem('report-post', '🚩 Report', `data-post-id="${p.id}" data-owner="${p.authorId}" data-name="${escapeHtml(p.authorName)}"`) : '',
+        (!p.mine && !data.isUnblockable({ username: p.authorName }))
+          ? socMenuItem('block-user', `🚫 Block @${escapeHtml(p.authorName)}`, `data-uid="${p.authorId}" data-name="${escapeHtml(p.authorName)}"`, true) : '',
+      ])}
     </header>
     ${p.plushName ? `<p class="soc-post-plush">🧸 ${escapeHtml(p.plushName)}</p>` : ''}
     ${p.body ? `<p class="soc-post-body">${linkifyMentions(p.body)}</p>` : ''}
@@ -475,7 +490,7 @@ function renderCryptFooter() {
     </section>
     <section class="soc-section">
       <h2 class="soc-section-head">Your posts</h2>
-      ${posts.length ? posts.map(renderPostCard).join('') : `<p class="empty-note">No posts yet.</p>`}
+      ${posts.length ? (posts.filter((p) => !isHiddenPost(p.id)).map(renderPostCard).join('') || `<p class="empty-note">No posts to show.</p>`) : `<p class="empty-note">No posts yet.</p>`}
     </section>`;
   el.insertAdjacentHTML('beforeend', renderBlockedManager());
 }
@@ -586,7 +601,7 @@ function renderProfileInto(el, { profile, posts = [], top8 = [], friendship, isM
     </section>`}
     ${omitPosts ? '' : `<section class="soc-section">
       <h2 class="soc-section-head">${isMe ? 'Your posts' : 'Posts'}</h2>
-      ${posts.length ? posts.map(renderPostCard).join('') : `<p class="empty-note">No posts yet.</p>`}
+      ${posts.length ? (posts.filter((p) => !isHiddenPost(p.id)).map(renderPostCard).join('') || `<p class="empty-note">No posts to show.</p>`) : `<p class="empty-note">No posts yet.</p>`}
     </section>`}`;
 }
 
@@ -619,6 +634,91 @@ function closeSocialModal() {
   document.getElementById('social-modal').classList.add('hidden');
   document.getElementById('social-modal-card').innerHTML = '';
   state.socComposePhoto = null;
+}
+
+// ─── Confirm dialog ─────────────────────────────────────────────────
+// Promise<boolean> styled confirm, reusing the social modal. Used before
+// any destructive action (delete post/comment, block) so a stray tap can't
+// nuke content — replaces the bare browser confirm().
+function socConfirm({ title, body, confirmLabel = 'Confirm', danger = false } = {}) {
+  return new Promise((resolve) => {
+    openSocialModal(`
+      <div class="soc-confirm">
+        <h2>${escapeHtml(title || 'Are you sure?')}</h2>
+        ${body ? `<p>${escapeHtml(body)}</p>` : ''}
+        <div class="soc-confirm-actions">
+          <button class="btn-ghost" data-soc-confirm="cancel" type="button">Cancel</button>
+          <button class="btn-primary${danger ? ' soc-danger-btn' : ''}" data-soc-confirm="ok" type="button">${escapeHtml(confirmLabel)}</button>
+        </div>
+      </div>`);
+    const card = document.getElementById('social-modal-card');
+    const finish = (val) => { card.removeEventListener('click', onClick); closeSocialModal(); resolve(val); };
+    function onClick(e) {
+      const btn = e.target.closest('[data-soc-confirm]');
+      if (!btn) return;
+      finish(btn.dataset.socConfirm === 'ok');
+    }
+    card.addEventListener('click', onClick);
+  });
+}
+
+// ─── Hide from my view (client-only, per-user) ──────────────────────
+// "I don't want to see this" without blocking the author. Per-user, stored
+// in localStorage; the item is filtered out of the feed/threads on render.
+// No schema, no effect on anyone else's view.
+function socHideKey(kind) { return `soc_hidden_${kind}_${window.currentUser?.id || 'anon'}`; }
+function ensureHiddenSets() {
+  if (!state.socHiddenPosts) {
+    try { state.socHiddenPosts = new Set(JSON.parse(localStorage.getItem(socHideKey('posts')) || '[]')); }
+    catch { state.socHiddenPosts = new Set(); }
+  }
+  if (!state.socHiddenComments) {
+    try { state.socHiddenComments = new Set(JSON.parse(localStorage.getItem(socHideKey('comments')) || '[]')); }
+    catch { state.socHiddenComments = new Set(); }
+  }
+}
+function persistHidden(kind) {
+  ensureHiddenSets();
+  const set = kind === 'posts' ? state.socHiddenPosts : state.socHiddenComments;
+  try { localStorage.setItem(socHideKey(kind), JSON.stringify([...set])); } catch { /* quota / private mode */ }
+}
+function onHidePost(postId) {
+  ensureHiddenSets();
+  state.socHiddenPosts.add(postId);
+  persistHidden('posts');
+  toast('Hidden from your feed.');
+  rerenderSocialCurrent();
+}
+function onHideComment(commentId) {
+  ensureHiddenSets();
+  state.socHiddenComments.add(commentId);
+  persistHidden('comments');
+  toast('Comment hidden.');
+  rerenderSocialCurrent();
+}
+function isHiddenPost(id) { ensureHiddenSets(); return state.socHiddenPosts.has(id); }
+function pruneHiddenComments(comments) {
+  ensureHiddenSets();
+  if (!comments) return comments;
+  return comments
+    .filter((c) => !state.socHiddenComments.has(c.id))
+    .map((c) => ({ ...c, replies: pruneHiddenComments(c.replies) }));
+}
+
+// ─── Three-dot (kebab) menu ─────────────────────────────────────────
+// One "⋯" button per post/comment opening a popover of context actions,
+// mirroring the reaction-palette popover (toggle .open, outside-click closes
+// in onSocialClick). Empty item lists render nothing.
+function socMenuItem(action, label, attrs = '', danger = false) {
+  return `<button class="soc-menu-item${danger ? ' soc-menu-danger' : ''}" data-soc-action="${action}" ${attrs} role="menuitem" type="button">${label}</button>`;
+}
+function socKebab(menuId, items) {
+  const list = (items || []).filter(Boolean);
+  if (!list.length) return '';
+  return `<span class="soc-menu-wrap">
+      <button class="soc-kebab" data-soc-action="toggle-menu" data-menu="${menuId}" aria-label="More options" title="More">⋯</button>
+      <span class="soc-menu" data-menu="${menuId}" role="menu">${list.join('')}</span>
+    </span>`;
 }
 
 function openComposer() {
@@ -1106,11 +1206,20 @@ async function onSocialClick(e) {
   if (!e.target.closest('.soc-react-wrap')) {
     document.querySelectorAll('.soc-react-palette.open').forEach((p) => p.classList.remove('open'));
   }
+  // Same for an open kebab (⋯) menu.
+  if (!e.target.closest('.soc-menu-wrap')) {
+    document.querySelectorAll('.soc-menu.open').forEach((m) => m.classList.remove('open'));
+  }
   const target = e.target.closest('[data-soc-action]');
   if (!target) return;
   const a = target.dataset.socAction;
   const uid = target.dataset.uid;
   const postId = target.dataset.postId;
+
+  // Choosing any menu item closes the menu (the toggle itself is exempt).
+  if (a !== 'toggle-menu') {
+    document.querySelectorAll('.soc-menu.open').forEach((m) => m.classList.remove('open'));
+  }
 
   switch (a) {
     case 'open-compose': openComposer(); break;
@@ -1120,6 +1229,16 @@ async function onSocialClick(e) {
     case 'edit-profile': closeSocialModal(); openAccountModal(); break;
     case 'edit-top8': openTop8Picker(); break;
     case 'zoom-top8': openLightbox(target.dataset.src, target.dataset.name); break;
+
+    case 'toggle-menu': {
+      const id = target.dataset.menu;
+      const menu = document.querySelector(`.soc-menu[data-menu="${id}"]`);
+      document.querySelectorAll('.soc-menu.open').forEach((m) => { if (m !== menu) m.classList.remove('open'); });
+      if (menu) menu.classList.toggle('open');
+      break;
+    }
+    case 'hide-post': onHidePost(postId); break;
+    case 'hide-comment': onHideComment(target.dataset.commentId); break;
 
     case 'toggle-like': await onToggleLike(postId, target); break;
     case 'toggle-comments': onToggleComments(postId); break;
@@ -1183,7 +1302,11 @@ async function onBlockUser(uid, name) {
     toast(`${who} can't be blocked.`);
     return;
   }
-  if (!confirm(`Block ${who}?\n\nYou won't see each other's posts, comments, or profiles, any friendship is removed, and neither of you can start a trade with the other.`)) return;
+  if (!await socConfirm({
+    title: `Block ${who}?`,
+    body: "You won't see each other's posts, comments, or profiles, any friendship is removed, and neither of you can start a trade with the other.",
+    confirmLabel: 'Block', danger: true,
+  })) return;
   try {
     await data.blockUser(uid);
     toast(`Blocked ${who}. 🚫`);
@@ -1382,7 +1505,14 @@ function findCommentById(list, id) {
 }
 
 async function onDeletePost(postId) {
-  if (!confirm('Delete this post?')) return;
+  const post = findFeedPost(postId);
+  const mod = post && !post.mine && window.currentUser?.canModerate;
+  if (!await socConfirm({
+    title: 'Delete this post?',
+    body: mod ? "You're removing another collector's post as a moderator. This can't be undone."
+              : "This can't be undone.",
+    confirmLabel: 'Delete', danger: true,
+  })) return;
   try {
     await data.deletePost(postId);
     toast('Post deleted.');
@@ -1393,6 +1523,11 @@ async function onDeletePost(postId) {
 }
 
 async function onDeleteComment(commentId) {
+  if (!await socConfirm({
+    title: 'Delete this comment?',
+    body: "This can't be undone.",
+    confirmLabel: 'Delete', danger: true,
+  })) return;
   try {
     await data.deleteComment(commentId);
     await loadSocialData();

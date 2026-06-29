@@ -1023,8 +1023,8 @@ data.isMyBlock   = function (uid) { return data._myBlockIds.has(uid); };
 // whatever they know about the target (username always, is_admin when
 // available).
 data.PROTECTED_USERNAMES = new Set(['thegamersdome', 'redrambler']);
-data.isUnblockable = function ({ username, is_admin } = {}) {
-  if (is_admin) return true;
+data.isUnblockable = function ({ username, is_admin, is_moderator } = {}) {
+  if (is_admin || is_moderator) return true;
   return data.PROTECTED_USERNAMES.has((username || '').toLowerCase());
 };
 
@@ -1451,14 +1451,22 @@ data.adminUserSnapshot = async function (userId) {
   const fb = await data.getFeedbackSummary(userId);
   // Moderation flags (db/0046) — fetched fresh so the admin toggles reflect
   // current state. Falls back to all-false if the migration isn't applied yet.
-  let moderation = { app_blocked: false, ghosted: false, is_admin: false };
+  let moderation = { app_blocked: false, ghosted: false, is_admin: false, is_moderator: false };
   {
     let { data: prof, error } = await sb
-      .from('profiles').select('app_blocked, ghosted, is_admin').eq('id', userId).maybeSingle();
+      .from('profiles').select('app_blocked, ghosted, is_admin, is_moderator').eq('id', userId).maybeSingle();
+    if (error && /column.*is_moderator/i.test(error.message || '')) {
+      ({ data: prof, error } = await sb.from('profiles').select('app_blocked, ghosted, is_admin').eq('id', userId).maybeSingle());
+    }
     if (error && /column.*(app_blocked|ghosted)/i.test(error.message || '')) {
       ({ data: prof } = await sb.from('profiles').select('is_admin').eq('id', userId).maybeSingle());
     }
-    if (prof) moderation = { app_blocked: prof.app_blocked === true, ghosted: prof.ghosted === true, is_admin: prof.is_admin === true };
+    if (prof) moderation = {
+      app_blocked: prof.app_blocked === true,
+      ghosted: prof.ghosted === true,
+      is_admin: prof.is_admin === true,
+      is_moderator: prof.is_moderator === true,
+    };
   }
   return {
     collection: col, plushies, wishlist, pens,
@@ -2346,6 +2354,12 @@ data.adminSetGhosted = async function (userId, on) {
   const { error } = await sb.from('profiles').update({ ghosted: !!on }).eq('id', userId);
   if (error) throw error;
 };
+// Moderator role (db/0066). Grants delete-any-content + the reports queue.
+// Admin-only RLS update; safe to call again to flip it off.
+data.adminSetModerator = async function (userId, on) {
+  const { error } = await sb.from('profiles').update({ is_moderator: !!on }).eq('id', userId);
+  if (error) throw error;
+};
 
 data.adminSetSetting = async function (key, value) {
   const row = { key, value, updated_at: new Date().toISOString(), updated_by: window.currentUser?.id };
@@ -2716,7 +2730,7 @@ data._hydratePosts = async function (rows) {
       createdAt: c.created_at,
       parentId: c.parent_comment_id || null,
       mine: c.author_id === uid,
-      canDelete: c.author_id === uid || postAuthorId === uid,
+      canDelete: c.author_id === uid || postAuthorId === uid || window.currentUser?.canModerate === true,
       reactions: reactionsFor(c.id),
       replies: [],
     });
