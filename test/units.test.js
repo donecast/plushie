@@ -414,3 +414,33 @@ test('a handle cover skips variant children; a per-variant cover lands only on i
   assert.equal(result.blueVariantId, '10');                         // variant id tagged for keying
   assert.equal(result.orangeVariantId, '11');
 });
+
+test('catalog detail: suggest-a-picture button on every item, EXTRA-highlighted only when store-only', () => {
+  const vm = require('node:vm');
+  app.setGlobal('currentUser', { isAdmin: true });   // makes canSuggestPhotos true
+  vm.runInContext(`
+    window.currentUser = { isAdmin: true };
+    state.collection = []; state.wishlist = [];
+    state.catalog = [
+      { id: 's1', name: 'Store Only Plush', handle: 'store-only', type: 'plush',
+        image: 'https://cdn.shopify.com/x.jpg', tags: ['plush'], available: true },
+      { id: 'c1', name: 'Community Plush', handle: 'covered', type: 'plush',
+        image: 'https://r2.dev/y.jpg', imageCredit: '@amber', tags: ['plush'], available: true },
+      { id: 'v1::2', name: 'Variant Plush', handle: 'variant', type: 'plush', isVariant: true,
+        variantId: '2', image: 'https://cdn.shopify.com/z.jpg', tags: ['plush'], available: true },
+    ];
+  `, app.ctx);
+  const storeOnly = app.call('catalogDetailBodyHtml', 's1');
+  const community = app.call('catalogDetailBodyHtml', 'c1');
+  const variant   = app.call('catalogDetailBodyHtml', 'v1::2');
+  // Store-only item: suggest button present AND hot AND the highlighted CTA strip.
+  assert.match(storeOnly, /data-action="cat-suggest-photo"/);
+  assert.match(storeOnly, /btn-suggest-hot/);
+  assert.match(storeOnly, /cd-storeonly-cta/);
+  // Community-covered item: plain suggest button, NOT hot, no CTA strip.
+  assert.match(community, /data-action="cat-suggest-photo"/);
+  assert.doesNotMatch(community, /btn-suggest-hot/);
+  assert.doesNotMatch(community, /cd-storeonly-cta/);
+  // Variant: no suggest affordance at all (no row to attach a suggestion to).
+  assert.doesNotMatch(variant, /cat-suggest-photo/);
+});

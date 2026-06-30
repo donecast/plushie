@@ -7,3 +7,4 @@ config.dev.js
 !.dev.vars.example
 .env*
 !.env.example
+__pycache__/
