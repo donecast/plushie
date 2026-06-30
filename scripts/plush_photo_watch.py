@@ -245,6 +245,7 @@ def main():
         candidates.append(p)
 
     finds = []
+    checked = 0   # store-only targets we actually looked up on Okendo (the "needs pictures" set)
     for p in candidates:
         handle = p.get("handle")
         cvars = collectible_variants(p)
@@ -253,6 +254,7 @@ def main():
             need = [(vid, vtitle) for (vid, vtitle) in cvars if vid not in excluded]
             if not need:
                 continue
+            checked += 1
             reviews = okendo_reviews(p.get("id"))
             pv = photos_by_variant(reviews)
             for vid, vtitle in need:
@@ -265,6 +267,7 @@ def main():
         else:
             if handle in excluded:
                 continue
+            checked += 1
             reviews = okendo_reviews(p.get("id"))
             pv = photos_by_variant(reviews)
             opts = [o for lst in pv.values() for o in lst]   # single product: all photos
@@ -284,7 +287,10 @@ def main():
             f["montage_url"] = None
 
     json.dump(finds, open("/tmp/pw_finds.json", "w"), indent=2)
-    print(f"candidates checked: {len(candidates)}  |  NEW finds: {len(finds)}")
+    # `checked` = the store-only full plushes still needing a picture (the small
+    # set that matters). `candidates` is just the released-plush universe we
+    # filtered from — not a per-item Okendo lookup.
+    print(f"full plushes still needing a picture: {checked} (of {len(candidates)} released)  |  NEW photos found: {len(finds)}")
     for f in finds:
         label = f["name"] + (f" — {f['variant_name']}" if f["variant_name"] else "")
         print(f"  • {label}  ({len(f['options'])} photos)  {f.get('montage_url') or '[no montage]'}")
