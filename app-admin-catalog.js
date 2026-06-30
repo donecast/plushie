@@ -893,6 +893,21 @@ function catalogDetailBodyHtml(cid, { forRail = false } = {}) {
   // may type (e.g. "a customer review", a web/Okendo source) are NOT shown.
   const rawCredit = (thumb && item.imageCredit) ? String(item.imageCredit).trim() : '';
   const photoCredit = /^@\w/.test(rawCredit) ? rawCredit : '';
+  // Credit line, honouring a contributor's "don't show my name" opt-out:
+  //   • not opted out      → "Image courtesy of @handle" (everyone)
+  //   • opted out + admin   → the real @handle, in blue, so the admin still
+  //                           knows who shot it and that it's hidden publicly
+  //   • opted out + public  → an anonymous "a crypt member" credit
+  let creditHtml = '';
+  if (photoCredit) {
+    if (item.imageCreditAnon === true) {
+      creditHtml = window.currentUser?.isAdmin
+        ? `<p class="cd-credit cd-credit-anon" title="Hidden publicly — this contributor opted out of being named">Image courtesy of ${escapeHtml(photoCredit)}</p>`
+        : `<p class="cd-credit">Image courtesy of a crypt member</p>`;
+    } else {
+      creditHtml = `<p class="cd-credit">Image courtesy of ${escapeHtml(photoCredit)}</p>`;
+    }
+  }
 
   // "Suggest a picture" — let any user offer a community photo. Unlike the
   // grid card (which only offers it when an item has NO image), the detail view
@@ -916,7 +931,7 @@ function catalogDetailBodyHtml(cid, { forRail = false } = {}) {
     <div class="cd-head">
       <div class="cd-photo-wrap">
         <div class="cd-photo">${thumb ? `<img src="${escapeHtml(thumb)}" alt="${escapeHtml(display)}" />` : `<span class="no-photo">🖤</span>`}</div>
-        ${photoCredit ? `<p class="cd-credit">Image courtesy of ${escapeHtml(photoCredit)}</p>` : ''}
+        ${creditHtml}
         ${storeOnlyNote}
       </div>
       <div class="cd-head-text">
@@ -1007,6 +1022,7 @@ async function submitSuggestPhotoForm(e) {
   const file = document.getElementById('sp-photo').files[0];
   if (!file) { errEl.textContent = 'Please pick a photo.'; errEl.classList.remove('hidden'); return; }
   const notes = document.getElementById('sp-notes').value.trim() || null;
+  const creditAnon = document.getElementById('sp-anon').checked;
   const target = state.suggestPhotoTarget;
   if (!target) return;
   const submit = document.getElementById('sp-submit');
@@ -1021,6 +1037,7 @@ async function submitSuggestPhotoForm(e) {
       targetPenId: target.kind === 'pen' ? target.id : null,
       imagePath: path,
       notes,
+      creditAnon,
     });
     toast('Thanks — sent to admin.');
     document.getElementById('suggest-photo-modal').classList.add('hidden');

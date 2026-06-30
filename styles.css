@@ -2385,6 +2385,10 @@ body.cl-insider .changelog-gated strong { color: #2f6fed; }
   color: var(--ink-mute);
   line-height: 1.3;
 }
+/* Admin-only signal: this contributor opted out of being named publicly. The
+   public sees an anonymous credit; the admin sees the real @handle in blue. */
+.cd-credit-anon { color: #2f6fed; cursor: help; }
+[data-theme="dark"] .cd-credit-anon { color: #7db1ff; }
 .cd-head-text h2 {
   font-family: var(--display);
   font-weight: 700;
