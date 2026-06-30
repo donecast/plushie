@@ -3,8 +3,9 @@
 
 Runs unauthenticated and read-only. Each run it:
   1. pulls the live Plushie Dreadfuls catalog (products.json),
-  2. keeps RELEASED full-size plush + minis (available / sold out / retired —
-     skips coming-soon / FYC, which never have customer photos),
+  2. keeps RELEASED full-size plush (available / sold out / retired — skips
+     coming-soon / FYC, which never have customer photos; minis are excluded
+     for now — see the candidate filter in main()),
   3. asks the DB which products/variants ALREADY have a community cover, via the
      public covered_photo_targets() RPC (db/0070 — exposes only public handles +
      variant ids),
@@ -230,13 +231,14 @@ def main():
     excluded = fetch_excluded()
     prods = fetch_feed()
     by_handle = {p.get("handle"): p for p in prods}
-    # Released full-size plush + minis only (priority tiers).
+    # Released FULL-SIZE PLUSH only (top priority tier). Minis are intentionally
+    # excluded for now — flip this back to {'plush','mini'} to widen the net.
     candidates = []
     for p in prods:
         if (p.get("product_type", "") or "").lower() in NON_PLUSHIE_TYPES:
             continue
         cat = category(feed_item(p))
-        if cat not in ("plush", "mini"):
+        if cat != "plush":
             continue
         if status(p) not in ("available", "sold_out", "retired"):
             continue
