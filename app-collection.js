@@ -497,16 +497,16 @@ function renderCatalogCard(rawItem, owned, wished) {
   // No Buy for loyalty rewards — they're redeemed with points, not purchasable.
   // No Buy for loyalty rewards (points-only) or retired items (no longer sold).
   const linkBtn  = (productUrl && !isLoyaltyReward(item) && status !== 'retired') ? `<a class="btn-buy" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener" title="Open product page">Buy</a>` : '';
-  // "Suggest a photo" appears when the item has no image. We thread
-  // the target id through dataset so the handler knows whether to
-  // attach it to a Shopify id or a catalog_items uuid. Hidden when
-  // the user_photo_uploads feature flag is off (admins still see it).
+  // "Suggest a picture" shows right on the card when the item has NO image OR is
+  // still riding the shop's stock photo (usesOnlyStorePhoto) — the store-only
+  // ones are exactly what we want replaced, so they get the hot (solid) button.
+  // The dataset target tells the handler whether to attach to a Shopify id or a
+  // catalog_items uuid. Hidden when the user_photo_uploads flag is off (admins
+  // still see it). Variants have no row to attach a suggestion to → suppressed.
   const canSuggestPhotos = window.currentUser?.isAdmin || data.featureEnabled('feature.user_photo_uploads');
-  // Variants carry a synthetic id with no Shopify product / catalog_items
-  // row to attach a suggestion to (and they always inherit a photo), so the
-  // suggest-photo affordance is suppressed for them.
-  const suggestBtn = (!thumb && canSuggestPhotos && !item.isVariant)
-    ? `<button class="btn-suggest" data-action="cat-suggest-photo" data-cid="${item.id}" data-target-kind="${item.isCustom ? 'custom' : 'shopify'}">🤍 Suggest a photo</button>`
+  const storeOnly = usesOnlyStorePhoto(item);
+  const suggestBtn = (canSuggestPhotos && !item.isVariant && (!thumb || storeOnly))
+    ? `<button class="btn-suggest${storeOnly ? ' btn-suggest-hot' : ''}" data-action="cat-suggest-photo" data-cid="${item.id}" data-target-kind="${item.isCustom ? 'custom' : 'shopify'}">📸 Suggest a picture</button>`
     : '';
   // Admins can edit any catalog item. Custom rows get the full editor;
   // Shopify rows get the lighter overrides editor (lore / symbolism /
