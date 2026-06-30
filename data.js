@@ -1619,12 +1619,12 @@ data.adminListCatalogPhotos = async function (target) {
 
 // Add a photo. `imageUrl` is stored as a hot-link in image_url (the simplest
 // path for web/community shots); pass `imagePath` instead for an R2 key.
-data.adminAddCatalogPhoto = async function (target, { slot, imageUrl = null, imagePath = null, source = 'community', credit = null, notes = null }) {
+data.adminAddCatalogPhoto = async function (target, { slot, imageUrl = null, imagePath = null, source = 'community', credit = null, creditAnon = false, notes = null }) {
   if (!slot) throw new Error('A slot (A, B… or 0, 1…) is required.');
   if (!imageUrl && !imagePath) throw new Error('A photo URL (or R2 path) is required.');
   const row = {
     slot: String(slot).trim(),
-    image_url: imageUrl, image_path: imagePath, source, credit, notes,
+    image_url: imageUrl, image_path: imagePath, source, credit, credit_anon: creditAnon === true, notes,
     submitted_by: window.currentUser?.id || null,
   };
   if (target.variantId) {
@@ -1669,14 +1669,16 @@ data.adminSetCatalogPhotoPrimary = async function (target, photoId) {
 
   let coverUrl = null;
   let coverCredit = null;
+  let coverAnon = false;
   if (photoId) {
     const { data: row, error } = await sb.from('catalog_photos')
       .update({ is_primary: true }).eq('id', photoId)
-      .select('image_path, image_url, source, credit').single();
+      .select('image_path, image_url, source, credit, credit_anon').single();
     if (error) throw error;
     coverUrl = row.image_url || await data.catalogImageUrl(row.image_path);
-    // Only community shots earn a courtesy credit in the detail view.
-    if (row.source === 'community') coverCredit = row.credit || null;
+    // Only community shots earn a courtesy credit in the detail view — and only
+    // a community shot can carry the contributor's "hide my name" opt-out.
+    if (row.source === 'community') { coverCredit = row.credit || null; coverAnon = row.credit_anon === true; }
   }
   // Mirror to the render bridge. A variant target writes catalog_variant_covers
   // (keyed by variant id) so the cover lands ONLY on that variant's card; a
@@ -1684,12 +1686,12 @@ data.adminSetCatalogPhotoPrimary = async function (target, photoId) {
   // image_credit via merge-upsert so lore/alt_lore/etc. are never clobbered.
   if (target.variantId) {
     const { error } = await sb.from('catalog_variant_covers')
-      .upsert({ variant_id: target.variantId, handle: target.handle || null, image: coverUrl, image_credit: coverCredit, updated_by: window.currentUser?.id || null },
+      .upsert({ variant_id: target.variantId, handle: target.handle || null, image: coverUrl, image_credit: coverCredit, credit_anon: coverAnon, updated_by: window.currentUser?.id || null },
               { onConflict: 'variant_id' });
     if (error) throw error;
   } else if (target.handle) {
     const { error } = await sb.from('catalog_overrides')
-      .upsert({ handle: target.handle, image: coverUrl, image_credit: coverCredit, updated_by: window.currentUser?.id || null },
+      .upsert({ handle: target.handle, image: coverUrl, image_credit: coverCredit, credit_anon: coverAnon, updated_by: window.currentUser?.id || null },
               { onConflict: 'handle' });
     if (error) throw error;
   }
@@ -1835,7 +1837,7 @@ data.adminUpdateCatalogItem = async function (id, patch) {
 data.listCatalogOverrides = async function () {
   const { data: rows, error } = await sb
     .from('catalog_overrides')
-    .select('handle, lore, alt_lore, symbolism, accessories, image, image_credit, category, retired');
+    .select('handle, lore, alt_lore, symbolism, accessories, image, image_credit, credit_anon, category, retired');
   if (error) throw error;
   return rows || [];
 };
@@ -1847,7 +1849,7 @@ data.listCatalogOverrides = async function () {
 data.listVariantCovers = async function () {
   const { data: rows, error } = await sb
     .from('catalog_variant_covers')
-    .select('variant_id, handle, image, image_credit');
+    .select('variant_id, handle, image, image_credit, credit_anon');
   if (error) throw error;
   return rows || [];
 };
@@ -2064,13 +2066,14 @@ data.adminMarkCatalogReviewSeen = async function (id) {
 // then insert a row here pointing to the storage path. Admin reviews
 // from the queue, accepts → copy path to catalog_items.image_path.
 
-data.suggestCatalogPhoto = async function ({ targetShopifyId, targetCatalogItemId, targetPenId, imagePath, notes }) {
+data.suggestCatalogPhoto = async function ({ targetShopifyId, targetCatalogItemId, targetPenId, imagePath, notes, creditAnon }) {
   const { error } = await sb.from('catalog_photo_suggestions').insert({
     target_shopify_id: targetShopifyId || null,
     target_catalog_item_id: targetCatalogItemId || null,
     target_pen_id: targetPenId || null,
     image_path: imagePath,
     notes: notes || null,
+    credit_anon: creditAnon === true,
     submitted_by: window.currentUser.id,
   });
   if (error) throw error;
@@ -2179,7 +2182,7 @@ data.adminApprovePhotoSuggestion = async function (suggestionId, shopifyProductI
   if (row.target_catalog_item_id) {
     const { error: e2 } = await sb
       .from('catalog_items')
-      .update({ image_path: row.image_path, image_credit: imageCredit })
+      .update({ image_path: row.image_path, image_credit: imageCredit, credit_anon: row.credit_anon === true })
       .eq('id', row.target_catalog_item_id);
     if (e2) throw e2;
     await markApproved();
@@ -2228,6 +2231,7 @@ data.adminApprovePhotoSuggestion = async function (suggestionId, shopifyProductI
     imagePath: row.image_path,
     source: 'community',
     credit: imageCredit,
+    creditAnon: row.credit_anon === true,
   });
   await data.adminSetCatalogPhotoPrimary(target, saved.id);
 
@@ -2273,7 +2277,7 @@ data.adminKeepPhotoSuggestion = async function (suggestionId, shopifyProductIfNe
   if (!slot) throw new Error('No free community photo slot (A–Z all taken).');
 
   await data.adminAddCatalogPhoto(target, {
-    slot, imagePath: row.image_path, source: 'community', credit: imageCredit,
+    slot, imagePath: row.image_path, source: 'community', credit: imageCredit, creditAnon: row.credit_anon === true,
   });
   const { error } = await sb.from('catalog_photo_suggestions').update({
     status: 'approved', reviewed_by: window.currentUser.id, reviewed_at: new Date().toISOString(),
@@ -2894,7 +2898,7 @@ data.createPost = async function ({ body, visibility, photoBlob, catalogId, plus
     photo_path: photoPath,
     catalog_id: catalogId || null,
     plush_name: plushName || null,
-    visibility: visibility || 'friends',
+    visibility: visibility || 'public',
   }).select().single();
   if (error) throw error;
   return row;

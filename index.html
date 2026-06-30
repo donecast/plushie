@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=130" />
+  <link rel="stylesheet" href="./styles.css?v=131" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -825,6 +825,10 @@
           <span>Note to admin <em class="dim">— optional</em></span>
           <textarea id="sp-notes" rows="2" maxlength="280" placeholder="Anything you'd want them to know."></textarea>
         </label>
+        <label class="auth-consent">
+          <input type="checkbox" id="sp-anon" />
+          <span>Don't show my name publicly. <em class="dim">If we use your photo, the credit will read "a crypt member" instead of your @handle.</em></span>
+        </label>
         <div class="form-actions">
           <button type="button" class="btn-ghost" data-close-suggest-photo>Cancel</button>
           <button type="submit" class="btn-primary" id="sp-submit">Send</button>
@@ -1016,6 +1020,14 @@
         <p class="changelog-gated changelog-insider-note">🔒 Insider view: blue items are gated features only you and the allowlist can see — they're hidden from everyone else.</p>
 
         <div class="changelog">
+          <div class="changelog-day">
+            <h3 class="changelog-date">June 30, 2026</h3>
+            <ul>
+              <li><strong>Posts are Public by default.</strong> New posts now start set to <strong>Public</strong> (anyone with an account) unless you choose a narrower circle — so sharing with the whole crypt is the easy default.</li>
+              <li><strong>Suggest a picture, your name optional.</strong> When you suggest a photo you can now tick <strong>"Don't show my name publicly."</strong> If we use your shot, the credit under the picture reads <em>"Image courtesy of a crypt member"</em> instead of your @handle.</li>
+              <li class="changelog-fixes">Misc bug fixes.</li>
+            </ul>
+          </div>
           <div class="changelog-day">
             <h3 class="changelog-date">June 29, 2026</h3>
             <ul>
@@ -1651,18 +1663,18 @@
   <script src="./config.js?v=53"></script>
   <script src="./auth.js?v=62"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=87"></script>
+  <script src="./data.js?v=88"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=157"></script>
-  <script src="./app-catalog.js?v=157"></script>
-  <script src="./app-collection.js?v=157"></script>
-  <script src="./app-ui.js?v=157"></script>
-  <script src="./app-trade.js?v=157"></script>
-  <script src="./app-account.js?v=157"></script>
-  <script src="./app-admin.js?v=157"></script>
-  <script src="./app-admin-catalog.js?v=157"></script>
-  <script src="./app-social.js?v=157"></script>
+  <script src="./app-core.js?v=158"></script>
+  <script src="./app-catalog.js?v=158"></script>
+  <script src="./app-collection.js?v=158"></script>
+  <script src="./app-ui.js?v=158"></script>
+  <script src="./app-trade.js?v=158"></script>
+  <script src="./app-account.js?v=158"></script>
+  <script src="./app-admin.js?v=158"></script>
+  <script src="./app-admin-catalog.js?v=158"></script>
+  <script src="./app-social.js?v=158"></script>
 </body>
 </html>

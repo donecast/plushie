@@ -739,6 +739,9 @@ function applyCatalogOverrides(shopifyProducts, overrides) {
     if (!item.isVariant) {
       if (ov.image) item.image = ov.image;
       if (ov.image_credit) item.imageCredit = ov.image_credit;
+      // Contributor opted out of being named publicly — admins still see the
+      // @handle (in blue), everyone else gets an anonymous credit.
+      item.imageCreditAnon = ov.credit_anon === true;
     }
     // Tag overrides: re-categorise and/or force retired. categoryOverrideTag is
     // read by categoryOverride() below; retiredOverride drives itemStatus and
@@ -766,6 +769,7 @@ function applyVariantCovers(shopifyProducts, variantCovers) {
     if (!cov) continue;
     if (cov.image) item.image = cov.image;
     if (cov.image_credit) item.imageCredit = cov.image_credit;
+    item.imageCreditAnon = cov.credit_anon === true;
     item.hasOverride = true;
   }
 }
@@ -809,6 +813,7 @@ async function mergeCustomCatalog(shopifyProducts) {
         type: c.type || 'plush',
         image: c.image || null,         // signed URL produced by data.listApprovedCatalogItems
         imageCredit: c.image_credit || null, // contributor @handle for a community cover
+        imageCreditAnon: c.credit_anon === true, // contributor hid their name publicly
         price: null,
         available: !!c.available,
         retired: !!c.retired,
