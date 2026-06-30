@@ -3840,6 +3840,27 @@ body.maint-locked { overflow: hidden; }
 }
 .catalog-pending-actions button { white-space: nowrap; padding: 8px 14px; font-size: 0.82rem; }
 
+/* Photo-suggestion review: the suggested shot wears a ribbon, and an "already
+   on this item" strip lets the admin compare before choosing cover / keep /
+   discard. Every thumb opens full-size in a new tab. */
+.catalog-pending-photo { position: relative; }
+.ps-suggested-tag {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  background: rgba(194, 58, 107, 0.85); color: #fff;
+  font-family: var(--sans); font-weight: 700; font-size: 0.62rem;
+  text-align: center; padding: 2px 0; letter-spacing: 0.02em;
+}
+.ps-compare { margin-top: 8px; }
+.ps-compare-label { font-family: var(--sans); font-size: 0.8rem; color: var(--ink-mute); }
+.ps-compare-label em { color: var(--rose-1); font-style: italic; font-weight: 700; }
+.ps-compare-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; align-items: flex-start; }
+.ps-cmp-pic { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 64px; text-decoration: none; }
+.ps-cmp-pic img {
+  width: 64px; height: 64px; object-fit: cover; border-radius: 8px;
+  border: 1.5px solid var(--rose-seam); background: var(--surface-2);
+}
+.ps-cmp-pic span { font-family: var(--sans); font-size: 0.62rem; color: var(--ink-mute); text-align: center; line-height: 1.15; }
+
 /* Danger zone on the per-user admin inspect view. */
 /* Admin view: compact item rows open a read-only detail; collapsible
    "show all other trades"; blocks columns. */

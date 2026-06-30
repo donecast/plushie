@@ -706,6 +706,8 @@ async function onAdminClick(e) {
     toggleApprovedCatalog(btn);
   } else if (action === 'approve-photo-suggestion') {
     await adminApprovePhotoSuggestion(btn.dataset.id);
+  } else if (action === 'keep-photo-suggestion') {
+    await adminKeepPhotoSuggestion(btn.dataset.id);
   } else if (action === 'reject-photo-suggestion') {
     await adminRejectPhotoSuggestion(btn.dataset.id);
   } else if (action === 'catalog-photo-add') {
