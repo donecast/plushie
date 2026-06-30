@@ -1240,6 +1240,13 @@ async function openPhotoSuggestionsModal() {
       body.innerHTML = '<p class="dim">Nothing pending. ✨</p>';
       return;
     }
+    // Enrich each row with what's ALREADY on its target (current cover + any
+    // community gallery shots) so the admin can compare before deciding. Best-
+    // effort: a failed lookup just shows the suggestion without comparison.
+    await Promise.all(rows.map(async (row) => {
+      try { row._ctx = await photoSuggestionContext(row); }
+      catch (e) { console.warn('suggestion context failed', e); row._ctx = null; }
+    }));
     body.innerHTML = rows.map(renderPendingPhotoRow).join('');
   } catch (err) {
     console.error(err);
@@ -1247,45 +1254,71 @@ async function openPhotoSuggestionsModal() {
   }
 }
 
-function renderPendingPhotoRow(row) {
-  const thumb = row.image
-    ? `<img src="${escapeHtml(row.image)}" alt="" />`
-    : `<span class="no-photo">🖤</span>`;
-  // Resolve the target to a human name + a dim id line. The name comes from
-  // the in-memory catalog (Shopify product, custom item) or the pens list, so
-  // the admin sees WHICH plush they're approving rather than a bare id.
-  let name = 'Photo suggestion';
-  let target;
+// Resolve a suggestion's target → its display name, current cover (with a
+// store-vs-community label), and existing gallery photos, for the review UI's
+// side-by-side comparison.
+async function photoSuggestionContext(row) {
+  let name = 'Photo suggestion', target = null, coverUrl = null, coverLabel = '', storeOnly = false;
   if (row.target_pen_id) {
     const pen = activePens().find((p) => p.id === row.target_pen_id);
     if (pen) name = `${pen.line} — ${pen.name}`;
-    target = `Pen: <code>${escapeHtml(row.target_pen_id)}</code>`;
+    target = { penId: row.target_pen_id };
+    coverLabel = 'Current pen image';
   } else if (row.target_catalog_item_id) {
     const item = (state.catalog || []).find((c) => c.id === row.target_catalog_item_id);
-    if (item) name = cleanCatalogName(item.name);
-    target = `catalog_items: <code>${escapeHtml(row.target_catalog_item_id)}</code>`;
+    if (item) { name = cleanCatalogName(item.name); coverUrl = item.image || null; }
+    target = { catalogItemId: row.target_catalog_item_id };
+    coverLabel = item?.imageCredit ? `Current · ${item.imageCredit}` : 'Current photo';
   } else {
     const prod = (state.catalog || []).find((c) => c.id === row.target_shopify_id && !c.isCustom);
-    if (prod) name = cleanCatalogName(prod.name);
-    target = `Shopify id: <code>${escapeHtml(row.target_shopify_id || '?')}</code>`;
+    if (prod) { name = cleanCatalogName(prod.name); coverUrl = prod.image || null; storeOnly = usesOnlyStorePhoto(prod); target = { handle: prod.handle }; }
+    coverLabel = storeOnly ? "Shop photo — store-only" : (prod?.imageCredit ? `Cover · ${prod.imageCredit}` : 'Current cover');
   }
-  // Who sent it — resolved to @handle by data.adminListPhotoSuggestions.
+  let existing = [];
+  if (target) { try { existing = await data.adminListCatalogPhotos(target); } catch (e) { /* non-fatal */ } }
+  return { name, coverUrl, coverLabel, storeOnly, existing };
+}
+
+function renderPendingPhotoRow(row) {
+  const suggested = row.image
+    ? `<a href="${escapeHtml(row.image)}" target="_blank" rel="noopener" title="Open full size"><img src="${escapeHtml(row.image)}" alt="" /></a>`
+    : `<span class="no-photo">🖤</span>`;
+  const ctx = row._ctx || { name: 'Photo suggestion', coverUrl: null, coverLabel: '', storeOnly: false, existing: [] };
   const submitter = row.submitted_by_username
     ? `@${escapeHtml(row.submitted_by_username)}`
     : `<span class="dim">unknown user</span>`;
+
+  // "Already on this item" — current cover, then any community gallery shots
+  // that aren't the cover, each opening full-size for a real comparison.
+  const base = (u) => String(u || '').split('?')[0];
+  const coverThumb = ctx.coverUrl
+    ? `<a class="ps-cmp-pic" href="${escapeHtml(ctx.coverUrl)}" target="_blank" rel="noopener" title="Open full size">
+         <img src="${escapeHtml(ctx.coverUrl)}" alt="" /><span>${escapeHtml(ctx.coverLabel || 'Current')}</span></a>`
+    : '';
+  const galleryThumbs = (ctx.existing || [])
+    .filter((p) => p.url && base(p.url) !== base(ctx.coverUrl))
+    .map((p) => `<a class="ps-cmp-pic" href="${escapeHtml(p.url)}" target="_blank" rel="noopener" title="Open full size">
+         <img src="${escapeHtml(p.url)}" alt="" /><span>Picture ${escapeHtml(p.slot)}</span></a>`).join('');
+  const hasAnyExisting = coverThumb || galleryThumbs;
+  const compare = `
+    <div class="ps-compare">
+      <span class="ps-compare-label">Already on this item${ctx.storeOnly ? ' <em>(only the shop photo so far)</em>' : ''}:</span>
+      <div class="ps-compare-strip">${hasAnyExisting ? coverThumb + galleryThumbs : '<span class="dim">nothing yet</span>'}</div>
+    </div>`;
+
   return `
     <article class="catalog-pending-row">
-      <div class="catalog-pending-photo">${thumb}</div>
+      <div class="catalog-pending-photo">${suggested}<span class="ps-suggested-tag">Suggested</span></div>
       <div class="catalog-pending-body">
-        <h3>${escapeHtml(name)}</h3>
-        <p class="dim">${target}</p>
-        <p>Submitted by ${submitter}</p>
+        <h3>${escapeHtml(ctx.name)}</h3>
+        <p>Submitted by ${submitter} <span class="dim">· ${new Date(row.submitted_at).toLocaleDateString()}</span></p>
         ${row.notes ? `<p><em>"${escapeHtml(row.notes)}"</em></p>` : ''}
-        <p class="dim">submitted ${new Date(row.submitted_at).toLocaleString()}</p>
+        ${compare}
       </div>
       <div class="catalog-pending-actions">
-        <button class="btn-primary" data-admin-action="approve-photo-suggestion" data-id="${row.id}">Approve</button>
-        <button class="btn-ghost" data-admin-action="reject-photo-suggestion" data-id="${row.id}">Reject</button>
+        <button class="btn-primary" data-admin-action="approve-photo-suggestion" data-id="${row.id}" title="Make this the cover (Picture A)">⭐ Set as cover (A)</button>
+        <button class="btn-ghost" data-admin-action="keep-photo-suggestion" data-id="${row.id}" title="Keep in the gallery without making it the cover">＋ Keep in gallery</button>
+        <button class="btn-ghost btn-danger" data-admin-action="reject-photo-suggestion" data-id="${row.id}" title="Discard this suggestion">🗑 Discard</button>
       </div>
     </article>
   `;
@@ -1324,15 +1357,33 @@ async function adminApprovePhotoSuggestion(id) {
   }
 }
 
-async function adminRejectPhotoSuggestion(id) {
-  if (!confirm('Reject this photo suggestion?')) return;
+// Keep the shot in the gallery WITHOUT promoting it to the cover.
+async function adminKeepPhotoSuggestion(id) {
   try {
-    await data.adminRejectPhotoSuggestion(id);
-    toast('Rejected.');
+    const row = (state.adminPendingPhotos || []).find((r) => r.id === id);
+    let shopifyInfo;
+    if (row && row.target_shopify_id && !row.target_catalog_item_id) {
+      const prod = state.catalog.find((c) => c.id === row.target_shopify_id && !c.isCustom);
+      if (prod) shopifyInfo = { name: prod.name, handle: prod.handle, type: prod.type || 'plush' };
+    }
+    await data.adminKeepPhotoSuggestion(id, shopifyInfo);
+    toast('Kept in the gallery.');
     await openPhotoSuggestionsModal();
   } catch (err) {
     console.error(err);
-    toast('Could not reject: ' + (err.message || err));
+    toast('Could not keep: ' + (err.message || err));
+  }
+}
+
+async function adminRejectPhotoSuggestion(id) {
+  if (!confirm('Discard this photo suggestion?')) return;
+  try {
+    await data.adminRejectPhotoSuggestion(id);
+    toast('Discarded.');
+    await openPhotoSuggestionsModal();
+  } catch (err) {
+    console.error(err);
+    toast('Could not discard: ' + (err.message || err));
   }
 }
 

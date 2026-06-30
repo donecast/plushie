@@ -444,3 +444,34 @@ test('catalog detail: suggest-a-picture button on every item, EXTRA-highlighted 
   // Variant: no suggest affordance at all (no row to attach a suggestion to).
   assert.doesNotMatch(variant, /cat-suggest-photo/);
 });
+
+test('photo-suggestion review row: three actions, store-only note, and gallery comparison with cover dedup', () => {
+  // Store-only target: shows the "only the shop photo" note and all three actions.
+  const storeOnlyRow = {
+    id: 'sug1', image: 'https://r2.dev/suggested.jpg', submitted_by_username: 'amber',
+    submitted_at: '2026-06-29T00:00:00Z', notes: 'whole bunny, white bg',
+    _ctx: { name: 'Anxiety Rabbit', coverUrl: 'https://cdn.shopify.com/x.jpg',
+            coverLabel: 'Shop photo — store-only', storeOnly: true, existing: [] },
+  };
+  const a = call('renderPendingPhotoRow', storeOnlyRow);
+  assert.match(a, /data-admin-action="approve-photo-suggestion"/);
+  assert.match(a, /data-admin-action="keep-photo-suggestion"/);
+  assert.match(a, /data-admin-action="reject-photo-suggestion"/);
+  assert.match(a, /Already on this item/);
+  assert.match(a, /only the shop photo so far/);
+  assert.match(a, /Suggested/);                       // ribbon
+  assert.match(a, /@amber/);
+
+  // Has a community cover + a 'B' gallery shot: the cover (slot A, same url) is
+  // de-duped from the strip, 'B' is shown, and there's no store-only note.
+  const coveredRow = {
+    id: 'sug2', image: 'https://r2.dev/s2.jpg', submitted_by_username: 'bob',
+    submitted_at: '2026-06-29T00:00:00Z', notes: null,
+    _ctx: { name: 'Love Rabbit', coverUrl: 'https://r2.dev/cover.jpg', coverLabel: 'Cover · @amber',
+            storeOnly: false, existing: [ { url: 'https://r2.dev/cover.jpg', slot: 'A' }, { url: 'https://r2.dev/b.jpg', slot: 'B' } ] },
+  };
+  const b = call('renderPendingPhotoRow', coveredRow);
+  assert.match(b, /<span>Picture B<\/span>/);          // B gallery shot shown
+  assert.doesNotMatch(b, /<span>Picture A<\/span>/);   // cover (slot A, same url) deduped out of the strip
+  assert.doesNotMatch(b, /only the shop photo/);
+});

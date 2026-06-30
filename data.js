@@ -2234,6 +2234,53 @@ data.adminApprovePhotoSuggestion = async function (suggestionId, shopifyProductI
   await markApproved();
 };
 
+// "Keep, but not as the cover." Files an approved suggestion into the item's
+// catalog_photos gallery at the lowest free lettered slot WITHOUT making it the
+// cover (is_primary stays false; the current cover / override is untouched).
+// Prep for a real multi-photo gallery: good shots are retained even when they
+// aren't the chosen Picture A. Works for Shopify (handle), custom item, or pen
+// targets — catalog_photos can hold all three.
+data.adminKeepPhotoSuggestion = async function (suggestionId, shopifyProductIfNeeded) {
+  const { data: row, error: e1 } = await sb
+    .from('catalog_photo_suggestions').select('*').eq('id', suggestionId).single();
+  if (e1) throw e1;
+
+  let imageCredit = null;
+  if (row.submitted_by) {
+    const { data: prof } = await sb
+      .from('profiles').select('username').eq('id', row.submitted_by).maybeSingle();
+    if (prof?.username) imageCredit = '@' + prof.username;
+  }
+
+  let target;
+  if (row.target_pen_id) target = { penId: row.target_pen_id };
+  else if (row.target_catalog_item_id) target = { catalogItemId: row.target_catalog_item_id };
+  else {
+    const handle = shopifyProductIfNeeded && shopifyProductIfNeeded.handle;
+    if (!handle) throw new Error('Shopify-targeted suggestion needs the upstream product handle passed in.');
+    target = { handle };
+  }
+
+  // Lowest free lettered slot (A when the gallery is empty), so the kept shot
+  // joins the gallery without disturbing whatever the cover currently is.
+  const existing = await data.adminListCatalogPhotos(target);
+  const used = new Set(existing.map((p) => String(p.slot)));
+  let slot;
+  for (let c = 'A'.charCodeAt(0); c <= 'Z'.charCodeAt(0); c++) {
+    const ch = String.fromCharCode(c);
+    if (!used.has(ch)) { slot = ch; break; }
+  }
+  if (!slot) throw new Error('No free community photo slot (A–Z all taken).');
+
+  await data.adminAddCatalogPhoto(target, {
+    slot, imagePath: row.image_path, source: 'community', credit: imageCredit,
+  });
+  const { error } = await sb.from('catalog_photo_suggestions').update({
+    status: 'approved', reviewed_by: window.currentUser.id, reviewed_at: new Date().toISOString(),
+  }).eq('id', suggestionId);
+  if (error) throw error;
+};
+
 data.adminRejectPhotoSuggestion = async function (suggestionId) {
   const { error } = await sb
     .from('catalog_photo_suggestions')
@@ -2502,8 +2549,12 @@ data.featureEnabled = function (key, defaultValue = true) {
   // on the per-user admin page.
   if (key === 'feature.user_photo_uploads') {
     if (window.currentUser?.isAdmin) return true;
-    // Off by default — only an explicit clearance enables uploads.
-    return window.currentUser?.photoUploadsEnabled === true;
+    // Open to the whole community: any signed-in user can suggest a picture.
+    // (Demo mode already short-circuited above; blocked/ghosted users can't use
+    // the app at all.) Suggestions land in the admin review queue as 'pending'
+    // and go live only on approval, so this is safe to open. Was per-user
+    // opt-in (profiles.photo_uploads_enabled), now on for everyone logged in.
+    return !!window.currentUser;
   }
   // Private custom clothing: profiles.custom_clothing_enabled, OFF by
   // default. Admins + the allowlist always have it; everyone else needs
