@@ -475,3 +475,25 @@ test('photo-suggestion review row: three actions, store-only note, and gallery c
   assert.doesNotMatch(b, /<span>Picture A<\/span>/);   // cover (slot A, same url) deduped out of the strip
   assert.doesNotMatch(b, /only the shop photo/);
 });
+
+test('catalog card: hot "Suggest a picture" on store-only items, none on community-covered', () => {
+  const vm = require('node:vm');
+  const res = vm.runInContext(`
+    window.currentUser = { isAdmin: true };
+    state.catalog = []; state.collection = []; state.wishlist = [];
+    const empty = new Set();
+    JSON.stringify({
+      store: renderCatalogCard({ id:'s1', name:'Store Plush', handle:'store', type:'plush',
+        image:'https://cdn.shopify.com/x.jpg', tags:['plush'], available:true }, empty, empty),
+      comm: renderCatalogCard({ id:'c1', name:'Community Plush', handle:'comm', type:'plush',
+        image:'https://r2.dev/y.jpg', imageCredit:'@amber', tags:['plush'], available:true }, empty, empty),
+      noimg: renderCatalogCard({ id:'n1', name:'No Image Plush', handle:'noimg', type:'plush',
+        image:null, tags:['plush'], available:true }, empty, empty),
+    })
+  `, app.ctx);
+  const { store, comm, noimg } = JSON.parse(res);
+  assert.match(store, /data-action="cat-suggest-photo"/);   // store-only → button shows
+  assert.match(store, /btn-suggest-hot/);                   // …and it's hot
+  assert.doesNotMatch(comm, /cat-suggest-photo/);           // real community photo → no nag
+  assert.match(noimg, /data-action="cat-suggest-photo"/);   // no image → button shows
+});
