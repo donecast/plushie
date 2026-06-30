@@ -893,11 +893,31 @@ function catalogDetailBodyHtml(cid, { forRail = false } = {}) {
   // may type (e.g. "a customer review", a web/Okendo source) are NOT shown.
   const rawCredit = (thumb && item.imageCredit) ? String(item.imageCredit).trim() : '';
   const photoCredit = /^@\w/.test(rawCredit) ? rawCredit : '';
+
+  // "Suggest a picture" — let any user offer a community photo. Unlike the
+  // grid card (which only offers it when an item has NO image), the detail view
+  // offers it on EVERY eligible item so a better shot can always replace the
+  // current one. Gated by the same feature flag as the card; variants have no
+  // Shopify/catalog row to attach a suggestion to, so they're suppressed.
+  // EXTRA-highlighted when the item is still riding its store (Shopify) photo
+  // with no community cover — those are the ones we most want replaced.
+  const canSuggestPhotos = window.currentUser?.isAdmin || data.featureEnabled('feature.user_photo_uploads');
+  const showSuggest = canSuggestPhotos && !item.isVariant;
+  const storeOnly = showSuggest && usesOnlyStorePhoto(item);
+  const suggestData = `data-action="cat-suggest-photo" data-cid="${item.id}" data-target-kind="${item.isCustom ? 'custom' : 'shopify'}"`;
+  const suggestBtn = showSuggest
+    ? `<button class="btn-suggest${storeOnly ? ' btn-suggest-hot' : ''}" ${suggestData}>📸 Suggest a picture</button>`
+    : '';
+  // The extra highlight: a prominent strip under the photo on store-only items.
+  const storeOnlyNote = storeOnly
+    ? `<button class="cd-storeonly-cta" ${suggestData} title="Suggest a community picture">📷 This is the shop's photo — got a real one? <span>Suggest a picture →</span></button>`
+    : '';
   return `
     <div class="cd-head">
       <div class="cd-photo-wrap">
         <div class="cd-photo">${thumb ? `<img src="${escapeHtml(thumb)}" alt="${escapeHtml(display)}" />` : `<span class="no-photo">🖤</span>`}</div>
         ${photoCredit ? `<p class="cd-credit">Image courtesy of ${escapeHtml(photoCredit)}</p>` : ''}
+        ${storeOnlyNote}
       </div>
       <div class="cd-head-text">
         <div class="card-eyebrow">${escapeHtml(catalogCategoryLabel(item))}${item.releaseYear ? ` · ${item.releaseYear}` : ''}</div>
@@ -915,6 +935,7 @@ function catalogDetailBodyHtml(cid, { forRail = false } = {}) {
           ${status !== 'coming_soon' && status !== 'fyc' ? `<button class="btn-have" data-action="cat-have" data-cid="${item.id}">🖤 Have</button>` : ''}
           ${!isWished ? `<button class="btn-want" data-action="cat-want" data-cid="${item.id}">🕯 Want</button>` : ''}
           ${productUrl && !isLoyaltyReward(item) && status !== 'retired' ? `<a class="btn-buy" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener">Buy ↗</a>` : ''}
+          ${suggestBtn}
           ${window.currentUser?.isAdmin
             ? (item.isCustom
                 ? `<button class="btn-ghost" data-action="cat-admin-edit" data-cid="${item.id}">✎ Edit entry</button>`

@@ -3740,6 +3740,43 @@ body.maint-locked { overflow: hidden; }
   border-color: var(--rose-1);
   border-style: solid;
 }
+/* EXTRA-highlighted suggest affordance for items still on the store's own
+   photo (usesOnlyStorePhoto): a solid, can't-miss button… */
+.btn-suggest-hot {
+  background: var(--rose-1);
+  border-style: solid;
+  border-color: var(--rose-1);
+  color: #fff;
+  box-shadow: 0 0 0 3px var(--blush);
+}
+.btn-suggest-hot:hover {
+  background: var(--rose-2);
+  border-color: var(--rose-2);
+  color: #fff;
+}
+/* …plus a prominent strip under the photo inviting a real community shot. */
+.cd-storeonly-cta {
+  display: block;
+  width: 100%;
+  margin: 2px 0 10px;
+  padding: 8px 10px;
+  text-align: center;
+  background: var(--gold-fill);
+  border: 1.5px solid var(--gold-edge);
+  border-radius: 9px;
+  color: var(--gold-1);
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.cd-storeonly-cta span { text-decoration: underline; white-space: nowrap; }
+.cd-storeonly-cta:hover {
+  background: var(--gold-edge);
+  box-shadow: 0 0 0 3px var(--gold-glow);
+}
 
 /* Pending catalog / photo suggestion review rows in the admin queue
    modal. List layout: thumb on the left, body, action buttons stacked
