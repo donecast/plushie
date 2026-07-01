@@ -31,12 +31,12 @@ async function openShareModal() {
   }).join('');
 
   document.getElementById('generate-invite').classList.toggle('hidden', !iAmOwner);
-  document.getElementById('invite-link-wrap').classList.add('hidden');
-  document.getElementById('share-modal').classList.remove('hidden');
+  hideEl('invite-link-wrap');
+  showEl('share-modal');
 }
 
 function closeShareModal() {
-  document.getElementById('share-modal').classList.add('hidden');
+  hideEl('share-modal');
 }
 
 async function generateInvite() {
@@ -44,7 +44,7 @@ async function generateInvite() {
     const token = await data.createInvite('editor');
     const url = `${window.location.origin}${window.location.pathname}?join=${token}`;
     document.getElementById('invite-link').value = url;
-    document.getElementById('invite-link-wrap').classList.remove('hidden');
+    showEl('invite-link-wrap');
   } catch (err) {
     console.error(err);
     toast('Could not generate invite.');
@@ -100,7 +100,7 @@ async function switchCollection(collectionId) {
   await loadAll();
   state.pensOwned = await data.listPens();
   state.myTradeItems = await data.listMyTradeItems();
-  document.getElementById('user-menu').classList.add('hidden');
+  hideEl('user-menu');
   render();
   toast('Switched collection.');
 }
@@ -142,7 +142,7 @@ function wireLegalModal() {
     const open = e.target.closest('[data-open-legal]');
     if (open) { e.preventDefault(); openLegalModal(open.dataset.openLegal); return; }
     const close = e.target.closest('[data-close-legal]');
-    if (close) { document.getElementById('legal-modal').classList.add('hidden'); return; }
+    if (close) { hideEl('legal-modal'); return; }
     const tab = e.target.closest('#legal-modal [data-legal-tab]');
     if (tab) { switchLegalTab(tab.dataset.legalTab); return; }
   });
@@ -159,7 +159,7 @@ function openLegalModal(which) {
     (data.ALWAYS_GRANTED_USERNAMES || []).includes((u.username || '').toLowerCase())
   );
   document.body.classList.toggle('cl-insider', insider);
-  document.getElementById('legal-modal').classList.remove('hidden');
+  showEl('legal-modal');
   switchLegalTab(which || 'terms');
 }
 function switchLegalTab(which) {
@@ -252,18 +252,18 @@ async function populateAccountFields() {
 // account). Both share populateAccountFields(); we just reveal the right one.
 async function openProfileModal() {
   await populateAccountFields();
-  document.getElementById('profile-modal').classList.remove('hidden');
+  showEl('profile-modal');
 }
 async function openSettingsModal() {
   await populateAccountFields();
-  document.getElementById('settings-modal').classList.remove('hidden');
+  showEl('settings-modal');
 }
 // Back-compat alias: anything that opened "the account modal" lands on Profile.
 async function openAccountModal() { return openProfileModal(); }
 
 function closeAccountModal() {
-  document.getElementById('profile-modal')?.classList.add('hidden');
-  document.getElementById('settings-modal')?.classList.add('hidden');
+  hideEl('profile-modal');
+  hideEl('settings-modal');
 }
 
 // ─── Delete account (exit survey → admin-review queue, db/0068) ──────────
@@ -275,10 +275,10 @@ function openDeleteAccountModal() {
   closeAccountModal();
   const ta = document.getElementById('delacct-reason');
   if (ta) ta.value = '';
-  document.getElementById('delete-account-modal')?.classList.remove('hidden');
+  showEl('delete-account-modal');
 }
 function closeDeleteAccountModal() {
-  document.getElementById('delete-account-modal')?.classList.add('hidden');
+  hideEl('delete-account-modal');
 }
 async function submitAccountDeletion() {
   const btn = document.getElementById('delacct-confirm');
@@ -576,8 +576,8 @@ async function openAddressModal(tradeId) {
   const otherId   = t.proposer_id === uid ? t.recipient_id : t.proposer_id;
   document.getElementById('address-sub').innerHTML = `Trade with ${repBadge(otherId, otherName, state.partnerFeedback.get(otherId))}`;
   document.getElementById('address-input').value = '';
-  document.getElementById('address-their').classList.add('hidden');
-  document.getElementById('address-pending').classList.add('hidden');
+  hideEl('address-their');
+  hideEl('address-pending');
 
   const addrs = await data.getAddresses(tradeId);
   const mine = addrs.find((a) => a.user_id === uid);
@@ -598,13 +598,13 @@ async function openAddressModal(tradeId) {
     el.innerHTML = `<h3>Their address (ship here)</h3>${fullName ? `<p class="ship-to-name">${escapeHtml(fullName)}</p>` : ''}<pre>${escapeHtml(other.address)}</pre>`;
     el.classList.remove('hidden');
   } else if (mine) {
-    document.getElementById('address-pending').classList.remove('hidden');
+    showEl('address-pending');
   }
-  document.getElementById('address-modal').classList.remove('hidden');
+  showEl('address-modal');
 }
 
 function closeAddressModal() {
-  document.getElementById('address-modal').classList.add('hidden');
+  hideEl('address-modal');
   addressTradeId = null;
 }
 

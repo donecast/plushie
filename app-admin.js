@@ -588,7 +588,7 @@ function openAdminItemDetail(id, kind) {
       </dl>
     </div>
   `;
-  document.getElementById('admin-queue-modal').classList.remove('hidden');
+  showEl('admin-queue-modal');
 }
 
 async function onAdminClick(e) {
@@ -601,7 +601,7 @@ async function onAdminClick(e) {
     if (!user) return;
     // May have been launched from a queue modal (e.g. deletion requests) —
     // close it so the user-detail view isn't hidden underneath.
-    document.getElementById('admin-queue-modal')?.classList.add('hidden');
+    hideEl('admin-queue-modal');
     document.getElementById('admin-content').innerHTML = '<p class="dim">Loading…</p>';
     try {
       const snapshot = await data.adminUserSnapshot(uid);
@@ -792,7 +792,7 @@ async function openDisputesModal() {
   const body = document.getElementById('aq-body');
   document.getElementById('aq-title').textContent = 'Open trade disputes';
   body.innerHTML = '<p class="dim">Loading…</p>';
-  document.getElementById('admin-queue-modal').classList.remove('hidden');
+  showEl('admin-queue-modal');
   try {
     const rows = await data.adminListDisputes();
     state.adminOpenDisputes = rows;
@@ -860,7 +860,7 @@ function openDisputeDetailModal(tradeId) {
       <button class="btn-danger admin-purge-btn" data-admin-action="resolve-dispute" data-id="${t.id}" data-outcome="cancelled">Cancel trade</button>
     </div>
   `;
-  document.getElementById('dispute-review-modal').classList.remove('hidden');
+  showEl('dispute-review-modal');
 }
 
 async function adminResolveDispute(tradeId, outcome) {
@@ -874,7 +874,7 @@ async function adminResolveDispute(tradeId, outcome) {
   try {
     await data.adminResolveDispute(tradeId, outcome, notes);
     toast('Dispute resolved.');
-    document.getElementById('dispute-review-modal').classList.add('hidden');
+    hideEl('dispute-review-modal');
     await openDisputesModal();
   } catch (err) {
     console.error(err);
@@ -887,7 +887,7 @@ async function openReportsModal() {
   const body = document.getElementById('aq-body');
   document.getElementById('aq-title').textContent = 'Open reports';
   body.innerHTML = '<p class="dim">Loading…</p>';
-  document.getElementById('admin-queue-modal').classList.remove('hidden');
+  showEl('admin-queue-modal');
   try {
     const rows = await data.adminListReports('open');
     state.adminOpenReports = rows;
@@ -961,7 +961,7 @@ async function openDeletionRequestsModal() {
   const body = document.getElementById('aq-body');
   document.getElementById('aq-title').textContent = 'Account deletion requests';
   body.innerHTML = '<p class="dim">Loading…</p>';
-  document.getElementById('admin-queue-modal').classList.remove('hidden');
+  showEl('admin-queue-modal');
   try {
     const rows = await data.adminListDeletionRequests();
     state.adminDeletionRequests = rows;

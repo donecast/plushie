@@ -633,10 +633,10 @@ function renderTop8(top8, isMe) {
 // ─── Social modal (compose / edit profile / Top 8 picker) ───────────
 function openSocialModal(html) {
   document.getElementById('social-modal-card').innerHTML = html;
-  document.getElementById('social-modal').classList.remove('hidden');
+  showEl('social-modal');
 }
 function closeSocialModal() {
-  document.getElementById('social-modal').classList.add('hidden');
+  hideEl('social-modal');
   document.getElementById('social-modal-card').innerHTML = '';
   state.socComposePhoto = null;
 }
@@ -1351,7 +1351,7 @@ function openReportModal(targetType, targetId, ownerId, name) {
   const sel = document.getElementById('report-reason');
   sel.innerHTML = REPORT_REASONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
   document.getElementById('report-details').value = '';
-  document.getElementById('report-modal').classList.remove('hidden');
+  showEl('report-modal');
 }
 
 async function submitReport(e) {
@@ -1370,7 +1370,7 @@ async function submitReport(e) {
       reason,
       details,
     });
-    document.getElementById('report-modal').classList.add('hidden');
+    hideEl('report-modal');
     state.reportTarget = null;
     toast('Thanks — report sent to the crypt-keepers. 🦇');
   } catch (err) {

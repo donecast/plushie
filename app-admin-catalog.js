@@ -28,7 +28,7 @@ function openCatalogItemModal(mode = 'admin', editId = null) {
   state.catalogItemEditId = mode === 'edit' ? editId : null;
   document.getElementById('catalog-item-form').reset();
   document.getElementById('ci-photo-preview-wrap').innerHTML = '';
-  document.getElementById('ci-error').classList.add('hidden');
+  hideEl('ci-error');
   state.catalogItemPicked = null;
 
   const isAdmin = mode === 'admin' || mode === 'edit';
@@ -81,8 +81,8 @@ function openCatalogItemModal(mode = 'admin', editId = null) {
 
   // Close the catalog detail modal if we were launched from it (the
   // "✎ Edit entry" button), so this editor isn't stacked behind it.
-  document.getElementById('catalog-detail-modal').classList.add('hidden');
-  document.getElementById('catalog-item-modal').classList.remove('hidden');
+  hideEl('catalog-detail-modal');
+  showEl('catalog-item-modal');
   setTimeout(() => document.getElementById('ci-name').focus(), 50);
 }
 
@@ -251,7 +251,7 @@ async function submitCatalogItemForm(e) {
       });
       toast(isAdmin ? 'Catalog item created.' : 'Submitted to admin for review. Thanks!');
     }
-    document.getElementById('catalog-item-modal').classList.add('hidden');
+    hideEl('catalog-item-modal');
     // Prefer a live refresh over a bare loadCatalog(): reloading
     // catalog.json drops the on-demand-parsed lore/accessories on every
     // Shopify item (which silently broke accessory searches). A live
@@ -300,7 +300,7 @@ function openCatalogOverrideModal(cid) {
   };
 
   document.getElementById('catalog-override-form').reset();
-  document.getElementById('co-error').classList.add('hidden');
+  hideEl('co-error');
   // Name the exact variant being edited so it's clear the cover is per-variant.
   document.getElementById('co-subtitle').textContent = item.isVariant && item.formLabel
     ? `${cleanCatalogName(item.name)} — ${item.formLabel}`
@@ -339,8 +339,8 @@ function openCatalogOverrideModal(cid) {
 
   // Close the catalog detail modal we were launched from so the editor
   // isn't hidden behind it (the post-save flow returns to the grid).
-  document.getElementById('catalog-detail-modal').classList.add('hidden');
-  document.getElementById('catalog-override-modal').classList.remove('hidden');
+  hideEl('catalog-detail-modal');
+  showEl('catalog-override-modal');
   setTimeout(() => document.getElementById('co-lore').focus(), 50);
 
   // The cover-photo picker needs the product's full image list, which the
@@ -593,7 +593,7 @@ async function submitCatalogOverrideForm(e) {
       await data.adminSetVariantCover(ctx.variantId, ctx.handle, coverUrl, coverCredit);
     }
     toast('Catalog details saved.');
-    document.getElementById('catalog-override-modal').classList.add('hidden');
+    hideEl('catalog-override-modal');
     // Do NOT call loadCatalog() here: it reloads catalog.json, which
     // carries only basic fields, so it wipes the on-demand-parsed lore /
     // symbolism / Set Includes off every OTHER item — silently breaking
@@ -642,8 +642,8 @@ function openDisputeStatementModal(tradeId, mode) {
     mode === 'open' ? 'Dispute and tell us what happened' : 'File your dispute statement';
   document.getElementById('ds-sub').textContent = `Trade with @${partnerName}`;
   document.getElementById('ds-statement').value = '';
-  document.getElementById('ds-error').classList.add('hidden');
-  document.getElementById('dispute-statement-modal').classList.remove('hidden');
+  hideEl('ds-error');
+  showEl('dispute-statement-modal');
   setTimeout(() => document.getElementById('ds-statement').focus(), 50);
 }
 
@@ -666,7 +666,7 @@ async function submitDisputeStatementForm(e) {
       await data.addDisputeStatement(draft.tradeId, text);
       toast('Statement filed.');
     }
-    document.getElementById('dispute-statement-modal').classList.add('hidden');
+    hideEl('dispute-statement-modal');
     state.disputeDraft = null;
     await loadTradeData();
     render();
@@ -731,7 +731,7 @@ function openBundlePickerModal(cid) {
   state.bundlePicker = { bundleId: cid, matches };
 
   document.getElementById('bp-title').textContent = cleanCatalogName(bundle.name);
-  document.getElementById('bp-error').classList.add('hidden');
+  hideEl('bp-error');
   document.getElementById('bp-list').innerHTML = matches.length === 0
     ? `<p class="dim">We couldn't parse a component list for this bundle. The catalog feed doesn't include one yet.</p>`
     : matches.map((m, i) => renderBundlePickerRow(m, i)).join('');
@@ -739,7 +739,7 @@ function openBundlePickerModal(cid) {
   document.getElementById('bp-submit').disabled = true;
   document.getElementById('bundle-picker-form').addEventListener('change', refreshBundleSubmit, { once: false });
   refreshBundleSubmit();
-  document.getElementById('bundle-picker-modal').classList.remove('hidden');
+  showEl('bundle-picker-modal');
 }
 
 function renderBundlePickerRow(m, i) {
@@ -803,7 +803,7 @@ async function submitBundlePickerForm(e) {
   toast(failed === 0
     ? `Added ${added} item${added === 1 ? '' : 's'} to your collection.`
     : `Added ${added}, ${failed} failed.`);
-  document.getElementById('bundle-picker-modal').classList.add('hidden');
+  hideEl('bundle-picker-modal');
   state.bundlePicker = null;
   submit.disabled = false;
   submit.textContent = 'Add selected';
@@ -825,7 +825,7 @@ async function openCatalogDetailModal(cid) {
   const body = catalogDetailBodyHtml(cid);
   if (body == null) return;
   document.getElementById('cd-body').innerHTML = body;
-  document.getElementById('catalog-detail-modal').classList.remove('hidden');
+  showEl('catalog-detail-modal');
 }
 
 // On-demand live refresh: the baked catalog may lack lore/symbolism/accessories
@@ -999,7 +999,7 @@ function openLightbox(src, caption) {
   img.src = src;
   img.alt = caption || '';
   document.getElementById('lightbox-caption').textContent = caption || '';
-  document.getElementById('lightbox-modal').classList.remove('hidden');
+  showEl('lightbox-modal');
 }
 
 function openSuggestPhotoModal(targetId, targetKind, targetName) {
@@ -1011,8 +1011,8 @@ function openSuggestPhotoModal(targetId, targetKind, targetName) {
   document.getElementById('sp-target-name').textContent = targetName || '';
   document.getElementById('suggest-photo-form').reset();
   document.getElementById('sp-photo-preview-wrap').innerHTML = '';
-  document.getElementById('sp-error').classList.add('hidden');
-  document.getElementById('suggest-photo-modal').classList.remove('hidden');
+  hideEl('sp-error');
+  showEl('suggest-photo-modal');
 }
 
 async function submitSuggestPhotoForm(e) {
@@ -1040,7 +1040,7 @@ async function submitSuggestPhotoForm(e) {
       creditAnon,
     });
     toast('Thanks — sent to admin.');
-    document.getElementById('suggest-photo-modal').classList.add('hidden');
+    hideEl('suggest-photo-modal');
   } catch (err) {
     console.error(err);
     errEl.textContent = err.message || 'Could not send.';
@@ -1055,7 +1055,7 @@ async function openCatalogPendingModal() {
   const body = document.getElementById('aq-body');
   document.getElementById('aq-title').textContent = 'Pending catalog submissions';
   body.innerHTML = '<p class="dim">Loading…</p>';
-  document.getElementById('admin-queue-modal').classList.remove('hidden');
+  showEl('admin-queue-modal');
   try {
     const rows = await data.adminListCatalogPending();
     state.adminPendingCatalog = rows;
@@ -1168,9 +1168,9 @@ function openCatalogMergeModal(duplicateId, duplicateHandle) {
   document.getElementById('cm-search').value = '';
   document.getElementById('cm-results').innerHTML = '';
   document.getElementById('cm-selected').textContent = '';
-  document.getElementById('cm-error').classList.add('hidden');
+  hideEl('cm-error');
   document.getElementById('cm-submit').disabled = true;
-  document.getElementById('catalog-merge-modal').classList.remove('hidden');
+  showEl('catalog-merge-modal');
   setTimeout(() => document.getElementById('cm-search').focus(), 50);
 }
 
@@ -1214,7 +1214,7 @@ async function submitCatalogMerge() {
   try {
     await data.adminMergeCatalogItem(m.duplicateId, m.winnerId);
     toast('Merged.');
-    document.getElementById('catalog-merge-modal').classList.add('hidden');
+    hideEl('catalog-merge-modal');
     state.catalogMerge = null;
     await openCatalogPendingModal();
     // Live refresh (not a bare loadCatalog) so this admin action doesn't
@@ -1249,7 +1249,7 @@ async function openPhotoSuggestionsModal() {
   const body = document.getElementById('aq-body');
   document.getElementById('aq-title').textContent = 'Photo suggestions';
   body.innerHTML = '<p class="dim">Loading…</p>';
-  document.getElementById('admin-queue-modal').classList.remove('hidden');
+  showEl('admin-queue-modal');
   try {
     const rows = await data.adminListPhotoSuggestions('pending');
     state.adminPendingPhotos = rows;
