@@ -222,12 +222,31 @@ function flattenReplies(c) {
 // A reply to a reply still threads in the data, but visually it joins that same
 // tier as its siblings (depth 0 hoists the whole flattened subtree; depth ≥ 1
 // renders no children of its own).
-function renderComment(c, postId, depth = 0) {
-  const replying = state.socReplyTo === c.id;
+// ── comment sub-builders ───────────────────────────────────────────────
+// renderComment composes these: the bubble (editing form or text + reactions
+// + actions) and the ⋯ kebab menu. Both are pure functions of the comment.
+
+function commentKebabHtml(c) {
+  return socKebab(`comment-${c.id}`, [
+    c.mine ? socMenuItem('edit-comment', '✎ Edit', `data-comment-id="${c.id}"`) : '',
+    c.canDelete ? socMenuItem('delete-comment', `🗑 Delete${(!c.mine && window.currentUser?.canModerate) ? ' (mod)' : ''}`, `data-comment-id="${c.id}"`, true) : '',
+    !c.mine ? socMenuItem('hide-comment', '🙈 Hide', `data-comment-id="${c.id}"`) : '',
+    !c.mine ? socMenuItem('report-comment', '🚩 Report', `data-comment-id="${c.id}" data-owner="${c.authorId}" data-name="${escapeHtml(c.authorName)}"`) : '',
+    (!c.mine && !data.isUnblockable({ username: c.authorName }))
+      ? socMenuItem('block-user', `🚫 Block @${escapeHtml(c.authorName)}`, `data-uid="${c.authorId}" data-name="${escapeHtml(c.authorName)}"`, true) : '',
+  ]);
+}
+
+function commentBubbleHtml(c, postId) {
+  // Editing swaps the bubble for an inline form; otherwise show bubble + actions.
   const editing = state.socEditComment === c.id;
-  const replies = depth === 0
-    ? flattenReplies(c).map((r) => renderComment(r, postId, 1)).join('')
-    : '';
+  if (editing) {
+    return `<form class="soc-comment-form soc-comment-edit-form" data-soc-action="submit-comment-edit" data-comment-id="${c.id}">
+         <input type="text" class="soc-comment-input" maxlength="500" value="${escapeHtml(c.body)}" />
+         <button class="btn-primary" type="submit">Save</button>
+         <button class="linklike" type="button" data-soc-action="cancel-edit-comment">Cancel</button>
+       </form>`;
+  }
 
   // My current reaction (mutually exclusive), the total across everyone, and
   // the distinct emoji to stack on the summary pill (most-used first).
@@ -250,14 +269,7 @@ function renderComment(c, postId, depth = 0) {
   const likeEmoji = myReact || '👍';
   const likeTitle = myReact ? (SOC_REACTION_LABEL[myReact] || 'Reaction') : 'Like';
 
-  // Editing swaps the bubble for an inline form; otherwise show bubble + actions.
-  const bubbleBlock = editing
-    ? `<form class="soc-comment-form soc-comment-edit-form" data-soc-action="submit-comment-edit" data-comment-id="${c.id}">
-         <input type="text" class="soc-comment-input" maxlength="500" value="${escapeHtml(c.body)}" />
-         <button class="btn-primary" type="submit">Save</button>
-         <button class="linklike" type="button" data-soc-action="cancel-edit-comment">Cancel</button>
-       </form>`
-    : `
+  return `
       <div class="soc-comment-bubble-wrap">
         <div class="soc-comment-bubble">
           <button class="soc-userlink soc-comment-author" data-soc-action="view-profile" data-uid="${c.authorId}"><b>@${escapeHtml(c.authorName)}</b></button>
@@ -272,21 +284,21 @@ function renderComment(c, postId, depth = 0) {
         </span>
         <button class="linklike soc-act-reply" data-soc-action="reply-comment" data-comment-id="${c.id}" data-post-id="${postId}">Reply</button>
         <span class="soc-act-time" title="${escapeHtml(new Date(c.createdAt).toLocaleString())}">${escapeHtml(socTimeAgo(c.createdAt))}</span>
-        ${socKebab(`comment-${c.id}`, [
-          c.mine ? socMenuItem('edit-comment', '✎ Edit', `data-comment-id="${c.id}"`) : '',
-          c.canDelete ? socMenuItem('delete-comment', `🗑 Delete${(!c.mine && window.currentUser?.canModerate) ? ' (mod)' : ''}`, `data-comment-id="${c.id}"`, true) : '',
-          !c.mine ? socMenuItem('hide-comment', '🙈 Hide', `data-comment-id="${c.id}"`) : '',
-          !c.mine ? socMenuItem('report-comment', '🚩 Report', `data-comment-id="${c.id}" data-owner="${c.authorId}" data-name="${escapeHtml(c.authorName)}"`) : '',
-          (!c.mine && !data.isUnblockable({ username: c.authorName }))
-            ? socMenuItem('block-user', `🚫 Block @${escapeHtml(c.authorName)}`, `data-uid="${c.authorId}" data-name="${escapeHtml(c.authorName)}"`, true) : '',
-        ])}
+        ${commentKebabHtml(c)}
       </div>`;
+}
+
+function renderComment(c, postId, depth = 0) {
+  const replying = state.socReplyTo === c.id;
+  const replies = depth === 0
+    ? flattenReplies(c).map((r) => renderComment(r, postId, 1)).join('')
+    : '';
 
   return `
     <div class="soc-comment ${depth ? 'soc-comment-reply' : ''}">
       <button class="soc-userlink soc-comment-avatar" data-soc-action="view-profile" data-uid="${c.authorId}" tabindex="-1" aria-label="@${escapeHtml(c.authorName)}">${socAvatar(c.authorAvatar, c.authorName)}</button>
       <div class="soc-comment-col">
-        ${bubbleBlock}
+        ${commentBubbleHtml(c, postId)}
         ${replying ? `
           <form class="soc-comment-form soc-reply-form" data-soc-action="submit-comment" data-post-id="${postId}" data-parent-id="${c.id}">
             <input type="text" class="soc-comment-input" maxlength="500" placeholder="Reply to @${escapeHtml(c.authorName)}…" />
@@ -297,21 +309,38 @@ function renderComment(c, postId, depth = 0) {
     </div>`;
 }
 
-function renderPostCard(p) {
-  const img = p.photoUrl || catalogImageFor(p.catalogId);
+// Comment counts for a post's footer. Prunes viewer-hidden comments (client
+// only) and keeps the totals honest by discounting whatever was removed.
+// Collapsed shows the last 2 top-level threads (each surfacing its whole
+// flattened subtree); expanded shows all. Returns the numbers the card needs.
+function postCommentSummary(p) {
   const expanded = state.socExpandedComments.has(p.id);
   const subtreeSize = (c) => 1 + (c.replies || []).reduce((n, r) => n + subtreeSize(r), 0);
   const treeSize = (list) => (list || []).reduce((n, c) => n + subtreeSize(c), 0);
-  // Drop any comments the viewer chose to hide (client-only), and discount the
-  // server's comment total by however many we removed so the counts stay honest.
   const comments = pruneHiddenComments(p.comments);
   const hiddenRemoved = treeSize(p.comments) - treeSize(comments);
   const commentCount = (p.commentCount ?? p.comments.length) - hiddenRemoved;
-  // Collapsed: show the last 2 top-level threads; expanded: all. A shown thread
-  // now surfaces its entire (flattened) subtree, so count whole subtrees when
-  // working out how many comments are still hidden behind "View more".
   const shownComments = expanded ? comments : comments.slice(-2);
   const moreCount = commentCount - shownComments.reduce((n, c) => n + subtreeSize(c), 0);
+  return { commentCount, shownComments, moreCount };
+}
+
+function postKebabHtml(p) {
+  return socKebab(`post-${p.id}`, [
+    p.mine ? socMenuItem('edit-post', '✏️ Edit', `data-post-id="${p.id}"`) : '',
+    (p.mine || window.currentUser?.canModerate)
+      ? socMenuItem('delete-post', `🗑 Delete${(!p.mine && window.currentUser?.canModerate) ? ' (mod)' : ''}`, `data-post-id="${p.id}"`, true) : '',
+    !p.mine ? socMenuItem('hide-post', '🙈 Hide from my feed', `data-post-id="${p.id}"`) : '',
+    !p.mine ? socMenuItem('report-post', '🚩 Report', `data-post-id="${p.id}" data-owner="${p.authorId}" data-name="${escapeHtml(p.authorName)}"`) : '',
+    (!p.mine && !data.isUnblockable({ username: p.authorName }))
+      ? socMenuItem('block-user', `🚫 Block @${escapeHtml(p.authorName)}`, `data-uid="${p.authorId}" data-name="${escapeHtml(p.authorName)}"`, true) : '',
+  ]);
+}
+
+function renderPostCard(p) {
+  const img = p.photoUrl || catalogImageFor(p.catalogId);
+  const expanded = state.socExpandedComments.has(p.id);
+  const { commentCount, shownComments, moreCount } = postCommentSummary(p);
 
   return `
   <article class="soc-post" data-post-id="${p.id}">
@@ -321,15 +350,7 @@ function renderPostCard(p) {
         <span class="soc-post-author">@${escapeHtml(p.authorName)}</span>
       </button>
       <span class="soc-post-meta">${visBadge(p.visibility)} · ${escapeHtml(socTimeAgo(p.createdAt))}${p.edited ? ' · edited' : ''}</span>
-      ${socKebab(`post-${p.id}`, [
-        p.mine ? socMenuItem('edit-post', '✏️ Edit', `data-post-id="${p.id}"`) : '',
-        (p.mine || window.currentUser?.canModerate)
-          ? socMenuItem('delete-post', `🗑 Delete${(!p.mine && window.currentUser?.canModerate) ? ' (mod)' : ''}`, `data-post-id="${p.id}"`, true) : '',
-        !p.mine ? socMenuItem('hide-post', '🙈 Hide from my feed', `data-post-id="${p.id}"`) : '',
-        !p.mine ? socMenuItem('report-post', '🚩 Report', `data-post-id="${p.id}" data-owner="${p.authorId}" data-name="${escapeHtml(p.authorName)}"`) : '',
-        (!p.mine && !data.isUnblockable({ username: p.authorName }))
-          ? socMenuItem('block-user', `🚫 Block @${escapeHtml(p.authorName)}`, `data-uid="${p.authorId}" data-name="${escapeHtml(p.authorName)}"`, true) : '',
-      ])}
+      ${postKebabHtml(p)}
     </header>
     ${p.plushName ? `<p class="soc-post-plush">🧸 ${escapeHtml(p.plushName)}</p>` : ''}
     ${p.body ? `<p class="soc-post-body">${linkifyMentions(p.body)}</p>` : ''}
