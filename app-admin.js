@@ -350,15 +350,19 @@ async function onToggleModeratorForUser(e) {
   }
 }
 
-function renderAdminUserView() {
-  const { user, snapshot } = state.adminUserView;
-  // Compact, read-only row. The whole card opens a read-only detail modal
-  // (the compact grid hides meta/meaning, so detail is where the rest of
-  // the facts live + a tap-to-enlarge photo).
-  const renderItemRow = (it, kind) => {
-    const src = it.photo || catalogImageFor(it.catalogId);
-    const photo = src ? `<img src="${escapeHtml(src)}" alt="" loading="lazy" />` : `<span class="no-photo">🖤</span>`;
-    return `
+// ── renderAdminUserView section builders ───────────────────────────────
+// The admin user-detail view is assembled from these pure HTML-builder
+// functions (one per <section>) plus three small row helpers. Keeping each
+// section isolated makes the ~200-line view navigable; renderAdminUserView
+// concatenates them and wires the permission/moderation toggles.
+
+// Compact, read-only row. The whole card opens a read-only detail modal
+// (the compact grid hides meta/meaning, so detail is where the rest of
+// the facts live + a tap-to-enlarge photo).
+function adminItemRowHtml(it, kind) {
+  const src = it.photo || catalogImageFor(it.catalogId);
+  const photo = src ? `<img src="${escapeHtml(src)}" alt="" loading="lazy" />` : `<span class="no-photo">🖤</span>`;
+  return `
       <article class="card admin-item-card" data-admin-action="item-detail" data-id="${it.id}" data-kind="${kind}" role="button" tabindex="0" title="View details">
         <div class="card-photo">${photo}</div>
         <div class="card-body card-clickable">
@@ -366,33 +370,25 @@ function renderAdminUserView() {
         </div>
       </article>
     `;
-  };
+}
 
+function adminTradeLiHtml(t, userId) {
+  const them = t.proposer_id === userId ? t.recipient?.username : t.proposer?.username;
+  const direction = t.proposer_id === userId ? '→' : '←';
+  const lines = (t.trade_line_items || []).map((l) =>
+    `${l.quantity}× ${escapeHtml(l.trade_item?.name ?? 'item')} (${l.side})`
+  ).join(', ');
+  const disputed = t.dispute_open ? ' <span class="meta-warn">⚠ disputed</span>' : '';
+  return `<li><strong>${direction} @${escapeHtml(them || '?')}</strong> · ${escapeHtml(t.status)}${disputed} · <span class="dim">${new Date(t.created_at).toLocaleDateString()}</span><br/><span class="dim">${lines}</span>${t.message ? `<br/><em>"${escapeHtml(t.message)}"</em>` : ''}</li>`;
+}
+
+function adminBlockLiHtml(b) {
+  return `<li>@${escapeHtml(b.username)} <span class="dim">· ${new Date(b.created_at).toLocaleDateString()}</span></li>`;
+}
+
+function adminUserHeadHtml(user, snapshot) {
   const f = snapshot.feedback || {};
-
-  // Trades: surface the ones an admin actually cares about — in-process
-  // (pending/accepted), disputed (any status with an open dispute), and
-  // successful (completed). Cancelled/rejected/expired/countered noise is
-  // tucked behind a "show all other trades" toggle.
-  const renderTradeLi = (t) => {
-    const them = t.proposer_id === user.id ? t.recipient?.username : t.proposer?.username;
-    const direction = t.proposer_id === user.id ? '→' : '←';
-    const lines = (t.trade_line_items || []).map((l) =>
-      `${l.quantity}× ${escapeHtml(l.trade_item?.name ?? 'item')} (${l.side})`
-    ).join(', ');
-    const disputed = t.dispute_open ? ' <span class="meta-warn">⚠ disputed</span>' : '';
-    return `<li><strong>${direction} @${escapeHtml(them || '?')}</strong> · ${escapeHtml(t.status)}${disputed} · <span class="dim">${new Date(t.created_at).toLocaleDateString()}</span><br/><span class="dim">${lines}</span>${t.message ? `<br/><em>"${escapeHtml(t.message)}"</em>` : ''}</li>`;
-  };
-  const isPrimaryTrade = (t) => t.dispute_open || ['pending', 'accepted', 'completed'].includes(t.status);
-  const primaryTrades = snapshot.trades.filter(isPrimaryTrade);
-  const otherTrades = snapshot.trades.filter((t) => !isPrimaryTrade(t));
-  const tradesHtml = primaryTrades.slice(0, 50).map(renderTradeLi).join('');
-  const otherTradesHtml = otherTrades.map(renderTradeLi).join('');
-
-  const { blocksInitiated = [], blockedBy = [] } = snapshot;
-  const blockLi = (b) => `<li>@${escapeHtml(b.username)} <span class="dim">· ${new Date(b.created_at).toLocaleDateString()}</span></li>`;
-
-  document.getElementById('admin-content').innerHTML = `
+  return `
     <div class="admin-back">
       <button data-admin-action="back">← Back to users</button>
     </div>
@@ -405,8 +401,11 @@ function renderAdminUserView() {
       <div class="fb-cell"><span class="fb-num fb-meh">${f.meh_count || 0}</span><span class="fb-label">meh</span></div>
       <div class="fb-cell"><span class="fb-num fb-bad">${f.bad_count || 0}</span><span class="fb-label">bad</span></div>
       <div class="fb-cell"><span class="fb-num">${f.total_count || 0}</span><span class="fb-label">total</span></div>
-    </div>
+    </div>`;
+}
 
+function adminPermissionsHtml(user) {
+  return `
     <section class="my-items-section">
       <h3 class="trader-head"><span>Permissions</span></h3>
       <div class="admin-tool">
@@ -432,12 +431,13 @@ function renderAdminUserView() {
         </label>`;
         })()}
       </div>
-    </section>
+    </section>`;
+}
 
-    ${(() => {
-      const mod = snapshot.moderation || {};
-      const lock = mod.is_admin ? 'disabled title="Admins can\'t be moderated"' : '';
-      return `
+function adminModerationHtml(user, snapshot) {
+  const mod = snapshot.moderation || {};
+  const lock = mod.is_admin ? 'disabled title="Admins can\'t be moderated"' : '';
+  return `
     <section class="my-items-section">
       <h3 class="trader-head"><span>Moderation</span></h3>
       <div class="admin-tool">
@@ -471,25 +471,42 @@ function renderAdminUserView() {
         </label>
       </div>
     </section>`;
-    })()}
+}
 
+function adminCollectionAndWishlistHtml(snapshot) {
+  return `
     <section class="my-items-section">
       <h3 class="trader-head"><span>Collection (${snapshot.plushies.length})</span><span class="dim">read-only · tap to view</span></h3>
-      <div class="grid grid-compact">${snapshot.plushies.map((i) => renderItemRow(i, 'collection')).join('') || '<p class="dim">Empty.</p>'}</div>
+      <div class="grid grid-compact">${snapshot.plushies.map((i) => adminItemRowHtml(i, 'collection')).join('') || '<p class="dim">Empty.</p>'}</div>
     </section>
 
     <section class="my-items-section">
       <h3 class="trader-head"><span>Wish list (${snapshot.wishlist.length})</span><span class="dim">read-only · tap to view</span></h3>
-      <div class="grid grid-compact">${snapshot.wishlist.map((i) => renderItemRow(i, 'wishlist')).join('') || '<p class="dim">Empty.</p>'}</div>
-    </section>
+      <div class="grid grid-compact">${snapshot.wishlist.map((i) => adminItemRowHtml(i, 'wishlist')).join('') || '<p class="dim">Empty.</p>'}</div>
+    </section>`;
+}
 
+function adminTradeItemsHtml(snapshot) {
+  return `
     <section class="my-items-section">
       <h3 class="trader-head"><span>Trade items (${snapshot.tradeItems.length})</span></h3>
       <ul class="member-list">
         ${snapshot.tradeItems.map((ti) => `<li><span>${ti.kind === 'offering' ? '↻' : '↺'} ${escapeHtml(ti.name)} · ${ti.kind} · qty ${ti.quantity} (${ti.reserved} reserved)</span></li>`).join('') || '<li class="dim">none</li>'}
       </ul>
-    </section>
+    </section>`;
+}
 
+// Trades: surface the ones an admin actually cares about — in-process
+// (pending/accepted), disputed (any status with an open dispute), and
+// successful (completed). Cancelled/rejected/expired/countered noise is
+// tucked behind a "show all other trades" toggle.
+function adminTradesHtml(user, snapshot) {
+  const isPrimaryTrade = (t) => t.dispute_open || ['pending', 'accepted', 'completed'].includes(t.status);
+  const primaryTrades = snapshot.trades.filter(isPrimaryTrade);
+  const otherTrades = snapshot.trades.filter((t) => !isPrimaryTrade(t));
+  const tradesHtml = primaryTrades.slice(0, 50).map((t) => adminTradeLiHtml(t, user.id)).join('');
+  const otherTradesHtml = otherTrades.map((t) => adminTradeLiHtml(t, user.id)).join('');
+  return `
     <section class="my-items-section">
       <h3 class="trader-head"><span>Trades (${primaryTrades.length})</span><span class="dim">in-process · disputed · completed</span></h3>
       <ul class="member-list">${tradesHtml || '<li class="dim">no active, disputed, or completed trades</li>'}</ul>
@@ -499,22 +516,29 @@ function renderAdminUserView() {
         </button>
         <ul class="member-list hidden" id="admin-other-trades">${otherTradesHtml}</ul>
       ` : ''}
-    </section>
+    </section>`;
+}
 
+function adminBlocksHtml(snapshot) {
+  const { blocksInitiated = [], blockedBy = [] } = snapshot;
+  return `
     <section class="my-items-section">
       <h3 class="trader-head"><span>Blocks</span></h3>
       <div class="admin-blocks">
         <div>
           <h4 class="admin-blocks-head">Blocks initiated (${blocksInitiated.length})</h4>
-          <ul class="member-list">${blocksInitiated.map(blockLi).join('') || '<li class="dim">none</li>'}</ul>
+          <ul class="member-list">${blocksInitiated.map(adminBlockLiHtml).join('') || '<li class="dim">none</li>'}</ul>
         </div>
         <div>
           <h4 class="admin-blocks-head">Blocked by (${blockedBy.length})</h4>
-          <ul class="member-list">${blockedBy.map(blockLi).join('') || '<li class="dim">none</li>'}</ul>
+          <ul class="member-list">${blockedBy.map(adminBlockLiHtml).join('') || '<li class="dim">none</li>'}</ul>
         </div>
       </div>
-    </section>
+    </section>`;
+}
 
+function adminDangerZoneHtml(user, snapshot) {
+  return `
     <section class="admin-danger">
       <h3 class="trader-head"><span>Danger zone</span></h3>
       ${snapshot.deletion ? `
@@ -534,8 +558,20 @@ function renderAdminUserView() {
         data-uid="${user.id}" data-username="${escapeHtml(user.username)}">
         Delete @${escapeHtml(user.username)}'s account
       </button>
-    </section>
-  `;
+    </section>`;
+}
+
+function renderAdminUserView() {
+  const { user, snapshot } = state.adminUserView;
+  document.getElementById('admin-content').innerHTML =
+    adminUserHeadHtml(user, snapshot)
+    + adminPermissionsHtml(user)
+    + adminModerationHtml(user, snapshot)
+    + adminCollectionAndWishlistHtml(snapshot)
+    + adminTradeItemsHtml(snapshot)
+    + adminTradesHtml(user, snapshot)
+    + adminBlocksHtml(snapshot)
+    + adminDangerZoneHtml(user, snapshot);
   document.querySelector('[data-admin-toggle="photo-uploads"]')
     ?.addEventListener('change', onTogglePhotoUploadsForUser);
   document.querySelector('[data-admin-toggle="custom-clothing"]')
