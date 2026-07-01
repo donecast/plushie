@@ -670,35 +670,44 @@ function renderCompletedTradeActions(t, isMine, uid) {
 }
 
 // ─── Trade: card-action dispatchers ──────────────────────────────────
+// Table-driven dispatch for [data-action] clicks in the Trade tab. Each
+// handler receives the clicked element and reads whatever dataset fields it
+// needs; it may return a promise (awaited below so a rejection surfaces as
+// the catch-all toast). Keep this in sync with the data-action values emitted
+// by the trade render functions.
+const TRADE_ACTIONS = {
+  'zoom-trade':              (b) => openLightbox(b.dataset.src, b.dataset.name),
+  'propose-trade':           (b) => openOfferModal(b.dataset.uid),
+  'quick-trade':             (b) => openOfferModal(b.dataset.uid, null, b.dataset.itemId),
+  'trade-item-remove':       (b) => removeMyTradeItem(b.dataset.id),
+  'trade-item-adjust':       (b) => adjustMyTradeItem(b.dataset.id),
+  'trade-accept':            (b) => respondToTrade(b.dataset.id, 'accept'),
+  'trade-reject':            (b) => respondToTrade(b.dataset.id, 'reject'),
+  'trade-counter':           (b) => openCounterModal(b.dataset.id),
+  'trade-cancel':            (b) => respondToTrade(b.dataset.id, 'cancel'),
+  'trade-fall-through':      (b) => respondToTrade(b.dataset.id, 'fall-through'),
+  'trade-confirm-fall':      (b) => respondToTrade(b.dataset.id, 'confirm-fall'),
+  'trade-dispute-fall':      (b) => openDisputeStatementModal(b.dataset.id, 'open'),
+  'trade-dispute-statement': (b) => openDisputeStatementModal(b.dataset.id, 'add'),
+  'trade-withdraw-fall':     (b) => respondToTrade(b.dataset.id, 'withdraw-fall'),
+  'trade-shipped':           (b) => tradeShipped(b.dataset.id, b.dataset.side),
+  'trade-received':          (b) => tradeReceived(b.dataset.id, b.dataset.side),
+  'trade-address':           (b) => openAddressModal(b.dataset.id),
+  'trade-feedback':          (b) => openFeedbackModal(b.dataset.id),
+};
+
 async function onTradeClick(e) {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
-  const { action, id, uid } = btn.dataset;
-  // Wrap the whole dispatch so a thrown error (e.g. an RLS or FK
-  // failure deep in the data layer) surfaces as a toast instead of
-  // silently doing nothing — that was the original "can't remove"
-  // symptom.
+  const handler = TRADE_ACTIONS[btn.dataset.action];
+  if (!handler) return;
+  // Wrap the whole dispatch so a thrown error (e.g. an RLS or FK failure deep
+  // in the data layer) surfaces as a toast instead of silently doing nothing —
+  // that was the original "can't remove" symptom.
   try {
-    if (action === 'zoom-trade')            openLightbox(btn.dataset.src, btn.dataset.name);
-    else if (action === 'propose-trade')         await openOfferModal(uid);
-    else if (action === 'quick-trade')      await openOfferModal(uid, null, btn.dataset.itemId);
-    else if (action === 'trade-item-remove') await removeMyTradeItem(id);
-    else if (action === 'trade-item-adjust') await adjustMyTradeItem(id);
-    else if (action === 'trade-accept')      await respondToTrade(id, 'accept');
-    else if (action === 'trade-reject')      await respondToTrade(id, 'reject');
-    else if (action === 'trade-counter')     await openCounterModal(id);
-    else if (action === 'trade-cancel')      await respondToTrade(id, 'cancel');
-    else if (action === 'trade-fall-through') await respondToTrade(id, 'fall-through');
-    else if (action === 'trade-confirm-fall')  await respondToTrade(id, 'confirm-fall');
-    else if (action === 'trade-dispute-fall')  openDisputeStatementModal(id, 'open');
-    else if (action === 'trade-dispute-statement') openDisputeStatementModal(id, 'add');
-    else if (action === 'trade-withdraw-fall') await respondToTrade(id, 'withdraw-fall');
-    else if (action === 'trade-shipped')     await tradeShipped(id, btn.dataset.side);
-    else if (action === 'trade-received')    await tradeReceived(id, btn.dataset.side);
-    else if (action === 'trade-address')     await openAddressModal(id);
-    else if (action === 'trade-feedback')    await openFeedbackModal(id);
+    await handler(btn);
   } catch (err) {
-    console.error('trade action failed', action, err);
+    console.error('trade action failed', btn.dataset.action, err);
     toast('Something went wrong: ' + (err.message || 'see console'));
   }
 }
