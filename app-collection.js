@@ -654,12 +654,11 @@ function renderAttachedAccessory(a) {
     </div>`;
 }
 
-function renderCard(item, kind) {
-  const src = photoSrc(item);
-  const photoHtml = src
-    ? `<img src="${escapeHtml(src)}" alt="${escapeHtml(item.name)}" loading="lazy" />`
-    : `<span class="no-photo">🖤</span>`;
+// ── renderCard sub-builders ────────────────────────────────────────────
+// A collection/wish-list card is assembled from these pure helpers plus the
+// photo/body/article scaffold in renderCard. Each returns an HTML string.
 
+function cardMetaHtml(item, kind) {
   const meta = [];
   if (kind === 'collection') {
     if (item.dateCollected) meta.push(`<span>${formatDate(item.dateCollected)}</span>`);
@@ -689,7 +688,10 @@ function renderCard(item, kind) {
       } catch { /* invalid url, skip */ }
     }
   }
+  return meta.length ? `<div class="card-meta">${meta.join('')}</div>` : '';
+}
 
+function cardBadgesHtml(item, kind) {
   const badges = [];
   // Custom (user-added, off-catalog) clothing gets a ✨ tag so it reads
   // clearly as "not a Plushie Dreadfuls item." First in the stack → it
@@ -707,14 +709,23 @@ function renderCard(item, kind) {
   if (kind === 'collection' && (item.quantity || 1) > 1) {
     badges.push(`<span class="badge badge-qty">×${item.quantity}</span>`);
   }
+  return badges.length ? `<div class="badge-stack">${badges.join('')}</div>` : '';
+}
 
-  // Trade markers: show if this catalog item is already in trade_items.
-  // Rendered INLINE in the body (next to the name), not as a photo overlay —
-  // on the compact list the tiny thumbnail can't hold an overlay badge without
-  // it spilling onto the picture.
-  const tradeMark = tradeMarkerFor(item, kind);
-  const tradeMarkHtml = tradeMark ? `<div class="card-trade-mark">${tradeMark}</div>` : '';
+// Manual reorder controls (item 20) — only while actively arranging (the ↕
+// Arrange toggle), and only for items that live in the main collection grid
+// (clothing sits in its own closet section, so it doesn't take part in
+// manual ordering). Gated on `arranging`, NOT the sort: viewing the saved
+// custom order ("My order" in the sort menu) shows it without live handles.
+// Shared by cardActionsHtml (reorder controls) and renderCard (drag attrs).
+function cardManualMode(item, kind) {
+  return !isWearableItem(item) && (
+    (kind === 'collection' && state.arranging) ||
+    (kind === 'wishlist' && state.wishArranging)
+  );
+}
 
+function cardActionsHtml(item, kind) {
   const tradeBtn = kind === 'collection'
     ? `<button data-action="offer-trade" data-id="${item.id}">↻ Trade?</button>`
     : `<button data-action="seek-trade" data-id="${item.id}">↺ Seek in trade</button>`;
@@ -735,16 +746,7 @@ function renderCard(item, kind) {
     ? `<button data-action="assign-wearer" data-id="${item.id}" title="Attach this to the plush wearing it">🧥 Who's wearing this?</button>`
     : '';
 
-  // Manual reorder controls (item 20) — only while actively arranging (the ↕
-  // Arrange toggle), and only for items that live in the main collection grid
-  // (clothing sits in its own closet section, so it doesn't take part in
-  // manual ordering). A drag grip (desktop) plus up/down arrows (touch). Note
-  // this is gated on `arranging`, NOT the sort: viewing the saved custom order
-  // ("My order" in the sort menu) shows it without the live drag handles.
-  const manualMode = !isWearableItem(item) && (
-    (kind === 'collection' && state.arranging) ||
-    (kind === 'wishlist' && state.wishArranging)
-  );
+  const manualMode = cardManualMode(item, kind);
   const upAction = kind === 'wishlist' ? 'move-up-wish' : 'move-up';
   const downAction = kind === 'wishlist' ? 'move-down-wish' : 'move-down';
   const reorder = manualMode
@@ -755,7 +757,7 @@ function renderCard(item, kind) {
        </div>`
     : '';
 
-  const actions = kind === 'collection'
+  return kind === 'collection'
     ? `
       ${reorder}
       ${qtyControl}
@@ -774,6 +776,23 @@ function renderCard(item, kind) {
         <button class="btn-icon btn-icon-danger" data-action="delete" data-id="${item.id}" aria-label="Remove from wish list" title="Remove">🗑</button>
       </div>
     `;
+}
+
+function renderCard(item, kind) {
+  const src = photoSrc(item);
+  const photoHtml = src
+    ? `<img src="${escapeHtml(src)}" alt="${escapeHtml(item.name)}" loading="lazy" />`
+    : `<span class="no-photo">🖤</span>`;
+
+  const metaHtml = cardMetaHtml(item, kind);
+  const badgesHtml = cardBadgesHtml(item, kind);
+
+  // Trade markers: show if this catalog item is already in trade_items.
+  // Rendered INLINE in the body (next to the name), not as a photo overlay —
+  // on the compact list the tiny thumbnail can't hold an overlay badge without
+  // it spilling onto the picture.
+  const tradeMark = tradeMarkerFor(item, kind);
+  const tradeMarkHtml = tradeMark ? `<div class="card-trade-mark">${tradeMark}</div>` : '';
 
   // Body content. On the collection (list view) we keep things compact —
   // nickname/name only — and tapping the card opens the detail modal with
@@ -785,13 +804,13 @@ function renderCard(item, kind) {
          <p class="card-product">${escapeHtml(stripOutfitWord(item.name))}</p>`
       : `<h3 class="card-name">${escapeHtml(stripOutfitWord(item.name))}</h3>`}
     ${tradeMarkHtml}
-    ${meta.length ? `<div class="card-meta">${meta.join('')}</div>` : ''}
+    ${metaHtml}
   `;
   const otherBody = `
     <h3 class="card-name">${escapeHtml(stripOutfitWord(item.name))}</h3>
     ${item.meaning ? `<p class="card-meaning">${escapeHtml(item.meaning)}</p>` : ''}
     ${tradeMarkHtml}
-    ${meta.length ? `<div class="card-meta">${meta.join('')}</div>` : ''}
+    ${metaHtml}
   `;
   // Collection AND wish-list cards open their detail (right-rail master-detail on
   // wide screens; modal / lightbox fallback otherwise). Catalog cards don't.
@@ -804,17 +823,18 @@ function renderCard(item, kind) {
   const photoZoom = src
     ? ` data-action="zoom-photo" data-id="${item.id}" role="button" tabindex="0" aria-label="View larger" title="Tap to see it bigger"`
     : '';
+  const manualMode = cardManualMode(item, kind);
   const dragAttr = manualMode ? ` draggable="true" data-reorder-id="${item.id}"` : '';
   return `
     <article class="card${manualMode ? ' card-draggable' : ''}" data-id="${item.id}"${dragAttr}>
       <div class="card-photo"${photoZoom}>
         ${photoHtml}
-        ${badges.length ? `<div class="badge-stack">${badges.join('')}</div>` : ''}
+        ${badgesHtml}
       </div>
       ${bodyOpen}
         ${kind === 'collection' ? collectionBody : otherBody}
       </div>
-      <div class="card-actions">${actions}</div>
+      <div class="card-actions">${cardActionsHtml(item, kind)}</div>
     </article>
   `;
 }
