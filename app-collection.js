@@ -447,21 +447,11 @@ function renderCatalogMeta(item) {
   return parts.length ? `<div class="card-meta">${parts.join('')}</div>` : '';
 }
 
-function renderCatalogCard(rawItem, owned, wished) {
-  const item = resolveCatalogItem(rawItem);
-  const display = cleanCatalogName(item.name);
-  // Custom catalog items already carry a signed Storage URL in
-  // item.image; only Shopify URLs benefit from the _NNNx variant.
-  const thumb = item.isCustom
-    ? item.image
-    : (shopifyImageVariant(item.image, 400) || item.image);
-  const photoHtml = thumb
-    ? `<img src="${escapeHtml(thumb)}" alt="${escapeHtml(display)}" loading="lazy" />`
-    : `<span class="no-photo">🖤</span>`;
+// ── renderCatalogCard sub-builders ─────────────────────────────────────
+// A catalog grid card is assembled from these pure helpers plus the photo/
+// body/article scaffold in renderCatalogCard.
 
-  const isOwned = owned.has(item.id);
-  const isWished = wished.has(item.id);
-
+function catalogCardBadgesHtml(item, isOwned, isWished) {
   const badges = [];
   // Owned / Wished render FIRST so when an item is both Owned and
   // Sold Out (or Retired etc.) the OWNED badge sits at the leading
@@ -482,7 +472,25 @@ function renderCatalogCard(rawItem, owned, wished) {
   }
   // NB: form/variant is intentionally NOT badged on the photo — the variant
   // reads as the gold form-label text after the name (below) instead.
+  return badges.length ? `<div class="badge-stack">${badges.join('')}</div>` : '';
+}
 
+// "Suggest a picture" shows right on the card when the item has NO image OR is
+// still riding the shop's stock photo (usesOnlyStorePhoto) — the store-only
+// ones are exactly what we want replaced, so they get the hot (solid) button.
+// The dataset target tells the handler whether to attach to a Shopify id or a
+// catalog_items uuid. Hidden when the user_photo_uploads flag is off (admins
+// still see it). Variants have no row to attach a suggestion to → suppressed.
+function catalogCardSuggestBtnHtml(item, thumb) {
+  const canSuggestPhotos = window.currentUser?.isAdmin || data.featureEnabled('feature.user_photo_uploads');
+  const storeOnly = usesOnlyStorePhoto(item);
+  return (canSuggestPhotos && !item.isVariant && (!thumb || storeOnly))
+    ? `<button class="btn-suggest${storeOnly ? ' btn-suggest-hot' : ''}" data-action="cat-suggest-photo" data-cid="${item.id}" data-target-kind="${item.isCustom ? 'custom' : 'shopify'}">📸 Suggest a picture</button>`
+    : '';
+}
+
+function catalogCardActionsHtml(item, isOwned, isWished) {
+  const status = itemStatus(item);
   // Custom items normally have no Shopify URL — but form variants
   // resolve through their parent handle so Buy points at the upstream
   // product page (the buyer gets whatever current iteration upstream
@@ -494,20 +502,8 @@ function renderCatalogCard(rawItem, owned, wished) {
   const canHave = !(status === 'coming_soon' || status === 'fyc');
   const haveBtn  = canHave  ? `<button class="btn-have" data-action="cat-have" data-cid="${item.id}">🖤 Have</button>` : '';
   const wantBtn  = !isWished ? `<button class="btn-want" data-action="cat-want" data-cid="${item.id}">🕯 Want</button>` : '';
-  // No Buy for loyalty rewards — they're redeemed with points, not purchasable.
   // No Buy for loyalty rewards (points-only) or retired items (no longer sold).
   const linkBtn  = (productUrl && !isLoyaltyReward(item) && status !== 'retired') ? `<a class="btn-buy" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener" title="Open product page">Buy</a>` : '';
-  // "Suggest a picture" shows right on the card when the item has NO image OR is
-  // still riding the shop's stock photo (usesOnlyStorePhoto) — the store-only
-  // ones are exactly what we want replaced, so they get the hot (solid) button.
-  // The dataset target tells the handler whether to attach to a Shopify id or a
-  // catalog_items uuid. Hidden when the user_photo_uploads flag is off (admins
-  // still see it). Variants have no row to attach a suggestion to → suppressed.
-  const canSuggestPhotos = window.currentUser?.isAdmin || data.featureEnabled('feature.user_photo_uploads');
-  const storeOnly = usesOnlyStorePhoto(item);
-  const suggestBtn = (canSuggestPhotos && !item.isVariant && (!thumb || storeOnly))
-    ? `<button class="btn-suggest${storeOnly ? ' btn-suggest-hot' : ''}" data-action="cat-suggest-photo" data-cid="${item.id}" data-target-kind="${item.isCustom ? 'custom' : 'shopify'}">📸 Suggest a picture</button>`
-    : '';
   // Admins can edit any catalog item. Custom rows get the full editor;
   // Shopify rows get the lighter overrides editor (lore / symbolism /
   // Set Includes overlay) since the rest is owned by the upstream feed.
@@ -516,15 +512,35 @@ function renderCatalogCard(rawItem, owned, wished) {
         ? `<button class="btn-icon" data-action="cat-admin-edit" data-cid="${item.id}" title="Edit catalog entry">✎</button>`
         : `<button class="btn-icon" data-action="cat-admin-override" data-cid="${item.id}" title="Edit catalog details">✎</button>`)
     : '';
-  const actions = isOwned
+  return isOwned
     ? `<button data-action="cat-edit" data-cid="${item.id}">Edit</button> ${haveBtn} ${linkBtn} ${adminEditBtn}`
     : `${haveBtn} ${wantBtn} ${linkBtn} ${adminEditBtn}`;
+}
+
+function renderCatalogCard(rawItem, owned, wished) {
+  const item = resolveCatalogItem(rawItem);
+  const display = cleanCatalogName(item.name);
+  // Custom catalog items already carry a signed Storage URL in
+  // item.image; only Shopify URLs benefit from the _NNNx variant.
+  const thumb = item.isCustom
+    ? item.image
+    : (shopifyImageVariant(item.image, 400) || item.image);
+  const photoHtml = thumb
+    ? `<img src="${escapeHtml(thumb)}" alt="${escapeHtml(display)}" loading="lazy" />`
+    : `<span class="no-photo">🖤</span>`;
+
+  const isOwned = owned.has(item.id);
+  const isWished = wished.has(item.id);
+
+  const badgesHtml = catalogCardBadgesHtml(item, isOwned, isWished);
+  const suggestBtn = catalogCardSuggestBtnHtml(item, thumb);
+  const actions = catalogCardActionsHtml(item, isOwned, isWished);
 
   return `
     <article class="card" data-cid="${item.id}" title="${escapeHtml(display)}">
       <div class="card-photo" data-action="cat-detail" data-cid="${item.id}" role="button" aria-label="View details">
         ${photoHtml}
-        ${badges.length ? `<div class="badge-stack">${badges.join('')}</div>` : ''}
+        ${badgesHtml}
       </div>
       <div class="card-body">
         <h3 class="card-name card-name-clickable" data-action="cat-detail" data-cid="${item.id}">${escapeHtml(display)}${(item.isCustom || item.isVariant) && item.formLabel ? ` <span class="card-form-label">${escapeHtml(item.formLabel)}</span>` : ''}</h3>
