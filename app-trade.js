@@ -839,7 +839,7 @@ async function openOfferModal(recipientId, parentTradeId, preselectedItemId) {
   document.getElementById('offer-sub').innerHTML = `with ${repBadge(recipientId, recipientUsername, state.partnerFeedback.get(recipientId))}`;
   document.getElementById('offer-message').value = '';
   renderOfferBuilder();
-  document.getElementById('offer-modal').classList.remove('hidden');
+  showEl('offer-modal');
 }
 
 function renderOfferBuilder() {
@@ -918,7 +918,7 @@ async function sendOffer() {
 }
 
 function closeOfferModal() {
-  document.getElementById('offer-modal').classList.add('hidden');
+  hideEl('offer-modal');
   state.offerDraft = null;
 }
 
@@ -984,11 +984,11 @@ async function openFeedbackModal(tradeId) {
     document.querySelector(`#feedback-modal .thumb-row[data-category="${cat}"] .thumb-btn[data-value="${v}"]`)?.classList.add('selected');
   }
   refreshFeedbackSubmit();
-  document.getElementById('feedback-modal').classList.remove('hidden');
+  showEl('feedback-modal');
 }
 
 function closeFeedbackModal() {
-  document.getElementById('feedback-modal').classList.add('hidden');
+  hideEl('feedback-modal');
   state.feedbackDraft = null;
 }
 
@@ -1078,7 +1078,7 @@ async function ensureReputationFor(userIds) {
 async function openMiniProfile(userId) {
   const body = document.getElementById('mini-profile-body');
   body.innerHTML = `<p class="dim">Loading…</p>`;
-  document.getElementById('mini-profile-modal').classList.remove('hidden');
+  showEl('mini-profile-modal');
   try {
     await ensureReputationFor([userId]);
     const summary = state.partnerFeedback.get(userId);
@@ -1151,7 +1151,7 @@ async function openMiniProfile(userId) {
 }
 
 function closeMiniProfile() {
-  document.getElementById('mini-profile-modal').classList.add('hidden');
+  hideEl('mini-profile-modal');
 }
 
 function shortDate(iso) {

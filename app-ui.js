@@ -290,7 +290,7 @@ async function addFromCatalog(catalogId, kind, { customize = false } = {}) {
     if (customize) {
       // If the Have came from the catalog detail modal, close it so the
       // customize modal isn't stacked on top.
-      document.getElementById('catalog-detail-modal')?.classList.add('hidden');
+      hideEl('catalog-detail-modal');
       const justAdded = state.collection.find((x) => x.id === record.id);
       if (justAdded) openModal('collection', justAdded, { fresh: true });
     }
@@ -1605,18 +1605,18 @@ function wireEvents() {
 
   // Catalog item create + suggest photo + admin queue modals.
   document.querySelectorAll('[data-close-catalog-item]').forEach((el) =>
-    el.addEventListener('click', () => document.getElementById('catalog-item-modal').classList.add('hidden'))
+    el.addEventListener('click', () => hideEl('catalog-item-modal'))
   );
   document.querySelectorAll('[data-close-catalog-detail]').forEach((el) =>
-    el.addEventListener('click', () => document.getElementById('catalog-detail-modal').classList.add('hidden'))
+    el.addEventListener('click', () => hideEl('catalog-detail-modal'))
   );
   document.querySelectorAll('[data-close-bundle-picker]').forEach((el) =>
-    el.addEventListener('click', () => document.getElementById('bundle-picker-modal').classList.add('hidden'))
+    el.addEventListener('click', () => hideEl('bundle-picker-modal'))
   );
   document.getElementById('bundle-picker-form').addEventListener('submit', submitBundlePickerForm);
   // Merge tool wiring.
   document.querySelectorAll('[data-close-catalog-merge]').forEach((el) =>
-    el.addEventListener('click', () => document.getElementById('catalog-merge-modal').classList.add('hidden'))
+    el.addEventListener('click', () => hideEl('catalog-merge-modal'))
   );
   document.getElementById('cm-search').addEventListener('input', onMergeSearchInput);
   document.getElementById('cm-results').addEventListener('click', (e) => {
@@ -1627,7 +1627,7 @@ function wireEvents() {
   document.getElementById('catalog-item-form').addEventListener('submit', submitCatalogItemForm);
   // Shopify catalog overrides (admin lore / symbolism / Set Includes edits).
   document.querySelectorAll('[data-close-catalog-override]').forEach((el) =>
-    el.addEventListener('click', () => document.getElementById('catalog-override-modal').classList.add('hidden'))
+    el.addEventListener('click', () => hideEl('catalog-override-modal'))
   );
   document.getElementById('catalog-override-form').addEventListener('submit', submitCatalogOverrideForm);
   document.getElementById('co-image').addEventListener('change', updateCoverPhotoPreview);
@@ -1647,22 +1647,22 @@ function wireEvents() {
     if (t) onPickPlushieSelect(t.dataset.pickPhotoPath, t.dataset.pickName);
   });
   document.querySelectorAll('[data-close-suggest-photo]').forEach((el) =>
-    el.addEventListener('click', () => document.getElementById('suggest-photo-modal').classList.add('hidden'))
+    el.addEventListener('click', () => hideEl('suggest-photo-modal'))
   );
   document.getElementById('suggest-photo-form').addEventListener('submit', submitSuggestPhotoForm);
   document.querySelectorAll('[data-close-admin-queue]').forEach((el) =>
-    el.addEventListener('click', () => document.getElementById('admin-queue-modal').classList.add('hidden'))
+    el.addEventListener('click', () => hideEl('admin-queue-modal'))
   );
   document.querySelectorAll('[data-close-dispute-stmt]').forEach((el) =>
-    el.addEventListener('click', () => document.getElementById('dispute-statement-modal').classList.add('hidden'))
+    el.addEventListener('click', () => hideEl('dispute-statement-modal'))
   );
   document.getElementById('dispute-statement-form').addEventListener('submit', submitDisputeStatementForm);
   document.getElementById('report-form').addEventListener('submit', submitReport);
   document.querySelectorAll('[data-close-report]').forEach((el) =>
-    el.addEventListener('click', () => document.getElementById('report-modal').classList.add('hidden'))
+    el.addEventListener('click', () => hideEl('report-modal'))
   );
   document.querySelectorAll('[data-close-dispute-review]').forEach((el) =>
-    el.addEventListener('click', () => document.getElementById('dispute-review-modal').classList.add('hidden'))
+    el.addEventListener('click', () => hideEl('dispute-review-modal'))
   );
 
   // Account modal
@@ -1768,7 +1768,7 @@ function wireEvents() {
     el.addEventListener('click', (e) => {
       // Don't close when the user clicks the image itself.
       if (e.target.id === 'lightbox-img') return;
-      document.getElementById('lightbox-modal').classList.add('hidden');
+      hideEl('lightbox-modal');
     })
   );
 

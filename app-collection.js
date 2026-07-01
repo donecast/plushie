@@ -1064,7 +1064,7 @@ function render() {
     const catReady = state.ready.has('catalog');
     if (!catReady && state.catalog.length === 0) {
       catGrid.innerHTML = loadingPlaceholder('Summoning the catalog…');
-      document.getElementById('catalog-empty').classList.add('hidden');
+      hideEl('catalog-empty');
     } else {
       catGrid.innerHTML =
         items.map((i) => renderCatalogCard(i, owned, wished)).join('');
@@ -1306,7 +1306,7 @@ function openModal(kind, item, { fresh = false } = {}) {
   photoField.classList.toggle('hidden', !data.featureEnabled('feature.user_photo_uploads'));
 
   document.getElementById('modal').dataset.kind = 'collection';
-  document.getElementById('modal').classList.remove('hidden');
+  showEl('modal');
   // Focus the rename field on a fresh add (the discovery moment), else
   // the meaning field as before.
   setTimeout(() => document.getElementById(fresh ? 'f-nickname' : 'f-meaning').focus(), 50);
@@ -1332,7 +1332,7 @@ async function removeCollectionItem(id) {
 }
 
 function closeModal() {
-  document.getElementById('modal').classList.add('hidden');
+  hideEl('modal');
   document.getElementById('plushie-form').reset();
   state.editingId = null;
 }
@@ -1389,11 +1389,11 @@ function openWearerPicker(accId) {
     <div class="form-actions">
       <button type="button" class="btn-ghost" data-close-wearer>Cancel</button>
     </div>`;
-  document.getElementById('wearer-modal').classList.remove('hidden');
+  showEl('wearer-modal');
 }
 
 function closeWearerModal() {
-  document.getElementById('wearer-modal').classList.add('hidden');
+  hideEl('wearer-modal');
   document.getElementById('wearer-modal-card').innerHTML = '';
 }
 
@@ -1423,12 +1423,12 @@ function openCustomClothingModal(scale = 'full') {
   document.getElementById('cc-photo-name').textContent = '';
   photoField.classList.toggle('hidden', !data.featureEnabled('feature.user_photo_uploads'));
 
-  document.getElementById('custom-clothing-modal').classList.remove('hidden');
+  showEl('custom-clothing-modal');
   setTimeout(() => document.getElementById('cc-name').focus(), 50);
 }
 
 function closeCustomClothingModal() {
-  document.getElementById('custom-clothing-modal').classList.add('hidden');
+  hideEl('custom-clothing-modal');
   document.getElementById('custom-clothing-form').reset();
 }
 

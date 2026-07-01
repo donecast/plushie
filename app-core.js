@@ -101,6 +101,15 @@ const state = {
   socPendingCount: 0,         // incoming friend requests — drives the tab badge
 };
 
+// ─── Tiny DOM show/hide helpers ────────────────────────────────────────
+// The app toggles visibility with the `.hidden` class everywhere — modals,
+// error rows, empty states, sub-sections. These two one-liners replace the
+// repeated `document.getElementById(id).classList.remove/add('hidden')`. The
+// optional chaining makes a missing element a no-op (strictly safer than the
+// old bare `.classList` calls, and matches the sites that already used `?.`).
+function showEl(id) { document.getElementById(id)?.classList.remove('hidden'); }
+function hideEl(id) { document.getElementById(id)?.classList.add('hidden'); }
+
 // Compact list view is a desktop-only density option. On phones it's too
 // cramped to be worthwhile, so we ignore a saved 'compact' preference there and
 // always fall back to roomy cards (the #col-view / #wish-view toggle is hidden
