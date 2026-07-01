@@ -852,6 +852,81 @@ function maybeRefreshCatalogDetail(cid) {
 
 // Builds the catalog detail inner HTML — shared by the modal (#cd-body) and the
 // right-rail master-detail panel. Returns null if the item is gone.
+// ── catalogDetailBodyHtml sub-builders ─────────────────────────────────
+// The catalog detail body is assembled from these pure helpers (each takes
+// the resolved catalog `item` and returns an HTML string) plus the head/
+// actions scaffold in catalogDetailBodyHtml.
+
+function catalogDetailAccessoriesHtml(item) {
+  return (item.accessories && item.accessories.length)
+    ? `<section class="cd-section">
+         <h3>Set includes</h3>
+         <ul class="cd-list">${item.accessories.map((a) => `<li>${escapeHtml(a.name)}</li>`).join('')}</ul>
+       </section>` : '';
+}
+
+function catalogDetailLoreHtml(item) {
+  // "Lore" is a plush/mini concept; on clothing, accessories & other merch the
+  // same free-text reads as plain "Notes".
+  const loreCat = catalogCategory(item);
+  const loreHeading = (loreCat === 'plush' || loreCat === 'mini' || loreCat === 'bundle') ? 'Lore' : 'Notes';
+  // Prefer our same-style retelling (altLore) over PD's original prose; fall
+  // back to the original when no retelling exists yet.
+  const loreText = item.altLore || item.lore;
+  return loreText
+    ? `<section class="cd-section"><h3>${loreHeading}</h3>${loreText.split(/\n{2,}/).map((p) => `<p>${escapeHtml(p)}</p>`).join('')}</section>`
+    : '';
+}
+
+function catalogDetailSymbolismHtml(item) {
+  return item.symbolismHtml
+    ? `<section class="cd-section"><h3>Symbolism</h3><div class="cd-symbolism">${sanitizeBodyHtml(item.symbolismHtml)}</div></section>`
+    : (item.symbolism ? `<section class="cd-section"><h3>Symbolism</h3><p>${escapeHtml(item.symbolism).replace(/\n/g, '<br/>')}</p></section>` : '');
+}
+
+// Credit a community-submitted cover ("Image courtesy of @handle"), shown
+// in italics directly under the photo. ONLY when the credit names a Plush
+// Crypt user — i.e. an @handle (the format the suggestion-approval flow and
+// the admin community-photo picker store). Free-text source credits an admin
+// may type (e.g. "a customer review", a web/Okendo source) are NOT shown.
+// Honours a contributor's "don't show my name" opt-out:
+//   • not opted out      → "Image courtesy of @handle" (everyone)
+//   • opted out + admin   → the real @handle, in blue, so the admin still
+//                           knows who shot it and that it's hidden publicly
+//   • opted out + public  → an anonymous "a crypt member" credit
+function catalogDetailCreditHtml(item, thumb) {
+  const rawCredit = (thumb && item.imageCredit) ? String(item.imageCredit).trim() : '';
+  const photoCredit = /^@\w/.test(rawCredit) ? rawCredit : '';
+  if (!photoCredit) return '';
+  if (item.imageCreditAnon === true) {
+    return window.currentUser?.isAdmin
+      ? `<p class="cd-credit cd-credit-anon" title="Hidden publicly — this contributor opted out of being named">Image courtesy of ${escapeHtml(photoCredit)}</p>`
+      : `<p class="cd-credit">Image courtesy of a crypt member</p>`;
+  }
+  return `<p class="cd-credit">Image courtesy of ${escapeHtml(photoCredit)}</p>`;
+}
+
+// "Suggest a picture" — let any user offer a community photo. Unlike the
+// grid card (which only offers it when an item has NO image), the detail view
+// offers it on EVERY eligible item so a better shot can always replace the
+// current one. Gated by the same feature flag as the card; variants have no
+// Shopify/catalog row to attach a suggestion to, so they're suppressed.
+// EXTRA-highlighted (suggestBtn hot + a storeOnlyNote strip) when the item is
+// still riding its store (Shopify) photo with no community cover.
+function catalogDetailSuggest(item) {
+  const canSuggestPhotos = window.currentUser?.isAdmin || data.featureEnabled('feature.user_photo_uploads');
+  const showSuggest = canSuggestPhotos && !item.isVariant;
+  const storeOnly = showSuggest && usesOnlyStorePhoto(item);
+  const suggestData = `data-action="cat-suggest-photo" data-cid="${item.id}" data-target-kind="${item.isCustom ? 'custom' : 'shopify'}"`;
+  const suggestBtn = showSuggest
+    ? `<button class="btn-suggest${storeOnly ? ' btn-suggest-hot' : ''}" ${suggestData}>📸 Suggest a picture</button>`
+    : '';
+  const storeOnlyNote = storeOnly
+    ? `<button class="cd-storeonly-cta" ${suggestData} title="Suggest a community picture">📷 This is the shop's photo — got a real one? <span>Suggest a picture →</span></button>`
+    : '';
+  return { suggestBtn, storeOnlyNote };
+}
+
 function catalogDetailBodyHtml(cid, { forRail = false } = {}) {
   const raw = state.catalog.find((c) => c.id === cid);
   if (!raw) return null;
@@ -866,67 +941,13 @@ function catalogDetailBodyHtml(cid, { forRail = false } = {}) {
   const productHandleForBuy = item.isCustom ? item.parentShopifyHandle : item.handle;
   const productUrl = productHandleForBuy ? (PRODUCT_URL_BASE + productHandleForBuy) : null;
 
-  const accessoriesHtml = (item.accessories && item.accessories.length)
-    ? `<section class="cd-section">
-         <h3>Set includes</h3>
-         <ul class="cd-list">${item.accessories.map((a) => `<li>${escapeHtml(a.name)}</li>`).join('')}</ul>
-       </section>` : '';
-  // "Lore" is a plush/mini concept; on clothing, accessories & other merch the
-  // same free-text reads as plain "Notes".
-  const loreCat = catalogCategory(item);
-  const loreHeading = (loreCat === 'plush' || loreCat === 'mini' || loreCat === 'bundle') ? 'Lore' : 'Notes';
-  // Prefer our same-style retelling (altLore) over PD's original prose; fall
-  // back to the original when no retelling exists yet.
-  const loreText = item.altLore || item.lore;
-  const loreHtml = loreText
-    ? `<section class="cd-section"><h3>${loreHeading}</h3>${loreText.split(/\n{2,}/).map((p) => `<p>${escapeHtml(p)}</p>`).join('')}</section>`
-    : '';
-  const symHtml = item.symbolismHtml
-    ? `<section class="cd-section"><h3>Symbolism</h3><div class="cd-symbolism">${sanitizeBodyHtml(item.symbolismHtml)}</div></section>`
-    : (item.symbolism ? `<section class="cd-section"><h3>Symbolism</h3><p>${escapeHtml(item.symbolism).replace(/\n/g, '<br/>')}</p></section>` : '');
+  const accessoriesHtml = catalogDetailAccessoriesHtml(item);
+  const loreHtml = catalogDetailLoreHtml(item);
+  const symHtml = catalogDetailSymbolismHtml(item);
   const isEmpty = !accessoriesHtml && !loreHtml && !symHtml;
 
-  // Credit a community-submitted cover ("Image courtesy of @handle"), shown
-  // in italics directly under the photo. ONLY when the credit names a Plush
-  // Crypt user — i.e. an @handle (the format the suggestion-approval flow and
-  // the admin community-photo picker store). Free-text source credits an admin
-  // may type (e.g. "a customer review", a web/Okendo source) are NOT shown.
-  const rawCredit = (thumb && item.imageCredit) ? String(item.imageCredit).trim() : '';
-  const photoCredit = /^@\w/.test(rawCredit) ? rawCredit : '';
-  // Credit line, honouring a contributor's "don't show my name" opt-out:
-  //   • not opted out      → "Image courtesy of @handle" (everyone)
-  //   • opted out + admin   → the real @handle, in blue, so the admin still
-  //                           knows who shot it and that it's hidden publicly
-  //   • opted out + public  → an anonymous "a crypt member" credit
-  let creditHtml = '';
-  if (photoCredit) {
-    if (item.imageCreditAnon === true) {
-      creditHtml = window.currentUser?.isAdmin
-        ? `<p class="cd-credit cd-credit-anon" title="Hidden publicly — this contributor opted out of being named">Image courtesy of ${escapeHtml(photoCredit)}</p>`
-        : `<p class="cd-credit">Image courtesy of a crypt member</p>`;
-    } else {
-      creditHtml = `<p class="cd-credit">Image courtesy of ${escapeHtml(photoCredit)}</p>`;
-    }
-  }
-
-  // "Suggest a picture" — let any user offer a community photo. Unlike the
-  // grid card (which only offers it when an item has NO image), the detail view
-  // offers it on EVERY eligible item so a better shot can always replace the
-  // current one. Gated by the same feature flag as the card; variants have no
-  // Shopify/catalog row to attach a suggestion to, so they're suppressed.
-  // EXTRA-highlighted when the item is still riding its store (Shopify) photo
-  // with no community cover — those are the ones we most want replaced.
-  const canSuggestPhotos = window.currentUser?.isAdmin || data.featureEnabled('feature.user_photo_uploads');
-  const showSuggest = canSuggestPhotos && !item.isVariant;
-  const storeOnly = showSuggest && usesOnlyStorePhoto(item);
-  const suggestData = `data-action="cat-suggest-photo" data-cid="${item.id}" data-target-kind="${item.isCustom ? 'custom' : 'shopify'}"`;
-  const suggestBtn = showSuggest
-    ? `<button class="btn-suggest${storeOnly ? ' btn-suggest-hot' : ''}" ${suggestData}>📸 Suggest a picture</button>`
-    : '';
-  // The extra highlight: a prominent strip under the photo on store-only items.
-  const storeOnlyNote = storeOnly
-    ? `<button class="cd-storeonly-cta" ${suggestData} title="Suggest a community picture">📷 This is the shop's photo — got a real one? <span>Suggest a picture →</span></button>`
-    : '';
+  const creditHtml = catalogDetailCreditHtml(item, thumb);
+  const { suggestBtn, storeOnlyNote } = catalogDetailSuggest(item);
   return `
     <div class="cd-head">
       <div class="cd-photo-wrap">
