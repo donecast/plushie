@@ -1127,14 +1127,70 @@ function renderPendingCatalogRow(row) {
   const thumb = row.image
     ? `<img src="${escapeHtml(row.image)}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'no-photo',textContent:'🖤'}))" />`
     : `<span class="no-photo">🖤</span>`;
+
+  // ── Submitter line: who sent it + their track record. This is the single
+  // most useful signal for the approve/reject call, so it leads the meta.
+  const prior = row.submitter_prior_approved || 0;
+  const who = row.submitted_by_username
+    ? `@${escapeHtml(row.submitted_by_username)}`
+    : (row.submitted_by ? `<span class="dim">unknown user</span>` : `<span class="dim">no submitter</span>`);
+  const trust = !row.submitted_by
+    ? ''
+    : prior > 0
+      ? `<span class="catalog-pending-badge trusted">trusted · ${prior} approved</span>`
+      : `<span class="catalog-pending-badge firsttimer">first submission</span>`;
+
+  // ── Free-form "why I'm sending this" note from the submitter. The field
+  // literally built to talk to the admin — surface it in full.
+  const notes = row.notes_to_admin
+    ? `<p class="catalog-pending-notes"><strong>Note from submitter:</strong> ${escapeHtml(row.notes_to_admin)}</p>`
+    : '';
+
+  // ── Lore / description / symbolism / alt-lore — the narrative fields,
+  // each shown (truncated) only when present.
+  const clip = (t, n) => escapeHtml(t).slice(0, n) + (t.length > n ? '…' : '');
+  const textBlocks = [
+    row.description ? `<p><strong>Desc:</strong> ${clip(row.description, 240)}</p>` : '',
+    row.lore ? `<p><strong>Lore:</strong> ${clip(row.lore, 240)}</p>` : '',
+    row.alt_lore ? `<p><strong>Alt lore:</strong> ${clip(row.alt_lore, 200)}</p>` : '',
+    row.symbolism ? `<p><strong>Symbolism:</strong> ${clip(row.symbolism, 200)}</p>` : '',
+  ].join('');
+
+  // ── Structured metadata chips — type, year, tags, accessories, flags,
+  // photo credit. Only non-empty ones render.
+  const chips = [];
+  if (row.type) chips.push(`<span class="catalog-pending-chip">${escapeHtml(row.type)}</span>`);
+  if (row.release_year) chips.push(`<span class="catalog-pending-chip">${escapeHtml(String(row.release_year))}</span>`);
+  if (row.available === false) chips.push(`<span class="catalog-pending-chip warn">unavailable</span>`);
+  if (row.retired) chips.push(`<span class="catalog-pending-chip warn">retired</span>`);
+  if (row.hidden) chips.push(`<span class="catalog-pending-chip warn">hidden</span>`);
+  (row.tags || []).forEach((t) => chips.push(`<span class="catalog-pending-chip tag">#${escapeHtml(String(t))}</span>`));
+  const accNames = (row.accessories || []).map((a) => a && (a.name || a)).filter(Boolean);
+  accNames.forEach((n) => chips.push(`<span class="catalog-pending-chip acc">+ ${escapeHtml(String(n))}</span>`));
+  const chipsHtml = chips.length ? `<p class="catalog-pending-chips">${chips.join(' ')}</p>` : '';
+
+  const credit = row.image_credit
+    ? `<p class="dim">photo credit: ${escapeHtml(row.image_credit)}${row.credit_anon ? ' <em>(anon — hidden publicly)</em>' : ''}</p>`
+    : '';
+
+  // ── Audit trail for already-decided rows surfaced for a retroactive glance.
+  const decided = row.status !== 'pending' && (row.approved_by || row.approved_at)
+    ? `<p class="dim">${escapeHtml(row.status)} ${row.approved_at ? `on ${new Date(row.approved_at).toLocaleString()}` : ''}</p>`
+    : '';
+
   return `
     <article class="catalog-pending-row">
       <div class="catalog-pending-photo">${thumb}</div>
       <div class="catalog-pending-body">
         <h3>${escapeHtml(row.name)} ${row.form_label ? `<span class="card-form-label">${escapeHtml(row.form_label)}</span>` : ''}</h3>
+        <p class="catalog-pending-submitter">${who} ${trust}</p>
         <p class="dim">handle: <code>${escapeHtml(row.handle)}</code>${row.parent_handle ? ` · parent: <code>${escapeHtml(row.parent_handle)}</code>` : ''}</p>
-        ${row.lore ? `<p>${escapeHtml(row.lore).slice(0, 240)}${row.lore.length > 240 ? '…' : ''}</p>` : ''}
+        ${chipsHtml}
+        ${notes}
+        ${textBlocks}
+        ${credit}
         <p class="dim">Status: <strong>${escapeHtml(row.status)}</strong> · submitted ${new Date(row.submitted_at).toLocaleString()}</p>
+        ${decided}
       </div>
       <div class="catalog-pending-actions">
         ${row.status === 'pending'
