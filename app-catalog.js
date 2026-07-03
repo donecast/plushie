@@ -600,7 +600,15 @@ function categoryHasAccessories(item) {
   const cat = catalogCategory(item);
   // Minis/keychain plushes get accessories too — they ship with (and have
   // clothing/outfits available for) them, same as full-size plushes.
-  return cat === 'plush' || cat === 'bundle' || cat === 'mini';
+  if (cat === 'plush' || cat === 'bundle' || cat === 'mini') return true;
+  // Shopping bags each ship with a themed plush head, so they carry an
+  // "includes" checklist too. Gated on the exact Shopify product type
+  // (case-by-case) rather than category: their category resolves to the
+  // generic 'other'/'accessory' bucket, which we don't want to blanket-
+  // enable. The head itself is set per bag via the catalog override's
+  // accessories field.
+  if ((item.type || '').toLowerCase() === 'shopping bag') return true;
+  return false;
 }
 
 function textOf(node) {
