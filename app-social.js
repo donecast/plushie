@@ -1682,6 +1682,8 @@ async function boot() {
   loadCatalog().then(() => {
     if (state.tab === 'catalog') render();
     refreshCatalogLive();
+    scheduleCatalogRefresh();   // keep the live catalog fresh in long-open sessions
+
     // Restock reminders cross-reference the live catalog for retirement, so
     // only start checking once it's loaded — otherwise retired wishlist items
     // would wrongly nag (the catalog isn't in hand yet at boot).
