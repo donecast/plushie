@@ -1014,6 +1014,16 @@ main {
   opacity: 0.4;
 }
 
+/* Psoriasis Rabbit's upstream Shopify photo is stored upside-down. Rotate it
+   back wherever it renders (catalog card, detail modal, trade cards, zoom).
+   Scoped to the cdn.shopify.com URL + product slug so it only touches the
+   upstream image — a corrected community photo (catalog_overrides.image) would
+   be served from R2 and is left untouched. Remove this rule once a right-side-up
+   image replaces the upstream one. */
+img[src*="cdn.shopify.com"][src*="psoriasis-rabbit-plush-stuffed-animal"] {
+  transform: rotate(180deg);
+}
+
 .badge-stack {
   position: absolute;
   top: 10px;
@@ -2340,8 +2350,8 @@ body.cl-insider .changelog-gated strong { color: #2f6fed; }
 }
 #lightbox-modal .modal-close {
   position: fixed;
-  top: 16px;
-  right: 20px;
+  top: max(16px, env(safe-area-inset-top));
+  right: max(20px, env(safe-area-inset-right));
   color: #fff;
   font-size: 2.2rem;
   background: rgba(0, 0, 0, 0.3);
