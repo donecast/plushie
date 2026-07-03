@@ -3854,6 +3854,57 @@ body.maint-locked { overflow: hidden; }
 }
 .catalog-pending-actions button { white-space: nowrap; padding: 8px 14px; font-size: 0.82rem; }
 
+/* Enriched submission meta: who sent it + trust badge, the submitter's note,
+   metadata chips (type/year/tags/accessories/flags). Keeps the card scannable
+   so the admin has every signal before approving/rejecting/merging. */
+.catalog-pending-submitter {
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.catalog-pending-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+.catalog-pending-badge.trusted {
+  background: var(--gold-fill);
+  color: var(--gold-1);
+  border: 1px solid var(--gold-edge);
+}
+.catalog-pending-badge.firsttimer {
+  background: var(--blush);
+  color: var(--rose-2);
+  border: 1px solid var(--rose-edge);
+}
+.catalog-pending-notes {
+  background: var(--surface-2);
+  border-left: 3px solid var(--rose-1);
+  border-radius: 0 8px 8px 0;
+  padding: 7px 11px !important;
+  margin: 8px 0 !important;
+}
+.catalog-pending-chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0 !important; }
+.catalog-pending-chip {
+  font-family: var(--sans);
+  font-size: 0.74rem;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  border: 1px solid var(--rose-seam);
+}
+.catalog-pending-chip.warn { background: var(--danger-soft); color: var(--danger-1); border-color: var(--danger-1); }
+.catalog-pending-chip.tag { opacity: 0.85; }
+.catalog-pending-chip.acc { font-style: italic; }
+
 /* Photo-suggestion review: the suggested shot wears a ribbon, and an "already
    on this item" strip lets the admin compare before choosing cover / keep /
    discard. Every thumb opens full-size in a new tab. */

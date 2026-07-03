@@ -1722,6 +1722,10 @@ data.listApprovedCatalogItems = async function () {
 };
 
 // Admin queue: everything not yet seen plus everything still pending.
+// Enriched with the submitter's @handle and their track record (how many
+// items they've had approved before) so the admin card can show who sent
+// each suggestion and whether they're a first-timer or a trusted hand —
+// the two signals that most inform the approve/reject/merge call.
 data.adminListCatalogPending = async function () {
   const { data: rows, error } = await sb
     .from('catalog_items')
@@ -1729,8 +1733,33 @@ data.adminListCatalogPending = async function () {
     .or('status.eq.pending,review_seen.eq.false')
     .order('submitted_at', { ascending: false });
   if (error) throw error;
+
+  // Resolve submitter @handles (bare UUID → username) in one round-trip,
+  // mirroring adminListPhotoSuggestions.
+  const submitterIds = [...new Set(rows.map((r) => r.submitted_by).filter(Boolean))];
+  let submitters = new Map();
+  let approvedCounts = new Map();
+  if (submitterIds.length) {
+    const [{ data: profs }, { data: approvedRows }] = await Promise.all([
+      sb.from('profiles').select('id, username').in('id', submitterIds),
+      // Every approved item by these submitters — tally per user for the
+      // "first submission" vs "N approved" trust badge.
+      sb.from('catalog_items').select('id, submitted_by')
+        .eq('status', 'approved').in('submitted_by', submitterIds),
+    ]);
+    submitters = new Map((profs || []).map((p) => [p.id, p.username]));
+    (approvedRows || []).forEach((r) => {
+      approvedCounts.set(r.submitted_by, (approvedCounts.get(r.submitted_by) || 0) + 1);
+    });
+  }
+
   await Promise.all(rows.map(async (r) => {
     r.image = r.image_path ? await data.catalogImageUrl(r.image_path) : null;
+    r.submitted_by_username = submitters.get(r.submitted_by) || null;
+    // Their approvals *not counting this row* — so an auto-approved row that
+    // itself surfaces here doesn't inflate its own submitter's track record.
+    const total = approvedCounts.get(r.submitted_by) || 0;
+    r.submitter_prior_approved = Math.max(0, total - (r.status === 'approved' ? 1 : 0));
   }));
   return rows;
 };
