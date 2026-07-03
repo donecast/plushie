@@ -938,7 +938,15 @@ data.adminListDisputes = async function () {
 
 data.adminResolveDispute = async function (tradeId, outcome, notes) {
   const uid = window.currentUser.id;
-  if (outcome === 'cancelled') {
+  // Both terminal outcomes free the reserved units so they stop counting
+  // against the parties' offerings. 'cancelled' obviously; 'completed'
+  // too — the trade is over, so the reservation must not linger (the old
+  // bug: force-complete left `reserved` inflated forever, so the items
+  // showed as stuck-reserved). We only release the reservation, not the
+  // owned quantity: a disputed, admin-forced completion has an uncertain
+  // physical outcome, so we don't destroy inventory on the parties' behalf.
+  // 'restored' keeps the trade active, so its reservation stays.
+  if (outcome === 'cancelled' || outcome === 'completed') {
     await data._releaseReservations(tradeId);
   }
   // 'restored' → trade goes back to accepted, dispute closes.
