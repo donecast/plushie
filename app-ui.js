@@ -1763,13 +1763,12 @@ function wireEvents() {
   });
 
   // Lightbox close — backdrop, card, and × button all carry the
-  // data-close-lightbox attribute.
+  // data-close-lightbox attribute. Tapping the image closes it too:
+  // on a phone the photo fills the screen, so tap-anywhere-to-dismiss
+  // is the only closing gesture that reliably works (the backdrop
+  // margin is a thin sliver and the × can hide under a notch).
   document.querySelectorAll('[data-close-lightbox]').forEach((el) =>
-    el.addEventListener('click', (e) => {
-      // Don't close when the user clicks the image itself.
-      if (e.target.id === 'lightbox-img') return;
-      hideEl('lightbox-modal');
-    })
+    el.addEventListener('click', () => hideEl('lightbox-modal'))
   );
 
   document.addEventListener('keydown', (e) => {
