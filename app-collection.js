@@ -355,6 +355,11 @@ function filteredCatalog() {
   const cat = CATALOG_CATEGORIES.has(state.catalogFilter) ? state.catalogFilter : 'all';
   const statuses = state.catalogStatuses;
   const theme = state.catalogTheme;
+  // A direct text search with no status filter deliberately reaches into the
+  // otherwise-hidden FYC concepts, so a specific unmade design stays findable by
+  // name even though it's excluded from the default browse. (A magic token or an
+  // active status filter keeps the normal FYC gating below.)
+  const fycSearchable = !!q && !magicStoreOnly && statuses.size === 0;
   const items = state.catalog.filter((raw) => {
     // A product auto-expanded into per-variant children: hide the now-
     // redundant umbrella card. The parent stays in state.catalog so
@@ -367,9 +372,10 @@ function filteredCatalog() {
     const it = resolveCatalogItem(raw);
     if (cat !== 'all' && catalogCategory(it) !== cat) return false;
     // FYC ("for your consideration") items are unconfirmed concepts that look
-    // unfinished, so they're hidden from every feed/search by default. They
-    // surface only when the viewer explicitly enables the FYC status filter.
-    if (itemStatus(it) === 'fyc' && !statuses.has('fyc')) return false;
+    // unfinished, so they're hidden from the default feed. They surface when the
+    // viewer enables the FYC status filter, or via a direct text search with no
+    // status filter (fycSearchable) so a named concept stays findable.
+    if (itemStatus(it) === 'fyc' && !statuses.has('fyc') && !fycSearchable) return false;
     if (statuses.size > 0 && !statuses.has(itemStatus(it))) return false;
     if (state.catalogUnowned && owned.has(it.id)) return false;
     if (state.catalogOriginal) {

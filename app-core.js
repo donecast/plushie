@@ -602,7 +602,35 @@ function isComingSoon(item) {
   return n.includes('tba') || n.includes('coming soon') || n.includes('future design');
 }
 
+// Lore an unmade "For Your Consideration" concept carries. PD uses a few
+// wordings, all meaning the same thing — "we haven't made this yet, register
+// interest": "considered for (a) prototyp(e/ing)", "currently in development …
+// comment/sign up", "sign up to be notified / to show your interest", "gather
+// enough interest". PD *rewrites* this into a real backstory the moment the
+// plush is actually produced, which is why the lore — not the Shopify 'fyc'
+// tag — is the reliable signal (the tag gets left on after a design ships).
+const FYC_PITCH_RE = /considered for (a )?prototyp|currently in development|sign up to (be notified|show)|gather enough interest/i;
+function hasFYCPitchLore(item) {
+  const t = item.bodyHtml || item.lore || '';
+  return !!t && FYC_PITCH_RE.test(t);
+}
+// A genuine concept ships with just its lone concept mockup (1, occasionally 2
+// images). A real photo shoot (Vasculitis Rabbit: 5; Visual Snow: 23) means the
+// plush exists. 4+ is comfortably above the mockup range and below every real
+// shoot in the catalog.
+const FYC_REAL_PHOTOGRAPHY_MIN = 4;
+
+// FYC = "For Your Consideration" = an unmade concept, hidden from the default
+// catalog/search. Graduation is permanent (a design never returns to FYC), so
+// two hard exits come first: once it's *for sale*, or has *real photography*,
+// it's a released plush regardless of a stale tag/lore. Otherwise it's FYC iff
+// its lore still pitches it as unmade — falling back to the Shopify tag only
+// when we have no lore to read (the cold-start catalog.json snapshot carries
+// no body text).
 function isFYC(item) {
+  if (item.available) return false;
+  if ((item.photoCount || 0) >= FYC_REAL_PHOTOGRAPHY_MIN) return false;
+  if (item.bodyHtml || item.lore) return hasFYCPitchLore(item);
   return (item.tags || []).some((t) => t.toLowerCase() === 'fyc');
 }
 
@@ -620,8 +648,15 @@ function isBuyableNow(item) {
 
 function itemStatus(item) {
   if (item.retired) return 'retired';
-  if (isComingSoon(item)) return 'coming_soon';
+  // FYC (unmade concept) is tested before coming-soon: PD sometimes slaps a
+  // 'coming soon'/'TBA' tag on a design whose lore still says "being considered
+  // for prototyping" (e.g. Event Horizon, TBA Rabbit). The lore is the truth —
+  // it isn't made yet — so it stays hidden rather than teasing an empty Coming
+  // Soon card. isFYC() already lets genuinely-made items through (for sale, or
+  // real photography like the 5-shot Vasculitis pre-release), so this only
+  // catches the mis-tagged concepts, not real upcoming plushes.
   if (isFYC(item)) return 'fyc';
+  if (isComingSoon(item)) return 'coming_soon';
   if (!item.available) return 'sold_out';
   return 'available';
 }
@@ -885,6 +920,7 @@ function resolveCatalogItem(item) {
     // images-and-paragraphs version ready.
     symbolismHtml: item.symbolismHtml ?? parent.symbolismHtml ?? null,
     bodyHtml:    item.bodyHtml ?? parent.bodyHtml ?? null,
+    photoCount:  item.photoCount ?? parent.photoCount ?? 0,
     // Accessories inherit from the parent only when the variant
     // didn't declare its own list. This lets a form variant override
     // the Set Includes (e.g., the Original came without the tote
@@ -924,6 +960,7 @@ function normalizeShopifyProduct(p) {
     handle: p.handle,
     type: p.product_type || '',
     image: p.images?.[0]?.src || null,
+    photoCount: (p.images || []).length,   // graduation signal for isFYC (real shoot vs lone concept mockup)
     price: priceNums.length ? Math.min(...priceNums) : null,
     available,
     retired,

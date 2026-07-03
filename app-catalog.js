@@ -636,6 +636,18 @@ async function refreshCatalogLive() {
   return true;
 }
 
+// refreshCatalogLive() otherwise only runs at boot, so a long-open session
+// (a pinned PWA tab, a phone left on the app) never picks up new releases or
+// status changes — e.g. a concept graduating out of FYC, or a restock. Poll
+// the live feed on a gentle interval so those land without a manual reload.
+// Re-boot safe: clears any prior timer before arming a new one, same as
+// scheduleSocialCheck().
+const CATALOG_REFRESH_MS = 30 * 60 * 1000;   // 30 min
+function scheduleCatalogRefresh() {
+  if (window._catalogTimer) clearInterval(window._catalogTimer);
+  window._catalogTimer = setInterval(() => { refreshCatalogLive(); }, CATALOG_REFRESH_MS);
+}
+
 function byNewest(a, b) {
   return (b.addedAt || 0) - (a.addedAt || 0);
 }
