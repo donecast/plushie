@@ -78,10 +78,22 @@ test('catalogCategory honours manual overrides, then type/name heuristics', () =
   assert.equal(call('catalogCategory', { id: '6', name: 'Mystery Pack', type: 'Plush', tags: [], isBundle: true }), 'bundle');
 });
 
-test('itemStatus reflects the lifecycle precedence (retired > coming soon > fyc > stock)', () => {
+test('itemStatus precedence: retired > fyc(unmade) > coming soon > stock, with graduation exits', () => {
+  const pitch = 'currently being considered for prototyping, sign up to be notified';
   assert.equal(call('itemStatus', { retired: true, available: true, tags: [], name: 'x' }), 'retired');
   assert.equal(call('itemStatus', { available: false, tags: ['coming soon'], name: 'x' }), 'coming_soon');
-  assert.equal(call('itemStatus', { available: true, tags: ['fyc'], name: 'x' }), 'fyc');
+  // A genuine concept: not for sale, lone mockup, lore still pitches it as unmade.
+  assert.equal(call('itemStatus', { available: false, tags: ['fyc'], bodyHtml: pitch, photoCount: 1, name: 'x' }), 'fyc');
+  // Graduation exit — for sale wins over a stale fyc tag/lore.
+  assert.equal(call('itemStatus', { available: true, tags: ['fyc'], bodyHtml: pitch, name: 'x' }), 'available');
+  // Graduation exit — real photography (>=4 shots) wins even before it's buyable.
+  assert.equal(call('itemStatus', { available: false, tags: ['fyc'], bodyHtml: pitch, photoCount: 5, name: 'x' }), 'sold_out');
+  // FYC is tested before coming-soon: a concept mis-tagged "coming soon" stays hidden.
+  assert.equal(call('itemStatus', { available: false, tags: ['coming soon'], bodyHtml: 'considered for a prototype, sign up to show your interest', photoCount: 1, name: 'x' }), 'fyc');
+  // A real upcoming plush (coming-soon tag, real backstory lore) still reads coming_soon.
+  assert.equal(call('itemStatus', { available: false, tags: ['coming soon'], bodyHtml: 'Meet Pumpkin, a real backstory.', photoCount: 3, name: 'x' }), 'coming_soon');
+  // No lore loaded (cold-start snapshot) falls back to the Shopify tag.
+  assert.equal(call('itemStatus', { available: false, tags: ['fyc'], name: 'x' }), 'fyc');
   assert.equal(call('itemStatus', { available: false, tags: [], name: 'x' }), 'sold_out');
   assert.equal(call('itemStatus', { available: true, tags: [], name: 'x' }), 'available');
 });
@@ -229,24 +241,27 @@ test('renderCatalogCard hides the Buy button for retired items', () => {
   assert.equal(/btn-buy/.test(app.call('renderCatalogCard', available, owned, wished)), true);
 });
 
-test('filteredCatalog hides FYC by default, shows it only when the FYC filter is on', () => {
+test('filteredCatalog: FYC hidden by default, shown under the FYC filter or a direct search', () => {
   const vm = require('node:vm');
-  const setup = (statusArr) => vm.runInContext(`
+  const setup = (statusArr, query = '') => vm.runInContext(`
     state.collection = []; state.wishlist = [];
-    state.query = ''; state.catalogFilter = 'all'; state.catalogTheme = 'all';
+    state.catQuery = ${JSON.stringify(query)}; state.catalogFilter = 'all'; state.catalogTheme = 'all';
     state.catalogColor = 'all'; state.catalogUnowned = false; state.catalogOriginal = false;
     state.catalogSort = 'name_asc';
     state.catalogStatuses = new Set(${JSON.stringify(statusArr)});
     state.catalog = [
       { id: 'a', name: 'Normal Plush',  available: true, tags: [] },
-      { id: 'b', name: 'Concept Plush', available: true, tags: ['fyc'] },
+      { id: 'b', name: 'Concept Plush', available: false, tags: ['fyc'],
+        bodyHtml: 'currently being considered for prototyping, sign up to be notified', photoCount: 1 },
     ];
   `, app.ctx);
   const ids = () => app.call('filteredCatalog').map((i) => i.id).sort();
 
-  setup([]);            assert.deepEqual(ids(), ['a']);        // default feed: FYC hidden
-  setup(['available']); assert.deepEqual(ids(), ['a']);        // other filter: FYC still hidden
-  setup(['fyc']);       assert.deepEqual(ids(), ['b']);        // FYC filter on: only FYC shows
+  setup([]);                       assert.deepEqual(ids(), ['a']);   // default feed: FYC hidden
+  setup(['available']);            assert.deepEqual(ids(), ['a']);   // other filter: FYC still hidden
+  setup(['fyc']);                  assert.deepEqual(ids(), ['b']);   // FYC filter on: only FYC shows
+  setup([], 'concept');            assert.deepEqual(ids(), ['b']);   // direct search, no status: FYC surfaces by name
+  setup(['available'], 'concept'); assert.deepEqual(ids(), []);      // search + non-FYC status filter: FYC stays hidden
 });
 
 test('parseQuery splits positive/negative bare tokens and quoted phrases', () => {
