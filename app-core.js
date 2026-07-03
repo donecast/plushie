@@ -96,7 +96,7 @@ const state = {
   socExpandedComments: new Set(), // postIds whose comment box/list is expanded
   socReplyTo: null,               // comment id currently being replied to
   socEditComment: null,           // comment id currently being edited
-  socComposeVis: 'friends',   // visibility selected in the composer
+  socComposeVis: 'public',    // visibility selected in the composer (default: Public)
   socComposePhoto: null,      // pending compressed Blob for a new post
   socPendingCount: 0,         // incoming friend requests — drives the tab badge
 };
