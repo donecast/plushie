@@ -11,40 +11,65 @@
 
 // ─── Trade: data load + sub-tab switching ────────────────────────────
 async function loadTradeData() {
-  try {
-    state.myTradeItems = await data.listMyTradeItems();
-    // Live-link enforcement: clamp every offering to what the user
-    // currently owns before anything renders or browse is computed.
-    // This is the load-time backstop for "you can never offer more than
-    // you own" — it self-heals drift from completed trades, removed
-    // collection items, or older data, regardless of cause. If it
-    // changed anything it re-fetches myTradeItems internally.
-    await reconcileAllOfferings({ announce: true });
-    state.tradeBrowse  = await data.browseOfferings();
-    state.trades       = await data.listTrades();
-    state.myFeedback   = await data.getFeedbackSummary(window.currentUser.id);
-    state.partnerFeedback.set(window.currentUser.id, state.myFeedback);
-    state.myFeedbackByTrade = await data.listMyFeedback();
+  // Each read is isolated so a single failing call (an expired session, an
+  // RLS hiccup, a flaky mobile connection) can't blank the entire tab. A
+  // failed step keeps its prior/empty state, logs its own label so the
+  // console points straight at the culprit, and we only nag the user if
+  // something actually failed.
+  const failed = [];
+  const step = async (label, fn) => {
+    try { return await fn(); }
+    catch (err) { console.error(`loadTradeData:${label}`, err); failed.push(label); return undefined; }
+  };
 
-    // Collect every user we'll show a badge for and pull their summaries
-    // in one batch — browse list owners + trade partners.
-    const uids = new Set();
-    for (const it of state.tradeBrowse) uids.add(it.ownerId);
-    for (const t of state.trades) {
-      const other = t.proposer_id === window.currentUser.id ? t.recipient_id : t.proposer_id;
-      uids.add(other);
-    }
-    await ensureReputationFor([...uids]);
-    // Fire local notifications for any partner action that just appeared
-    // (their shipment, their receipt confirmation, etc.).
-    maybeFireTradeNotifications().catch((e) => console.warn(e));
-  } catch (err) {
-    console.error('loadTradeData', err);
-    toast('Could not load trade data.');
-  } finally {
-    // Mark attempted either way: a genuine empty browse should show its
-    // real empty-state, not a forever "Summoning…" spinner.
-    state.ready.add('trade');
+  // My offerings/seeks first, then the live-link reconcile that clamps
+  // every offering to what the user currently owns — the load-time backstop
+  // for "you can never offer more than you own." It self-heals drift from
+  // completed trades, removed collection items, or older data, and re-fetches
+  // myTradeItems internally. Skip reconcile if the initial fetch failed.
+  const items = await step('myTradeItems', () => data.listMyTradeItems());
+  if (items !== undefined) {
+    state.myTradeItems = items;
+    await step('reconcile', () => reconcileAllOfferings({ announce: true }));
+  }
+
+  // The remaining reads are independent of one another — run them together
+  // and commit each result only if it succeeded.
+  const [browse, trades, myFb, myFbByTrade] = await Promise.all([
+    step('browseOfferings',   () => data.browseOfferings()),
+    step('listTrades',        () => data.listTrades()),
+    step('getFeedbackSummary',() => data.getFeedbackSummary(window.currentUser.id)),
+    step('listMyFeedback',    () => data.listMyFeedback()),
+  ]);
+  if (browse     !== undefined) state.tradeBrowse = browse;
+  if (trades     !== undefined) state.trades = trades;
+  if (myFb       !== undefined) {
+    state.myFeedback = myFb;
+    state.partnerFeedback.set(window.currentUser.id, myFb);
+  }
+  if (myFbByTrade !== undefined) state.myFeedbackByTrade = myFbByTrade;
+
+  // Collect every user we'll show a badge for and pull their summaries in
+  // one batch — browse list owners + trade partners. Best-effort.
+  const uids = new Set();
+  for (const it of state.tradeBrowse) uids.add(it.ownerId);
+  for (const t of state.trades) {
+    const other = t.proposer_id === window.currentUser.id ? t.recipient_id : t.proposer_id;
+    uids.add(other);
+  }
+  await step('reputation', () => ensureReputationFor([...uids]));
+
+  // Fire local notifications for any partner action that just appeared
+  // (their shipment, their receipt confirmation, etc.).
+  maybeFireTradeNotifications().catch((e) => console.warn(e));
+
+  // Mark attempted regardless: a genuine empty browse should show its real
+  // empty-state, not a forever "Summoning…" spinner.
+  state.ready.add('trade');
+
+  if (failed.length) {
+    console.warn('loadTradeData: partial load; failed steps:', failed.join(', '));
+    toast('Some trade data couldn’t load.');
   }
 }
 
