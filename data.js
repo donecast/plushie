@@ -3160,15 +3160,25 @@ data.getTopPlushes = async function (userId) {
     position: r.position,
     plushName: r.plush_name,
     catalogId: r.catalog_id,
+    // Raw stored path (a 'social' object key, an external URL, or Tom's
+    // /tom.jpg asset) — kept so the picker can re-save without re-copying
+    // or losing a bespoke upload; photoUrl is the resolved display URL.
+    photoPath: r.photo_path || null,
     photoUrl: r.photo_path ? await data.socialPhotoUrl(r.photo_path) : null,
   })));
 };
 
 // Replace my whole Top 8 with `entries` (ordered array, max 8). Each
-// entry: { plushName, catalogId?, photoPath? }. photoPath here is the
-// item's ORIGINAL 'photos'-bucket path; we copy it into 'social' so
-// viewers can see it. Items with a catalogId skip the copy (the client
-// renders the catalog image as a reliable fallback).
+// entry: { plushName, catalogId?, socialBlob?, socialPath?, photoPath? }.
+// Photo precedence per bun (first that's present wins):
+//   socialBlob  — a freshly-uploaded photo just for this slot; goes to 'social'.
+//   socialPath  — a path already stored last save (social key / URL / Tom's
+//                 asset); kept as-is, so re-saving never loses a bespoke
+//                 upload nor re-copies.
+//   photoPath   — the bun's ORIGINAL 'photos'-bucket path from the owner's
+//                 collection; copied into 'social' so viewers can see it.
+// A bun always keeps its catalog_id too, so renderTop8 can fall back to the
+// store/catalog image whenever no photo of their own is set.
 // Tom — the hidden catalog mascot — always rides along in Top 8 Buns
 // until the user fills all 8 of their own. His image is the same-origin
 // /tom.jpg asset (no social-bucket copy needed).
@@ -3188,10 +3198,20 @@ data.setTopPlushes = async function (entries, { keepTom = true } = {}) {
   for (let i = 0; i < clean.length; i++) {
     const e = clean[i];
     let photoPath = null;
-    if (e.photoPath && (e.photoPath.startsWith('/') || e.photoPath.startsWith('http'))) {
-      // Same-origin asset (Tom) or an already-external URL — store as-is.
+    if (e.socialBlob) {
+      // A photo they just uploaded for this slot — straight into 'social'.
+      try { photoPath = await data.uploadSocialPhoto(e.socialBlob); }
+      catch (err) { console.warn('top8 photo upload failed', err); }
+    } else if (e.socialPath) {
+      // Already-stored path (prior social copy, external URL, or Tom's asset).
+      photoPath = e.socialPath;
+    } else if (e.photoPath && (e.photoPath.startsWith('/') || e.photoPath.startsWith('http'))) {
+      // Same-origin asset or an already-external URL — store as-is.
       photoPath = e.photoPath;
-    } else if (!e.catalogId && e.photoPath) {
+    } else if (e.photoPath) {
+      // Their own collection photo (private 'photos' bucket) — copy into
+      // 'social' so viewers can see it. Runs even for catalog buns now, so
+      // their photo shows instead of the shared store image.
       try { photoPath = await data._copyPhotoToSocial(e.photoPath); }
       catch (err) { console.warn('top8 photo copy failed', err); }
     }
