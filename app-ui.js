@@ -1541,6 +1541,9 @@ function wireEvents() {
     const btn = e.target.closest('[data-tl-remove]');
     if (btn) removeTradeListPhoto(parseInt(btn.dataset.tlRemove, 10));
   });
+  document.getElementById('tl-suggestion').addEventListener('click', (e) => {
+    if (e.target.closest('#tl-use-collection')) useCollectionPhoto();
+  });
   document.getElementById('tl-save').addEventListener('click', saveTradeList);
 
   // Feedback modal — three structured thumbs.

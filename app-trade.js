@@ -973,6 +973,7 @@ async function openTradeListModal(catalogItem, owned, existing) {
     photos: (existing?.photos || []).map((p) => ({ id: p.id, socialPath: p.socialPath, url: p.url })),
     removedIds: [],
     stockHash: null,
+    collectionPhoto: null,   // { path, url } — their own existing photo, offered as a one-tap option
     saving: false,
   };
   document.getElementById('tl-title').textContent = existing ? 'Manage your offering' : 'Offer for trade';
@@ -993,6 +994,50 @@ async function openTradeListModal(catalogItem, owned, existing) {
       .then((h) => { if (state.tradeListDraft) state.tradeListDraft.stockHash = h; })
       .catch(() => {});
   }
+  // If they've already photographed this item in their collection, offer that
+  // shot as a one-tap option — only when first listing it, and never forced:
+  // someone trading a *different* copy just ignores it and uploads fresh. It's
+  // their own upload, so it skips the stock-image check.
+  if (!existing && catalogItem.photoPath) {
+    data.photoUrl(catalogItem.photoPath)
+      .then((url) => {
+        if (!url || !state.tradeListDraft) return;
+        state.tradeListDraft.collectionPhoto = { path: catalogItem.photoPath, url };
+        renderTradeListSuggestion();
+      })
+      .catch(() => {});
+  }
+}
+
+// Renders the "use the photo you already have" prompt, shown only while an
+// unconsumed collection photo is available and there's room in the gallery.
+function renderTradeListSuggestion() {
+  const box = document.getElementById('tl-suggestion');
+  if (!box) return;
+  const d = state.tradeListDraft;
+  const cp = d?.collectionPhoto;
+  const hasRoom = d && d.photos.length < TRADE_MAX_PHOTOS;
+  if (!cp || !hasRoom) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+  box.innerHTML = `
+    <img src="${escapeHtml(cp.url)}" alt="" />
+    <div class="tl-suggestion-text">
+      <strong>Use the photo you already have?</strong>
+      <span>You've got your own shot of this in your collection. If this is the one you're trading, add it — otherwise take a fresh photo.</span>
+    </div>
+    <button type="button" id="tl-use-collection" class="btn-ghost">Use it</button>
+  `;
+  box.classList.remove('hidden');
+}
+
+// One-tap add of the existing collection photo. Consumes the suggestion so it
+// can't be double-added; it's re-offered if the photo is later removed.
+function useCollectionPhoto() {
+  const d = state.tradeListDraft;
+  if (!d || !d.collectionPhoto || d.photos.length >= TRADE_MAX_PHOTOS) return;
+  d.photos.push({ collectionPath: d.collectionPhoto.path, url: d.collectionPhoto.url });
+  d.collectionPhoto = null;
+  hideEl('tl-error');
+  renderTradeListPhotos();
 }
 
 function renderTradeListPhotos() {
@@ -1009,6 +1054,7 @@ function renderTradeListPhotos() {
   const atMax = d.photos.length >= TRADE_MAX_PHOTOS;
   addBtn.disabled = atMax;
   addBtn.textContent = atMax ? 'Maximum 5 photos' : `📷 Add photo (${d.photos.length}/${TRADE_MAX_PHOTOS})`;
+  renderTradeListSuggestion();
 }
 
 function tlError(msg) {
@@ -1045,6 +1091,8 @@ function removeTradeListPhoto(idx) {
   const [removed] = d.photos.splice(idx, 1);
   if (removed?.id) d.removedIds.push(removed.id);
   if (removed?.blob && removed.url) URL.revokeObjectURL(removed.url);
+  // Pulled their collection photo back out — re-offer it as the suggestion.
+  if (removed?.collectionPath) d.collectionPhoto = { path: removed.collectionPath, url: removed.url };
   renderTradeListPhotos();
 }
 
@@ -1068,8 +1116,16 @@ async function saveTradeList() {
     const ordered = [];
     for (const p of d.photos) {
       if (p.socialPath) { ordered.push(p.socialPath); continue; }
+      if (p.collectionPath) {
+        // Their existing collection photo lives in the private 'photos' bucket;
+        // copy it into public 'social' so the other trader can see it.
+        const sp = await data._copyPhotoToSocial(p.collectionPath);
+        if (sp) ordered.push(sp);
+        continue;
+      }
       ordered.push(await data.uploadSocialPhoto(p.blob));
     }
+    if (!ordered.length) throw new Error('Photo upload failed — please try again.');
     const cover = ordered[0] || null;
 
     if (d.existingId) {

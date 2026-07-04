@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=135" />
+  <link rel="stylesheet" href="./styles.css?v=136" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -574,6 +574,7 @@
       </label>
       <div class="field">
         <span>Real photos <span class="dim">— up to 5 actual pics of your plush, not the stock image</span></span>
+        <div id="tl-suggestion" class="tl-suggestion hidden"></div>
         <div id="tl-photos" class="tl-photo-grid"></div>
         <input type="file" id="tl-photo-input" accept="image/*" capture="environment" multiple hidden />
         <button type="button" class="btn-ghost" id="tl-add-photo">📷 Add photo</button>
@@ -1051,7 +1052,7 @@
             <h3 class="changelog-date">July 4, 2026</h3>
             <ul>
               <li><strong>Your Top 8 Buns, your own photos.</strong> When you pick your Top 8, they now show <strong>your</strong> photo of each bun if you have one — not the shared store picture. Tap the little 📷 on any bun in the picker to snap or upload your own shot; the store picture still fills in for buns you haven't photographed. Adding a photo here also fills in that plush's collection photo if it didn't have one yet.</li>
-              <li><strong>Real photos required to trade.</strong> When you list a plush for trade you now add up to <strong>five actual photos of your own item</strong> — the stock catalog picture won't cut it (we'll spot it and ask for a real one). Those photos show on your offering and right inside the trade, so whoever you're dealing with can see the genuine thing before they accept. No more "do you even have this?"</li>
+              <li><strong>Real photos required to trade.</strong> When you list a plush for trade you now add up to <strong>five actual photos of your own item</strong> — the stock catalog picture won't cut it (we'll spot it and ask for a real one). Those photos show on your offering and right inside the trade, so whoever you're dealing with can see the genuine thing before they accept. No more "do you even have this?" If you've already photographed that plush in your collection, we offer that shot as a one-tap option — use it if it's the one you're trading, or take a fresh photo if not.</li>
               <li class="changelog-fixes">Misc bug fixes.</li>
             </ul>
           </div>
@@ -1718,14 +1719,14 @@
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=172"></script>
-  <script src="./app-catalog.js?v=172"></script>
-  <script src="./app-collection.js?v=172"></script>
-  <script src="./app-ui.js?v=172"></script>
-  <script src="./app-trade.js?v=172"></script>
-  <script src="./app-account.js?v=172"></script>
-  <script src="./app-admin.js?v=172"></script>
-  <script src="./app-admin-catalog.js?v=172"></script>
-  <script src="./app-social.js?v=172"></script>
+  <script src="./app-core.js?v=173"></script>
+  <script src="./app-catalog.js?v=173"></script>
+  <script src="./app-collection.js?v=173"></script>
+  <script src="./app-ui.js?v=173"></script>
+  <script src="./app-trade.js?v=173"></script>
+  <script src="./app-account.js?v=173"></script>
+  <script src="./app-admin.js?v=173"></script>
+  <script src="./app-admin-catalog.js?v=173"></script>
+  <script src="./app-social.js?v=173"></script>
 </body>
 </html>
