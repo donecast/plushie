@@ -192,6 +192,18 @@ create table if not exists trade_feedback (
   primary key (trade_id, rater_id)
 );
 
+-- Real, user-uploaded proof photos for an offering (up to 5, client-enforced).
+-- Public-read so both trade parties can verify; see migration 0074.
+create table if not exists trade_item_photos (
+  id uuid primary key default gen_random_uuid(),
+  trade_item_id uuid not null references trade_items(id) on delete cascade,
+  social_path text not null,
+  position smallint not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists trade_item_photos_item_idx
+  on trade_item_photos(trade_item_id, position);
+
 -- Net score / total counts per user, joined to username
 create or replace view user_feedback_summary as
 select
@@ -268,6 +280,7 @@ alter table trades              enable row level security;
 alter table trade_line_items    enable row level security;
 alter table trade_addresses     enable row level security;
 alter table trade_feedback      enable row level security;
+alter table trade_item_photos   enable row level security;
 
 -- profiles
 drop policy if exists profiles_read_all     on profiles;
@@ -339,6 +352,14 @@ create policy trades_proposer_ins on trades for insert to authenticated with che
 create policy trades_party_update on trades for update to authenticated
   using     (proposer_id = auth.uid() or recipient_id = auth.uid())
   with check(proposer_id = auth.uid() or recipient_id = auth.uid());
+
+-- trade_item_photos (public read like offerings; owner of parent item writes)
+drop policy if exists trade_item_photos_read  on trade_item_photos;
+drop policy if exists trade_item_photos_write on trade_item_photos;
+create policy trade_item_photos_read on trade_item_photos for select to authenticated using (true);
+create policy trade_item_photos_write on trade_item_photos for all to authenticated
+  using     (exists (select 1 from trade_items ti where ti.id = trade_item_id and ti.owner_id = auth.uid()))
+  with check (exists (select 1 from trade_items ti where ti.id = trade_item_id and ti.owner_id = auth.uid()));
 
 -- trade_line_items
 drop policy if exists trade_li_read   on trade_line_items;

@@ -157,55 +157,30 @@ async function markForTrade(item, kind) {
   }
 
   const existing = state.myTradeItems.find((t) => t.kind === kind && t.catalogId === item.catalogId);
+
+  // Offerings now require real proof photos, so both listing a new one and
+  // editing an existing one go through the trade-list modal (quantity +
+  // up-to-5 photo gallery). No silent prompt()/catalog-image copy anymore.
+  if (kind === 'offering') {
+    openTradeListModal(item, owned, existing || null);
+    return;
+  }
+
+  // Seeking stays a lightweight toggle — you don't own it, so no photos.
   if (existing) {
-    if (kind === 'offering') {
-      const qty = prompt(
-        `You own ${owned}. Currently offering ${existing.quantity}. New quantity (0 to remove)?`,
-        String(existing.quantity),
-      );
-      if (qty === null) return;
-      let n = parseInt(qty, 10);
-      if (Number.isNaN(n)) return;
-      // Floor at reserved (can't take back what's already locked in trades),
-      // ceiling at owned (can't offer more than you have).
-      n = Math.max(existing.reserved, Math.min(owned, n));
-      if (n === 0) {
-        await data.deleteTradeItem(existing.id);
-        toast('Removed from offerings.');
-      } else {
-        await data.updateTradeItem(existing.id, { quantity: n });
-        toast(`Offering ${n} now.`);
-      }
-    } else {
-      await data.deleteTradeItem(existing.id);
-      toast('Removed from seeking.');
-    }
+    await data.deleteTradeItem(existing.id);
+    toast('Removed from seeking.');
   } else {
-    let quantity = 1;
-    if (kind === 'offering') {
-      const q = prompt(`You own ${owned}. How many to offer for trade?`, String(owned));
-      if (q === null) return;
-      quantity = Math.max(1, Math.min(owned, parseInt(q, 10) || 1));
-    }
-    // Copy the photo into the public 'social' bucket so other collectors
-    // can see it in Browse — the 'photos' bucket photoPath points at is
-    // collection-scoped and unreadable to them. Best-effort: a failed
-    // copy just means Browse falls back to the catalog image.
-    let photoSocialPath = null;
-    if (item.photoPath) {
-      try { photoSocialPath = await data._copyPhotoToSocial(item.photoPath); }
-      catch (err) { console.warn('copy trade photo to social', err); }
-    }
     await data.addTradeItem({
-      kind,
+      kind: 'seeking',
       catalogId: item.catalogId,
       catalogHandle: item.catalogHandle ?? null,
       name: item.name,
       photoPath: item.photoPath ?? null,
-      photoSocialPath,
-      quantity,
+      photoSocialPath: null,
+      quantity: 1,
     });
-    toast(kind === 'offering' ? `Offering ${quantity} for trade.` : 'Seeking listed.');
+    toast('Seeking listed.');
   }
   state.myTradeItems = await data.listMyTradeItems();
   render();
@@ -351,10 +326,25 @@ function catalogImageFor(catalogId) {
   return cat?.image ? shopifyImageVariant(cat.image, 400) : null;
 }
 
+// A horizontal strip of tappable real-photo thumbnails (zoom on tap). Returns
+// '' when the item has no proof gallery (grandfathered / seeking).
+function renderProofStrip(it) {
+  const photos = it.photos || [];
+  if (!photos.length) return '';
+  const name = stripOutfitWord(it.name || 'item');
+  const thumbs = photos.map((p) => {
+    const url = p.url || p;   // gallery objects on offerings, plain urls on line items
+    return `<img class="trade-proof-thumb" src="${escapeHtml(url)}" loading="lazy" data-action="zoom-trade" data-src="${escapeHtml(url)}" data-name="${escapeHtml(name)}" />`;
+  }).join('');
+  return `<div class="trade-proof-strip" title="Real photos from the owner">${thumbs}</div>`;
+}
+
 function renderOfferingCard(it) {
   const src = it.photo || catalogImageFor(it.catalogId);
+  const photoCount = (it.photos || []).length;
+  const badge = photoCount ? `<span class="trade-proof-badge">📷 ${photoCount}</span>` : '';
   const photo = src
-    ? `<img src="${escapeHtml(src)}" loading="lazy" data-action="zoom-trade" data-src="${escapeHtml(src)}" data-name="${escapeHtml(stripOutfitWord(it.name))}" />`
+    ? `<img src="${escapeHtml(src)}" loading="lazy" data-action="zoom-trade" data-src="${escapeHtml(src)}" data-name="${escapeHtml(stripOutfitWord(it.name))}" />${badge}`
     : `<span class="no-photo">🖤</span>`;
   // Compact row (item 19): small picture on the left, bullet-pointed facts on
   // the right, with a quick-trade CTA. Quick-trade drops you straight into the
@@ -370,6 +360,7 @@ function renderOfferingCard(it) {
       <div class="trade-offer-body">
         <h3 class="trade-offer-name">${escapeHtml(stripOutfitWord(it.name))}</h3>
         <ul class="trade-offer-facts">${facts.join('')}</ul>
+        ${renderProofStrip(it)}
       </div>
       <button class="btn-primary trade-offer-cta" data-action="quick-trade" data-uid="${it.ownerId}" data-item-id="${it.id}">I'll trade for this</button>
     </li>
@@ -386,7 +377,9 @@ function renderMyTradeItems() {
       <div class="grid grid-tight">
         ${items.map((it) => {
           const src = it.photo || catalogImageFor(it.catalogId);
-          const photo = src ? `<img src="${escapeHtml(src)}" loading="lazy" />` : `<span class="no-photo">🖤</span>`;
+          const photoCount = (it.photos || []).length;
+          const badge = kind === 'offering' && photoCount ? `<span class="trade-proof-badge">📷 ${photoCount}</span>` : '';
+          const photo = src ? `<img src="${escapeHtml(src)}" loading="lazy" />${badge}` : `<span class="no-photo">🖤</span>`;
           return `
             <article class="card card-small">
               <div class="card-photo">${photo}</div>
@@ -397,7 +390,7 @@ function renderMyTradeItems() {
                 </div>
               </div>
               <div class="card-actions">
-                ${kind === 'offering' ? `<button data-action="trade-item-adjust" data-id="${it.id}">Adjust</button>` : ''}
+                ${kind === 'offering' ? `<button data-action="trade-item-manage" data-id="${it.id}">Manage</button>` : ''}
                 <button class="btn-danger" data-action="trade-item-remove" data-id="${it.id}">Remove</button>
               </div>
             </article>
@@ -476,9 +469,14 @@ function renderTradeRow(t, uid) {
   const myLines    = lines.filter((l) => (l.side === 'proposer') === isMine);
   const theirLines = lines.filter((l) => (l.side === 'proposer') !== isMine);
 
-  const lineHtml = (ls) => ls.map((l) =>
-    `<li>${l.quantity}× ${escapeHtml(l.trade_item?.name ?? 'item')}</li>`
-  ).join('');
+  const lineHtml = (ls) => ls.map((l) => {
+    const ti = l.trade_item || {};
+    // Proof photos travel on the line item's trade_item (attached in
+    // data.listTrades). Show them right under the line so you can eyeball the
+    // real thing before Accept — tap any thumb to zoom.
+    const proof = renderProofStrip({ name: ti.name, photos: ti.photos });
+    return `<li>${l.quantity}× ${escapeHtml(ti.name ?? 'item')}${proof}</li>`;
+  }).join('');
 
   const status = tradeStatusLabel(t, uid, isMine);
 
@@ -680,7 +678,7 @@ const TRADE_ACTIONS = {
   'propose-trade':           (b) => openOfferModal(b.dataset.uid),
   'quick-trade':             (b) => openOfferModal(b.dataset.uid, null, b.dataset.itemId),
   'trade-item-remove':       (b) => removeMyTradeItem(b.dataset.id),
-  'trade-item-adjust':       (b) => adjustMyTradeItem(b.dataset.id),
+  'trade-item-manage':       (b) => manageMyOffering(b.dataset.id),
   'trade-accept':            (b) => respondToTrade(b.dataset.id, 'accept'),
   'trade-reject':            (b) => respondToTrade(b.dataset.id, 'reject'),
   'trade-counter':           (b) => openCounterModal(b.dataset.id),
@@ -739,21 +737,19 @@ async function removeMyTradeItem(id) {
   }
 }
 
-async function adjustMyTradeItem(id) {
+// Manage an existing offering: opens the trade-list modal so the owner can
+// change quantity and add/remove real photos (the gallery is required, so a
+// plain quantity prompt is no longer enough).
+function manageMyOffering(id) {
   const it = state.myTradeItems.find((x) => x.id === id);
   if (!it) return;
-  const q = prompt(`New quantity (minimum ${it.reserved} due to active trades):`, String(it.quantity));
-  if (q === null) return;
-  const n = Math.max(it.reserved, parseInt(q, 10) || 0);
-  try {
-    if (n === 0) await data.deleteTradeItem(id);
-    else await data.updateTradeItem(id, { quantity: n });
-    state.myTradeItems = await data.listMyTradeItems();
-    render();
-  } catch (err) {
-    console.error('adjustMyTradeItem', err);
-    toast('Could not update that item.');
-  }
+  const colItem = state.collection.find((c) => c.catalogId === it.catalogId);
+  const owned = colItem?.quantity || it.quantity || 1;
+  openTradeListModal(
+    { catalogId: it.catalogId, catalogHandle: it.catalogHandle, name: it.name, photoPath: it.photoPath },
+    owned,
+    it,
+  );
 }
 
 async function respondToTrade(id, action) {
@@ -929,6 +925,171 @@ async function sendOffer() {
 function closeOfferModal() {
   hideEl('offer-modal');
   state.offerDraft = null;
+}
+
+// ─── Trade: list-for-trade modal (quantity + REAL proof photos) ──────
+// Every offering must carry at least one real, user-taken photo (up to 5).
+// Uploads are perceptually fingerprinted against the product's catalog stock
+// image and rejected on a near match, so nobody can pass the stock render off
+// as proof they own the physical plush. Handles both a fresh listing and
+// editing an existing offering (quantity + add/remove photos).
+const TRADE_MAX_PHOTOS = 5;
+// dHash Hamming distance at/under which an upload is treated as the stock
+// image. Kept tight so we never reject a genuine photo — the same image at a
+// different size hashes within a few bits; a real photo lands far past this.
+const STOCK_MATCH_MAX_DISTANCE = 6;
+
+async function openTradeListModal(catalogItem, owned, existing) {
+  state.tradeListDraft = {
+    catalogItem,
+    owned,
+    existingId: existing?.id || null,
+    existingReserved: existing?.reserved || 0,
+    photos: (existing?.photos || []).map((p) => ({ id: p.id, socialPath: p.socialPath, url: p.url })),
+    removedIds: [],
+    stockHash: null,
+    saving: false,
+  };
+  document.getElementById('tl-title').textContent = existing ? 'Manage your offering' : 'Offer for trade';
+  document.getElementById('tl-name').textContent = stripOutfitWord(catalogItem.name || '');
+  const qtyInput = document.getElementById('tl-qty');
+  qtyInput.max = String(owned);
+  qtyInput.min = String(Math.max(1, state.tradeListDraft.existingReserved || 1));
+  qtyInput.value = String(existing?.quantity || owned || 1);
+  hideEl('tl-error');
+  renderTradeListPhotos();
+  showEl('trade-list-modal');
+  // Fingerprint the stock image in the background so the reject check is ready
+  // by the time they add a photo. May stay null (cross-origin canvas taint) —
+  // then we fail open and just require an upload.
+  const stockUrl = catalogImageFor(catalogItem.catalogId);
+  if (stockUrl) {
+    perceptualHash(stockUrl)
+      .then((h) => { if (state.tradeListDraft) state.tradeListDraft.stockHash = h; })
+      .catch(() => {});
+  }
+}
+
+function renderTradeListPhotos() {
+  const d = state.tradeListDraft;
+  if (!d) return;
+  const grid = document.getElementById('tl-photos');
+  grid.innerHTML = d.photos.map((p, i) => `
+    <div class="tl-photo-cell">
+      <img src="${escapeHtml(p.url)}" alt="" />
+      <button type="button" class="tl-photo-remove" data-tl-remove="${i}" aria-label="Remove photo">×</button>
+    </div>
+  `).join('') || '<p class="tl-photo-empty">No photos yet — add at least one real shot of your plush.</p>';
+  const addBtn = document.getElementById('tl-add-photo');
+  const atMax = d.photos.length >= TRADE_MAX_PHOTOS;
+  addBtn.disabled = atMax;
+  addBtn.textContent = atMax ? 'Maximum 5 photos' : `📷 Add photo (${d.photos.length}/${TRADE_MAX_PHOTOS})`;
+}
+
+function tlError(msg) {
+  const el = document.getElementById('tl-error');
+  el.textContent = msg;
+  showEl('tl-error');
+}
+
+async function onTradeListAddPhotos(fileList) {
+  const d = state.tradeListDraft;
+  if (!d) return;
+  hideEl('tl-error');
+  const files = [...(fileList || [])];
+  for (const file of files) {
+    if (d.photos.length >= TRADE_MAX_PHOTOS) { tlError('Up to 5 photos.'); break; }
+    let blob;
+    try { blob = await compressImage(file); }
+    catch { tlError('Could not read that image.'); continue; }
+    // Reject the catalog stock image (near-duplicate dHash). Fail open if we
+    // couldn't fingerprint the stock render (hammingDistance → Infinity).
+    const shotHash = await perceptualHash(blob);
+    if (hammingDistance(shotHash, d.stockHash) <= STOCK_MATCH_MAX_DISTANCE) {
+      tlError('That looks like the stock catalog photo — snap a real one of your actual plush.');
+      continue;
+    }
+    d.photos.push({ blob, url: URL.createObjectURL(blob) });
+  }
+  renderTradeListPhotos();
+}
+
+function removeTradeListPhoto(idx) {
+  const d = state.tradeListDraft;
+  if (!d) return;
+  const [removed] = d.photos.splice(idx, 1);
+  if (removed?.id) d.removedIds.push(removed.id);
+  if (removed?.blob && removed.url) URL.revokeObjectURL(removed.url);
+  renderTradeListPhotos();
+}
+
+async function saveTradeList() {
+  const d = state.tradeListDraft;
+  if (!d || d.saving) return;
+  if (d.photos.length < 1) { tlError('Add at least one real photo of your plush.'); return; }
+  let qty = parseInt(document.getElementById('tl-qty').value, 10);
+  if (Number.isNaN(qty)) qty = d.owned;
+  // Ceiling at what you own; floor at what's already reserved in live trades.
+  qty = Math.max(Math.max(1, d.existingReserved), Math.min(d.owned, qty));
+
+  const saveBtn = document.getElementById('tl-save');
+  d.saving = true;
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Saving…';
+  try {
+    const item = d.catalogItem;
+    // Upload any newly-added photos to the public 'social' bucket, preserving
+    // the on-screen order (existing kept photos already have a socialPath).
+    const ordered = [];
+    for (const p of d.photos) {
+      if (p.socialPath) { ordered.push(p.socialPath); continue; }
+      ordered.push(await data.uploadSocialPhoto(p.blob));
+    }
+    const cover = ordered[0] || null;
+
+    if (d.existingId) {
+      await data.updateTradeItem(d.existingId, { quantity: qty, photoSocialPath: cover });
+      for (const id of d.removedIds) {
+        try { await data.deleteTradeItemPhoto(id); } catch (err) { console.warn('remove trade photo', err); }
+      }
+      // Persist only the freshly-uploaded ones; kept photos already have rows.
+      const startPos = d.photos.filter((p) => p.socialPath).length;
+      const fresh = ordered.slice(startPos);
+      if (fresh.length) await data.addTradeItemPhotos(d.existingId, fresh, startPos);
+      toast(`Offering ${qty} now.`);
+    } else {
+      const created = await data.addTradeItem({
+        kind: 'offering',
+        catalogId: item.catalogId,
+        catalogHandle: item.catalogHandle ?? null,
+        name: item.name,
+        photoPath: item.photoPath ?? null,   // owner's own collection view
+        photoSocialPath: cover,              // public cover = first real photo
+        quantity: qty,
+      });
+      if (created?.id) await data.addTradeItemPhotos(created.id, ordered, 0);
+      toast(`Offering ${qty} for trade.`);
+    }
+
+    for (const p of d.photos) { if (p.blob && p.url) URL.revokeObjectURL(p.url); }
+    closeTradeListModal();
+    state.myTradeItems = await data.listMyTradeItems();
+    render();
+  } catch (err) {
+    console.error('saveTradeList', err);
+    tlError('Could not save: ' + (err.message || 'see console'));
+  } finally {
+    d.saving = false;
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'List for trade';
+  }
+}
+
+function closeTradeListModal() {
+  hideEl('trade-list-modal');
+  const d = state.tradeListDraft;
+  if (d) for (const p of d.photos) { if (p.blob && p.url) URL.revokeObjectURL(p.url); }
+  state.tradeListDraft = null;
 }
 
 async function openCounterModal(tradeId) {

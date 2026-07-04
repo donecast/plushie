@@ -696,6 +696,65 @@ async function compressImage(file, maxDim = 800, quality = 0.82) {
   });
 }
 
+// ─── Perceptual hash (dHash) ──────────────────────────────────────────
+// A 64-bit difference hash used to catch someone passing off the catalog
+// *stock* image as a "real" trade photo. Downscale to 9×8 grayscale; each
+// bit records whether a pixel is brighter than its right-hand neighbour.
+// dHash is stable across resizes/JPEG recompression, so a copy of the same
+// image hashes within a handful of bits (see hammingDistance), while a genuine
+// new photo of the plush lands far away. Returns a BigInt, or null if the
+// image can't be read (decode failure or a cross-origin canvas taint).
+async function perceptualHash(source) {
+  let img;
+  try {
+    img = source instanceof Blob
+      ? await createImageBitmap(source)
+      : await loadCorsImage(source);   // URL string — needs CORS to read pixels
+  } catch { return null; }
+  const w = 9, h = 8;
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, w, h);
+  let px;
+  try { px = ctx.getImageData(0, 0, w, h).data; }
+  catch { return null; }   // tainted canvas (cross-origin host without CORS)
+  let hash = 0n, bit = 0n;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w - 1; x++) {
+      const i = (y * w + x) * 4;
+      const j = (y * w + x + 1) * 4;
+      const a = px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114;
+      const b = px[j] * 0.299 + px[j + 1] * 0.587 + px[j + 2] * 0.114;
+      if (a > b) hash |= (1n << bit);
+      bit++;
+    }
+  }
+  return hash;
+}
+
+// Count differing bits between two dHashes. Infinity when either is missing
+// so callers treat "couldn't hash" as "not a match" (fail open, never block a
+// real photo just because we couldn't fingerprint the stock image).
+function hammingDistance(a, b) {
+  if (a == null || b == null) return Infinity;
+  let x = a ^ b, count = 0;
+  while (x) { count += Number(x & 1n); x >>= 1n; }
+  return count;
+}
+
+// Load a (possibly cross-origin) image URL with CORS so its pixels are
+// readable on a canvas. Rejects if the host doesn't send the header.
+function loadCorsImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
 // ─── Blob URL management ─────────────────────────────────────────────
 function urlFor(id, blob) {
   const existing = state.blobUrls.get(id);

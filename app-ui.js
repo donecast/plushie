@@ -1526,6 +1526,23 @@ function wireEvents() {
     pickerAdjust(btn.dataset.picker, btn.dataset.id, parseInt(btn.dataset.delta, 10));
   });
 
+  // Trade-list modal (quantity + required real proof photos).
+  document.querySelectorAll('[data-close-tradelist]').forEach((el) =>
+    el.addEventListener('click', closeTradeListModal)
+  );
+  document.getElementById('tl-add-photo').addEventListener('click', () =>
+    document.getElementById('tl-photo-input').click()
+  );
+  document.getElementById('tl-photo-input').addEventListener('change', async (e) => {
+    await onTradeListAddPhotos(e.target.files);
+    e.target.value = '';   // allow re-picking the same file
+  });
+  document.getElementById('tl-photos').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-tl-remove]');
+    if (btn) removeTradeListPhoto(parseInt(btn.dataset.tlRemove, 10));
+  });
+  document.getElementById('tl-save').addEventListener('click', saveTradeList);
+
   // Feedback modal — three structured thumbs.
   document.querySelectorAll('[data-close-feedback]').forEach((el) =>
     el.addEventListener('click', closeFeedbackModal)

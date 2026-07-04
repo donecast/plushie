@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=134" />
+  <link rel="stylesheet" href="./styles.css?v=135" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -559,6 +559,33 @@
     </div>
   </div>
 
+  <!-- List an item for trade: quantity + REAL proof photos (1–5 required).
+       Uploads are fingerprinted against the catalog stock image and rejected
+       on a match, so an offering always shows the actual physical plush. -->
+  <div id="trade-list-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-tradelist></div>
+    <div class="modal-card">
+      <button class="modal-close" data-close-tradelist aria-label="Close">×</button>
+      <h2 id="tl-title">Offer for trade</h2>
+      <p id="tl-name" class="modal-name"></p>
+      <label class="field">
+        <span>How many to offer</span>
+        <input type="number" id="tl-qty" min="1" step="1" inputmode="numeric" />
+      </label>
+      <div class="field">
+        <span>Real photos <span class="dim">— up to 5 actual pics of your plush, not the stock image</span></span>
+        <div id="tl-photos" class="tl-photo-grid"></div>
+        <input type="file" id="tl-photo-input" accept="image/*" capture="environment" multiple hidden />
+        <button type="button" class="btn-ghost" id="tl-add-photo">📷 Add photo</button>
+      </div>
+      <p id="tl-error" class="auth-error hidden"></p>
+      <div class="form-actions">
+        <button type="button" class="btn-ghost" data-close-tradelist>Cancel</button>
+        <button type="button" class="btn-primary" id="tl-save">List for trade</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Feedback prompt: three structured thumbs + optional comment.
        Submit unlocks once all three categories are rated. -->
   <div id="feedback-modal" class="modal hidden" role="dialog" aria-modal="true">
@@ -1024,6 +1051,7 @@
             <h3 class="changelog-date">July 4, 2026</h3>
             <ul>
               <li><strong>Your Top 8 Buns, your own photos.</strong> When you pick your Top 8, they now show <strong>your</strong> photo of each bun if you have one — not the shared store picture. Tap the little 📷 on any bun in the picker to snap or upload your own shot; the store picture still fills in for buns you haven't photographed. Adding a photo here also fills in that plush's collection photo if it didn't have one yet.</li>
+              <li><strong>Real photos required to trade.</strong> When you list a plush for trade you now add up to <strong>five actual photos of your own item</strong> — the stock catalog picture won't cut it (we'll spot it and ask for a real one). Those photos show on your offering and right inside the trade, so whoever you're dealing with can see the genuine thing before they accept. No more "do you even have this?"</li>
               <li class="changelog-fixes">Misc bug fixes.</li>
             </ul>
           </div>
@@ -1686,18 +1714,18 @@
   <script src="./config.js?v=53"></script>
   <script src="./auth.js?v=62"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=91"></script>
+  <script src="./data.js?v=92"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=170"></script>
-  <script src="./app-catalog.js?v=170"></script>
-  <script src="./app-collection.js?v=170"></script>
-  <script src="./app-ui.js?v=170"></script>
-  <script src="./app-trade.js?v=170"></script>
-  <script src="./app-account.js?v=170"></script>
-  <script src="./app-admin.js?v=170"></script>
-  <script src="./app-admin-catalog.js?v=170"></script>
-  <script src="./app-social.js?v=170"></script>
+  <script src="./app-core.js?v=171"></script>
+  <script src="./app-catalog.js?v=171"></script>
+  <script src="./app-collection.js?v=171"></script>
+  <script src="./app-ui.js?v=171"></script>
+  <script src="./app-trade.js?v=171"></script>
+  <script src="./app-account.js?v=171"></script>
+  <script src="./app-admin.js?v=171"></script>
+  <script src="./app-admin-catalog.js?v=171"></script>
+  <script src="./app-social.js?v=171"></script>
 </body>
 </html>
