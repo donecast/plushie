@@ -506,6 +506,9 @@ data.listMyTradeItems = async function () {
   await Promise.all(items.map(async (it) => {
     if (it.photoPath) it.photo = await data.photoUrl(it.photoPath);
   }));
+  // Overlay the real-photo gallery — for offerings this replaces the cover
+  // with the first proof photo and exposes it.photos for the manage UI.
+  await data._attachTradeItemPhotos(items);
   return items;
 };
 
@@ -538,9 +541,72 @@ data.updateTradeItem = async function (id, patch) {
   const row = {};
   if ('quantity' in patch) row.quantity = patch.quantity;
   if ('notes' in patch) row.notes = patch.notes;
+  if ('photoSocialPath' in patch) row.photo_social_path = patch.photoSocialPath;
   row.updated_at = new Date().toISOString();
   const { error } = await sb.from('trade_items').update(row).eq('id', id);
   if (error) throw error;
+};
+
+// ─── Trade proof photos (real-photo gallery, migration 0074) ─────────
+// Insert one row per photo, positioned after any that already exist.
+data.addTradeItemPhotos = async function (tradeItemId, socialPaths, startPos = 0) {
+  const paths = (socialPaths || []).filter(Boolean);
+  if (!paths.length) return;
+  const rows = paths.map((p, i) => ({
+    trade_item_id: tradeItemId,
+    social_path: p,
+    position: startPos + i,
+  }));
+  const { error } = await sb.from('trade_item_photos').insert(rows);
+  if (error) throw error;
+};
+
+data.deleteTradeItemPhoto = async function (id) {
+  const { error } = await sb.from('trade_item_photos').delete().eq('id', id);
+  if (error) throw error;
+};
+
+// Batch-fetch gallery rows for a set of trade item ids → Map(itemId → rows[]),
+// each rows[] ordered by position. Degrades to an empty Map if migration 0074
+// hasn't been applied yet, so trades still render (just without proof photos).
+data.listTradeItemPhotos = async function (itemIds) {
+  const ids = [...new Set((itemIds || []).filter(Boolean))];
+  if (!ids.length) return new Map();
+  const { data: rows, error } = await sb
+    .from('trade_item_photos')
+    .select('id, trade_item_id, social_path, position')
+    .in('trade_item_id', ids)
+    .order('position', { ascending: true });
+  if (error) {
+    if (error.code === '42P01' || /trade_item_photos.*does not exist/i.test(error.message || '')) {
+      console.warn('[listTradeItemPhotos] table missing — apply migration 0074');
+      return new Map();
+    }
+    throw error;
+  }
+  const byItem = new Map();
+  for (const r of rows) {
+    if (!byItem.has(r.trade_item_id)) byItem.set(r.trade_item_id, []);
+    byItem.get(r.trade_item_id).push(r);
+  }
+  return byItem;
+};
+
+// Attach a resolved `.photos` array ([{id, socialPath, url}]) to each trade
+// item object, and promote the first real photo to the card cover. Shared by
+// listMyTradeItems and browseOfferings.
+data._attachTradeItemPhotos = async function (items) {
+  const byItem = await data.listTradeItemPhotos(items.map((i) => i.id));
+  await Promise.all(items.map(async (it) => {
+    const rows = byItem.get(it.id) || [];
+    it.photos = await Promise.all(rows.map(async (r) => ({
+      id: r.id,
+      socialPath: r.social_path,
+      url: await data.socialPhotoUrl(r.social_path),
+    })));
+    if (it.photos.length) it.photo = it.photos[0].url;
+  }));
+  return items;
 };
 
 data.deleteTradeItem = async function (id) {
@@ -598,6 +664,8 @@ data.browseOfferings = async function () {
   await Promise.all(items.map(async (it) => {
     if (it.photoSocialPath) it.photo = await data.socialPhotoUrl(it.photoSocialPath);
   }));
+  // Overlay the real-photo gallery so Browse cards can show every proof shot.
+  await data._attachTradeItemPhotos(items);
   return items;
 };
 
@@ -684,6 +752,32 @@ data.listTrades = async function () {
     }
   }
   await Promise.all([...photos].map((p) => data.photoUrl(p)));
+
+  // Attach each line item's real-photo gallery (public 'social' bucket) so the
+  // trade card can show proof shots for both "you give" and "you get" — the
+  // owner's photo_path above is collection-scoped and unreadable cross-user.
+  const liIds = new Set();
+  for (const t of rows) {
+    for (const li of (t.trade_line_items || [])) {
+      if (li.trade_item?.id) liIds.add(li.trade_item.id);
+    }
+  }
+  if (liIds.size) {
+    const byItem = await data.listTradeItemPhotos([...liIds]);
+    const urlCache = new Map();
+    const urlFor = async (p) => {
+      if (!urlCache.has(p)) urlCache.set(p, await data.socialPhotoUrl(p));
+      return urlCache.get(p);
+    };
+    for (const t of rows) {
+      for (const li of (t.trade_line_items || [])) {
+        const ti = li.trade_item;
+        if (!ti) continue;
+        const gal = byItem.get(ti.id) || [];
+        ti.photos = await Promise.all(gal.map((r) => urlFor(r.social_path)));
+      }
+    }
+  }
   return rows;
 };
 
