@@ -660,6 +660,7 @@ function closeSocialModal() {
   hideEl('social-modal');
   document.getElementById('social-modal-card').innerHTML = '';
   state.socComposePhoto = null;
+  state.top8PhotoBlobs = null;
 }
 
 // ─── Confirm dialog ─────────────────────────────────────────────────
@@ -940,6 +941,8 @@ async function submitEditProfile(e) {
 function openTop8Picker() {
   const existing = state.socProfile?.top8 || state._myTop8 || [];
   const current = existing.map((t) => t.plushName);
+  // Fresh per-bun uploads staged this session, keyed by plush name.
+  state.top8PhotoBlobs = {};
   // Default the "keep Tom" toggle to whether he's currently in the list,
   // so once excommunicated he stays gone across re-opens (no migration —
   // his presence in top_plushes IS the stored preference).
@@ -954,21 +957,31 @@ function openTop8Picker() {
   }).map((p) => {
     const name = p.nickname || p.name;
     const picked = current.includes(name);
-    const img = p.photo || catalogImageFor(p.catalogId);
+    // If this bun is already in the saved Top 8, keep whatever photo it stored
+    // (a prior collection copy, or a bespoke upload) so re-saving keeps it and
+    // its preview shows the real Top 8 image.
+    const existingT = existing.find((t) => t.plushName === name);
+    const img = existingT?.photoUrl || p.photo || catalogImageFor(p.catalogId);
     return `
-      <button type="button" class="soc-pick ${picked ? 'picked' : ''}"
-        data-soc-pick data-name="${escapeHtml(name)}"
-        data-catalog="${escapeHtml(p.catalogId || '')}"
-        data-photo="${escapeHtml(p.photoPath || '')}">
-        <div class="soc-pick-photo">${img ? `<img src="${escapeHtml(img)}" loading="lazy" alt="" />` : '<span class="no-photo">🖤</span>'}</div>
-        <span class="soc-pick-name">${escapeHtml(name)}</span>
-        <span class="soc-pick-rank"></span>
-      </button>`;
+      <div class="soc-pick-cell">
+        <button type="button" class="soc-pick ${picked ? 'picked' : ''}"
+          data-soc-pick data-name="${escapeHtml(name)}"
+          data-catalog="${escapeHtml(p.catalogId || '')}"
+          data-item-id="${escapeHtml(p.id || '')}"
+          data-photo="${escapeHtml(p.photoPath || '')}"
+          data-existing="${escapeHtml(existingT?.photoPath || '')}">
+          <div class="soc-pick-photo">${img ? `<img src="${escapeHtml(img)}" loading="lazy" alt="" />` : '<span class="no-photo">🖤</span>'}</div>
+          <span class="soc-pick-name">${escapeHtml(name)}</span>
+          <span class="soc-pick-rank"></span>
+        </button>
+        <button type="button" class="soc-pick-cam" data-soc-cam aria-label="Use your own photo of ${escapeHtml(name)}" title="Use your own photo">📷</button>
+        <input type="file" class="soc-pick-file" accept="image/*" hidden />
+      </div>`;
   }).join('');
   openSocialModal(`
     <button class="modal-close" data-close-social aria-label="Close">×</button>
     <h2>Pick your Top 8 Buns</h2>
-    <p class="soc-help">Tap up to 8 plushes from your collection. Tap again to remove. Order = pick order. Tom tags along until you've picked a full 8. 🐰</p>
+    <p class="soc-help">Tap up to 8 plushes from your collection. Tap again to remove. Order = pick order. Tap 📷 to use your own photo of a bun (otherwise the store picture shows). Tom tags along until you've picked a full 8. 🐰</p>
     <div class="soc-pick-grid">${items || '<p class="empty-note">Your collection is empty — add some plushes first.</p>'}</div>
     <label class="checkbox soc-keep-tom">
       <input type="checkbox" id="soc-keep-tom" ${tomPresent ? 'checked' : ''} />
@@ -989,11 +1002,29 @@ function refreshTop8Ranks() {
 async function saveTop8() {
   const picked = [...document.querySelectorAll('.soc-pick.picked')];
   if (picked.length > 8) { toast('Pick at most 8.'); return; }
-  const entries = picked.map((b) => ({
-    plushName: b.dataset.name,
-    catalogId: b.dataset.catalog || null,
-    photoPath: b.dataset.photo || null,
-  }));
+  const blobs = state.top8PhotoBlobs || {};
+  const entries = [];
+  for (const b of picked) {
+    const name = b.dataset.name;
+    const entry = { plushName: name, catalogId: b.dataset.catalog || null };
+    const blob = blobs[name];
+    if (blob) {
+      // They uploaded their own photo for this bun. If the matching collection
+      // item has no photo yet, fill it in too — one photo, reused everywhere
+      // (we never overwrite an existing collection photo).
+      const item = state.collection.find((p) => b.dataset.itemId && p.id === b.dataset.itemId);
+      if (item && !item.photoPath) {
+        try { await data.put('collection', { ...item, photo: blob }); }
+        catch (err) { console.warn('top8 collection enrich failed', err); }
+      }
+      entry.socialBlob = blob;
+    } else if (b.dataset.existing) {
+      entry.socialPath = b.dataset.existing;   // keep the photo already stored
+    } else if (b.dataset.photo) {
+      entry.photoPath = b.dataset.photo;       // copy their collection photo in
+    }
+    entries.push(entry);
+  }
   const keepTom = document.getElementById('soc-keep-tom')?.checked ?? true;
   try {
     await data.setTopPlushes(entries, { keepTom });
@@ -1190,6 +1221,24 @@ function wireSocialEvents() {
         const label = document.getElementById(e.target.id + '-name');
         if (label) label.textContent = '✓ ' + file.name;
       } catch (err) { console.warn('compress', err); toast('Could not read that image.'); }
+    } else if (e.target.classList.contains('soc-pick-file')) {
+      // A per-bun Top 8 photo upload.
+      const cell = e.target.closest('.soc-pick-cell');
+      const btn = cell?.querySelector('.soc-pick');
+      const file = e.target.files?.[0];
+      if (!file || !btn) return;
+      try {
+        const blob = await compressImage(file);
+        (state.top8PhotoBlobs ||= {})[btn.dataset.name] = blob;
+        // Show it right away, and treat uploading as picking this bun.
+        const photo = btn.querySelector('.soc-pick-photo');
+        if (photo) photo.innerHTML = `<img src="${URL.createObjectURL(blob)}" alt="" />`;
+        if (!btn.classList.contains('picked')
+            && document.querySelectorAll('.soc-pick.picked').length < 8) {
+          btn.classList.add('picked');
+          refreshTop8Ranks();
+        }
+      } catch (err) { console.warn('top8 pick photo', err); toast('Could not read that image.'); }
     }
   });
 }
@@ -1212,6 +1261,12 @@ async function loadMyProfileCache() {
 
 function onSocialModalClick(e) {
   if (e.target.closest('[data-close-social]')) { closeSocialModal(); return; }
+  const cam = e.target.closest('[data-soc-cam]');
+  if (cam) {
+    // Open the hidden file input paired with this bun's tile.
+    cam.parentElement.querySelector('.soc-pick-file')?.click();
+    return;
+  }
   const pick = e.target.closest('[data-soc-pick]');
   if (pick) {
     const isPicked = pick.classList.contains('picked');
