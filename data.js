@@ -724,7 +724,7 @@ data.listTrades = async function () {
       *,
       trade_line_items (
         side, quantity,
-        trade_item:trade_items (id, name, photo_path, catalog_id, owner_id)
+        trade_item:trade_items (id, name, photo_path, catalog_id, owner_id, kind)
       )
     `)
     .or(`proposer_id.eq.${uid},recipient_id.eq.${uid}`)
@@ -1007,7 +1007,7 @@ data.adminListDisputes = async function () {
     .select(`*,
       trade_line_items (
         side, quantity,
-        trade_item:trade_items (id, name, photo_path, catalog_id, owner_id)
+        trade_item:trade_items (id, name, photo_path, catalog_id, owner_id, kind)
       )
     `)
     .eq('dispute_open', true)
