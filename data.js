@@ -3063,18 +3063,32 @@ data._hydratePosts = async function (rows) {
   const postIds = rows.map((r) => r.id);
 
   const [{ data: likes }, { data: comments }] = await Promise.all([
-    sb.from('post_likes').select('post_id, user_id').in('post_id', postIds),
+    // emoji may not exist pre-0076; select('*') so the query doesn't error on
+    // older schemas (a missing emoji falls back to 🖤, the legacy heart-like).
+    sb.from('post_likes').select('*').in('post_id', postIds),
     // parent_comment_id may not exist pre-0032; select('*') so the query
     // doesn't error on older schemas.
     sb.from('post_comments').select('*').in('post_id', postIds).order('created_at', { ascending: true }),
   ]);
 
+  // Posts carry the same Facebook-style emoji reactions as comments (0076). The
+  // (post_id, user_id) PK means one reaction per user, so this aggregates into
+  // the same {emoji, count, mine}[] shape renderPostCard shares with comments.
   const likeCount = new Map();
-  const likedByMe = new Set();
+  const reactByPost = new Map();
   for (const l of (likes || [])) {
+    const emoji = l.emoji || '🖤';
     likeCount.set(l.post_id, (likeCount.get(l.post_id) || 0) + 1);
-    if (l.user_id === uid) likedByMe.add(l.post_id);
+    if (!reactByPost.has(l.post_id)) reactByPost.set(l.post_id, new Map());
+    const m = reactByPost.get(l.post_id);
+    const cur = m.get(emoji) || { count: 0, mine: false };
+    cur.count++; if (l.user_id === uid) cur.mine = true;
+    m.set(emoji, cur);
   }
+  const postReactionsFor = (pid) => {
+    const m = reactByPost.get(pid);
+    return m ? [...m.entries()].map(([emoji, v]) => ({ emoji, count: v.count, mine: v.mine })) : [];
+  };
   const commentsByPost = new Map();
   for (const c of (comments || [])) {
     if (!commentsByPost.has(c.post_id)) commentsByPost.set(c.post_id, []);
@@ -3150,7 +3164,7 @@ data._hydratePosts = async function (rows) {
     edited: r.updated_at ? (+new Date(r.updated_at) - +new Date(r.created_at) > 5000) : false,
     mine: r.author_id === uid,
     likeCount: likeCount.get(r.id) || 0,
-    likedByMe: likedByMe.has(r.id),
+    reactions: postReactionsFor(r.id),
     comments: buildThread(commentsByPost.get(r.id) || [], r.author_id),
     commentCount: (commentsByPost.get(r.id) || []).length,
   })));
@@ -3190,12 +3204,18 @@ data.listUserPosts = async function (userId, limit = 40) {
   return await data._hydratePosts(rows);
 };
 
-data.toggleLike = async function (postId, on) {
+// React to a post with an emoji, or remove my reaction (on=false). One row per
+// user per post (PK post_id,user_id), so a *swap* upserts on that conflict —
+// an UPDATE, which doesn't re-fire the after-insert push trigger (0042/0076).
+data.reactPost = async function (postId, emoji, on) {
+  const uid = window.currentUser.id;
   if (on) {
-    const { error } = await sb.from('post_likes').upsert({ post_id: postId, user_id: window.currentUser.id });
+    const { error } = await sb.from('post_likes')
+      .upsert({ post_id: postId, user_id: uid, emoji }, { onConflict: 'post_id,user_id' });
     if (error) throw error;
   } else {
-    const { error } = await sb.from('post_likes').delete().eq('post_id', postId).eq('user_id', window.currentUser.id);
+    const { error } = await sb.from('post_likes')
+      .delete().eq('post_id', postId).eq('user_id', uid);
     if (error) throw error;
   }
 };
