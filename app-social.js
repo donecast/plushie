@@ -342,6 +342,14 @@ function renderPostCard(p) {
   const expanded = state.socExpandedComments.has(p.id);
   const { commentCount, shownComments, moreCount } = postCommentSummary(p);
 
+  // Posts share the comment reaction palette (item: parity with replies). My
+  // current reaction (mutually exclusive), the total, and the picker options.
+  const myReact = (p.reactions || []).find((r) => r.mine)?.emoji || null;
+  const totalReacts = (p.reactions || []).reduce((n, r) => n + r.count, 0);
+  const palette = SOC_REACTIONS.map((r) =>
+    `<button class="soc-react-opt ${myReact === r.emoji ? 'chosen' : ''}" data-soc-action="react-post" data-post-id="${p.id}" data-emoji="${r.emoji}" title="${r.label}" aria-label="${r.label}">${r.emoji}</button>`).join('');
+  const likeTitle = myReact ? (SOC_REACTION_LABEL[myReact] || 'Reaction') : 'Like';
+
   return `
   <article class="soc-post" data-post-id="${p.id}">
     <header class="soc-post-head">
@@ -356,9 +364,12 @@ function renderPostCard(p) {
     ${p.body ? `<p class="soc-post-body">${linkifyMentions(p.body)}</p>` : ''}
     ${img ? `<div class="soc-post-photo"><img src="${escapeHtml(img)}" loading="lazy" alt="" /></div>` : ''}
     <div class="soc-post-actions">
-      <button class="soc-like ${p.likedByMe ? 'liked' : ''}" data-soc-action="toggle-like" data-post-id="${p.id}">
-        ${p.likedByMe ? '🖤' : '🤍'} <span>${p.likeCount || ''}</span>
-      </button>
+      <span class="soc-react-wrap">
+        <button class="soc-like ${myReact ? 'liked' : ''}" data-soc-action="toggle-react-palette" data-palette-id="${p.id}" title="${likeTitle}" aria-label="${likeTitle}">
+          ${myReact || '🤍'} <span>${totalReacts || ''}</span>
+        </button>
+        <span class="soc-react-palette" data-react-palette="${p.id}">${palette}</span>
+      </span>
       <button class="soc-comment-btn" data-soc-action="toggle-comments" data-post-id="${p.id}">
         💬 <span>${commentCount || ''}</span>
       </button>
@@ -1321,7 +1332,7 @@ async function onSocialClick(e) {
     case 'hide-post': onHidePost(postId); break;
     case 'hide-comment': onHideComment(target.dataset.commentId); break;
 
-    case 'toggle-like': await onToggleLike(postId, target); break;
+    case 'react-post': await onReactPost(target.dataset.postId, target.dataset.emoji); break;
     case 'toggle-comments': onToggleComments(postId); break;
     case 'edit-post': openPostEditor(postId); break;
     case 'delete-post': await onDeletePost(postId); break;
@@ -1338,7 +1349,8 @@ async function onSocialClick(e) {
     case 'react-comment': await onReactComment(target.dataset.commentId, target.dataset.emoji); break;
     case 'toggle-react-comment': await onToggleCommentReaction(target.dataset.commentId); break;
     case 'toggle-react-palette': {
-      const pal = document.querySelector(`[data-react-palette="${target.dataset.commentId}"]`);
+      // Keyed by comment id on replies, post id on posts — same picker markup.
+      const pal = document.querySelector(`[data-react-palette="${target.dataset.paletteId || target.dataset.commentId}"]`);
       // Only one picker open at a time.
       document.querySelectorAll('.soc-react-palette.open').forEach((p) => { if (p !== pal) p.classList.remove('open'); });
       if (pal) pal.classList.toggle('open');
@@ -1476,16 +1488,17 @@ async function socFriendAction(fn, okMsg) {
   }
 }
 
-async function onToggleLike(postId, btn) {
+// Pick a reaction on a post. Mutually exclusive per user (same as comments):
+// tapping the one you already have removes it; a different one swaps it. The
+// (post_id, user_id) PK means the swap is a single upsert (see data.reactPost).
+async function onReactPost(postId, emoji) {
   const post = findFeedPost(postId);
-  if (!post) return;
-  const newState = !post.likedByMe;
-  // Optimistic update.
-  post.likedByMe = newState;
-  post.likeCount += newState ? 1 : -1;
-  rerenderSocialCurrent();
-  try { await data.toggleLike(postId, newState); }
-  catch (e) { console.error('like', e); toast('Could not update like.'); await loadSocialData(); rerenderSocialCurrent(); }
+  const mineEmoji = post && (post.reactions || []).find((r) => r.mine)?.emoji;
+  try {
+    if (mineEmoji === emoji) await data.reactPost(postId, emoji, false);
+    else await data.reactPost(postId, emoji, true);
+    await refreshAfterReaction();
+  } catch (e) { reactionError(e); }
 }
 
 function onToggleComments(postId) {
