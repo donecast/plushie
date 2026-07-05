@@ -352,10 +352,16 @@ function catalogImageFor(catalogId) {
 }
 
 // A horizontal strip of tappable real-photo thumbnails (zoom on tap). Returns
-// '' when the item has no proof gallery (grandfathered / seeking).
+// '' when a seeking item has no gallery (you don't own it, so none is expected).
+// An OFFERING with no photos yet — grandfathered from before we required them —
+// shows a "picture soon" placeholder so it reads as "proof pending", not "trust me".
 function renderProofStrip(it) {
   const photos = it.photos || [];
-  if (!photos.length) return '';
+  if (!photos.length) {
+    if (it.kind !== 'offering') return '';
+    return `<div class="trade-proof-strip trade-proof-pending" title="The owner hasn't added real photos yet">`
+      + `<span class="trade-proof-soon">📷 picture soon</span></div>`;
+  }
   const name = stripOutfitWord(it.name || 'item');
   const thumbs = photos.map((p) => {
     const url = p.url || p;   // gallery objects on offerings, plain urls on line items
@@ -385,7 +391,7 @@ function renderOfferingCard(it) {
       <div class="trade-offer-body">
         <h3 class="trade-offer-name">${escapeHtml(stripOutfitWord(it.name))}</h3>
         <ul class="trade-offer-facts">${facts.join('')}</ul>
-        ${renderProofStrip(it)}
+        ${renderProofStrip({ ...it, kind: 'offering' })}
       </div>
       <button class="btn-primary trade-offer-cta" data-action="quick-trade" data-uid="${it.ownerId}" data-item-id="${it.id}">I'll trade for this</button>
     </li>
@@ -499,7 +505,7 @@ function renderTradeRow(t, uid) {
     // Proof photos travel on the line item's trade_item (attached in
     // data.listTrades). Show them right under the line so you can eyeball the
     // real thing before Accept — tap any thumb to zoom.
-    const proof = renderProofStrip({ name: ti.name, photos: ti.photos });
+    const proof = renderProofStrip({ name: ti.name, photos: ti.photos, kind: ti.kind });
     return `<li>${l.quantity}× ${escapeHtml(ti.name ?? 'item')}${proof}</li>`;
   }).join('');
 

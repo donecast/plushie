@@ -2177,6 +2177,15 @@ body.cl-insider .changelog-gated strong { color: #2f6fed; }
 }
 /* Proof thumbs sit inside the give/get <li> lists on a trade card. */
 .trade-lines li .trade-proof-strip { margin: 4px 0 8px; }
+/* "Picture soon" placeholder for offerings that predate the real-photo rule. */
+.trade-proof-soon {
+  display: inline-flex; align-items: center; gap: 4px;
+  min-height: 40px; padding: 0 10px;
+  font-family: var(--sans); font-size: 0.66rem; font-weight: 700;
+  letter-spacing: 0.02em; color: var(--ink-dim);
+  border: 1px dashed var(--gold-edge); border-radius: 7px;
+  background: var(--blush);
+}
 
 /* ─── Trade-list modal photo picker ──────────────────────────────── */
 .tl-photo-grid {
