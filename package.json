@@ -4,9 +4,16 @@
   "private": true,
   "description": "The Plush Crypt — a gothic-cute PWA for tracking a Plushie Dreadfuls collection. This package.json exists only for the dev-time test suite; the shipped app stays a no-build static site.",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "build:www": "bash scripts/build-www.sh",
+    "cap:sync": "npm run build:www && cap sync"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.4.1",
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/push-notifications": "^8.1.1"
   }
 }

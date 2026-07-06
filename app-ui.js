@@ -1215,6 +1215,7 @@ function wireEvents() {
       state.railDetailId = null;   // leaving the tab closes any rail master-detail
       state.railCatalogId = null;
       state.tab = t.dataset.tab;
+      data.track?.('tab_view', { tab: state.tab });   // feature-engagement signal (db/0078)
       if (state.tab === 'trade') {
         state.tradeSubTab = 'browse';   // always land on Browse (item 21)
         await loadTradeData();          // refresh from server on enter

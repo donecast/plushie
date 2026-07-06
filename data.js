@@ -1544,6 +1544,57 @@ data.touchLastSeen = async function () {
   catch (err) { console.warn('touchLastSeen', err); }
 };
 
+// ─── First-party analytics (db/0078) ─────────────────────────────────
+// A thin, swappable seam — same spirit as fireLocalNotification: record
+// one append-only event per meaningful action so retention (DAU/WAU, D1/D7)
+// and feature engagement fall out of a SQL query, with zero third-party
+// SDK. Always fire-and-forget and non-blocking: analytics must never slow
+// down, block, or break a real user action. No-ops when signed out, when
+// sb is missing, or when the table isn't deployed yet (the insert just
+// fails and we swallow it). The eventual Capacitor wrap sets platform to
+// 'ios'/'android' and reuses this exact call and table.
+//
+// props is a tiny, non-PII bag (e.g. { tab: 'trade' }). Don't put names,
+// emails, or free text here — this is for counts, not surveillance.
+data._sessionId = null;
+data._sessionId_get = function () {
+  if (!data._sessionId) {
+    try { data._sessionId = crypto.randomUUID(); }
+    catch { data._sessionId = String(Date.now()); }
+  }
+  return data._sessionId;
+};
+
+data.track = function (event, props) {
+  const uid = window.currentUser?.id;
+  if (!uid || !window.sb || !event) return;
+  // Fire and forget: kick the insert off and return immediately. Any
+  // failure (offline, table not yet migrated, RLS) is swallowed — a
+  // missing metric must never surface to the user.
+  sb.from('analytics_events').insert({
+    user_id: uid,
+    event,
+    props: props || {},
+    platform: 'web',
+    session_id: data._sessionId_get(),
+  }).then(({ error }) => {
+    if (error) console.warn('[analytics] track failed', event, error.message);
+  }, (err) => console.warn('[analytics] track threw', event, err));
+};
+
+// Session open, deduped so a token refresh (which re-runs the boot
+// callback) doesn't inflate the count. One 'app_open' per ~30-minute
+// window per device is the unit we treat as a "visit" for retention.
+data.trackSession = function () {
+  const GATE_MS = 30 * 60 * 1000;
+  try {
+    const last = Number(localStorage.getItem('analytics_last_open') || 0);
+    if (Date.now() - last < GATE_MS) return;
+    localStorage.setItem('analytics_last_open', String(Date.now()));
+  } catch { /* storage blocked — fall through and still record the open */ }
+  data.track('app_open', {});
+};
+
 // Visibility-aware public name for any profile (null if hidden / unset).
 data.publicDisplayName = async function (userId) {
   try {
