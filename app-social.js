@@ -1783,6 +1783,8 @@ wireLegalModal();
 runAuthGate(() => {
   // Record this visit for the admin "last seen" column. Fire-and-forget.
   data.touchLastSeen?.();
+  // Retention instrument (db/0078): one deduped 'app_open' per visit.
+  data.trackSession?.();
   boot().catch((e) => {
     console.error(e);
     toast('Something went wrong loading the app.');

@@ -5,7 +5,7 @@ window.SUPABASE_KEY = 'sb_publishable_QHMgOMOWHLTPhjW5S07Ryg_WqfaY0aR';
 // changes in a way users should re-acknowledge. The auth gate compares
 // against consent_log and forces a re-accept screen if the user's most
 // recent row predates this version.
-window.TERMS_VERSION = '2026-06-10';
+window.TERMS_VERSION = '2026-07-06';
 
 // Cloudflare Worker that proxies plushiedreadfuls.com's Shopify CDN
 // images with CORS headers + Shopify ?width=N resizing. See

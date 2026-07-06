@@ -1037,7 +1037,8 @@
           <li><strong>Notifications:</strong> today these fire in your browser while the app is open. If we ship native apps, we'll store a device push token to deliver them.</li>
           <li><strong>Blocking &amp; reporting:</strong> you can block another collector — you'll be hidden from each other, any friendship is removed, and neither of you can friend or trade with the other. You can also report a post, comment, or collector to the admins. Reports are private (only you and the admins see them), and we never tell someone they've been blocked or reported.</li>
           <li><strong>Admins</strong> can read collection / wish list / trade data and remove social content for moderation. Currently the only admin is the site operator.</li>
-          <li><strong>Third parties:</strong> auth, database, and storage run on Supabase; magic-link emails send via our SMTP provider (Resend); image proxying, photo storage, and hosting run on Cloudflare; catalog data is fetched from plushiedreadfuls.com. We don't sell your data.</li>
+          <li><strong>Usage analytics:</strong> we record our own lightweight, first-party usage events — for example that the app was opened, or which tab you viewed — so we can see whether features are useful and worth building on. These are stored in our own database, are not tied to any third-party ad or tracking network, and set no advertising cookies. We keep them non-identifying (counts and which screens, not the content of your collection or messages), and only the operator can read them.</li>
+          <li><strong>Third parties:</strong> auth, database, and storage run on Supabase; magic-link emails send via our SMTP provider (Resend); image proxying, photo storage, and hosting run on Cloudflare; catalog data is fetched from plushiedreadfuls.com. We don't sell your data, and we don't use third-party advertising or analytics trackers.</li>
           <li><strong>Deletion:</strong> email <a href="mailto:support@plushcrypt.com">support@plushcrypt.com</a> from your account address and we'll wipe your rows and photos (backups age out afterward).</li>
         </ul>
       </section>
@@ -1722,21 +1723,21 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="./config.js?v=53"></script>
+  <script src="./config.js?v=54"></script>
   <script src="./auth.js?v=62"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=94"></script>
+  <script src="./data.js?v=95"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=175"></script>
-  <script src="./app-catalog.js?v=175"></script>
-  <script src="./app-collection.js?v=175"></script>
-  <script src="./app-ui.js?v=175"></script>
-  <script src="./app-trade.js?v=175"></script>
-  <script src="./app-account.js?v=175"></script>
-  <script src="./app-admin.js?v=175"></script>
-  <script src="./app-admin-catalog.js?v=175"></script>
-  <script src="./app-social.js?v=175"></script>
+  <script src="./app-core.js?v=176"></script>
+  <script src="./app-catalog.js?v=176"></script>
+  <script src="./app-collection.js?v=176"></script>
+  <script src="./app-ui.js?v=176"></script>
+  <script src="./app-trade.js?v=176"></script>
+  <script src="./app-account.js?v=176"></script>
+  <script src="./app-admin.js?v=176"></script>
+  <script src="./app-admin-catalog.js?v=176"></script>
+  <script src="./app-social.js?v=176"></script>
 </body>
 </html>
