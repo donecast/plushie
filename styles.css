@@ -4540,6 +4540,10 @@ body.maint-locked { overflow: hidden; }
   color: var(--ink-mute); line-height: 1.5; font-size: 0.9rem;
 }
 .soc-tier-name { font-weight: 700; color: var(--ink); }
+/* One-line descriptor under each grouped friend-tier heading. */
+.soc-tier-desc {
+  margin: -2px 0 8px; color: var(--ink-mute); font-size: 0.85rem; line-height: 1.4;
+}
 
 /* Profile */
 .soc-back { margin-bottom: 12px; display: inline-block; }
