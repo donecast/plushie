@@ -8,3 +8,13 @@ config.dev.js
 .env*
 !.env.example
 __pycache__/
+
+# Capacitor spike (throwaway wrap — see CAPACITOR_SPIKE.md). None of these
+# belong in the no-build repo: node_modules is the toolchain, www/ is a
+# regenerable filtered copy of the static app, and ios/android are
+# regenerable via `npx cap add`.
+node_modules/
+www/
+ios/
+android/
+.capacitor/
