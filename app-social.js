@@ -415,21 +415,15 @@ function renderFriends() {
         </div>`).join('')}
     </div>` : (state.socSearchQuery ? `<p class="empty-note">No collectors match "@${escapeHtml(state.socSearchQuery)}".</p>` : '');
 
-  const friends = state.socFriends.length ? `
-    <section class="soc-section">
-      <h2 class="soc-section-head">Your Coven · ${state.socFriends.length}</h2>
-      ${state.socFriends.map((f) => {
-        const tierTag = f.isCoffinBuddy
-          ? '<span class="soc-inner-tag">⚰️ Coffin Buddies</span>'
-          : (f.isInner ? '<span class="soc-inner-tag">🏰 Castle Crew</span>' : '');
-        return `
+  // One friend row (actions unchanged). The tier is conveyed by the section it
+  // sits under, so no inline chip is needed here.
+  const friendRow = (f) => `
         <div class="soc-friend-row">
           <div class="soc-friend-id">
             <button class="soc-userlink" data-soc-action="view-profile" data-uid="${f.userId}">
               ${socAvatar(f.avatarUrl, f.username)}
               <span>@${escapeHtml(f.username)}</span>
             </button>
-            ${tierTag}
           </div>
           <span class="soc-friend-actions">
             <button class="btn-ghost" data-soc-action="toggle-coffin" data-uid="${f.userId}" data-on="${f.isCoffinBuddy ? '0' : '1'}">
@@ -440,8 +434,26 @@ function renderFriends() {
             </button>
             <button class="btn-ghost" data-soc-action="remove-friend" data-uid="${f.userId}">🚫 Coven</button>
           </span>
-        </div>`; }).join('')}
-    </section>` : `<p class="empty-note">No friends in your Coven yet — search for a collector above.</p>`;
+        </div>`;
+
+  // Group friends by their highest tier so each level reads as its own roster.
+  // The tiers nest (Coffin Buddies ⊆ Castle Crew ⊆ Coven), so each person shows
+  // once, under the closest tier they belong to.
+  const tierSection = (list, head, desc) => list.length ? `
+    <section class="soc-section">
+      <h2 class="soc-section-head">${head} · ${list.length}</h2>
+      <p class="soc-tier-desc">${desc}</p>
+      ${list.map(friendRow).join('')}
+    </section>` : '';
+
+  const friends = state.socFriends.length ? `
+    ${tierSection(state.socFriends.filter((f) => f.isCoffinBuddy),
+      '⚰️ Your Coffin Buddies', 'The people you are REALLY close with — significant others, child/parent, maybe siblings.')}
+    ${tierSection(state.socFriends.filter((f) => f.isInner && !f.isCoffinBuddy),
+      '🏰 Your Castle Crew', 'People you are close with. Like “Close Friends” on Facebook.')}
+    ${tierSection(state.socFriends.filter((f) => !f.isInner),
+      '🦇 Your Coven', 'Friends you know casually. Like “Friends” on Facebook.')}
+    ` : `<p class="empty-note">No friends in your Coven yet — search for a collector above.</p>`;
 
   const tierHelp = `
     <details class="soc-tier-help">
