@@ -155,7 +155,15 @@ const data = {
       if (!error) return;
       const missing = /Could not find the '(\w+)' column/i.exec(error.message || '');
       if (missing && missing[1] in row) {
-        console.warn(`[data.put] missing column ${missing[1]}; retrying without it`);
+        // Loud, not silent. The save still proceeds without this column so the
+        // user isn't blocked mid-migration — but that field's VALUE is being
+        // dropped, which is real data loss if we let it pass with a bare warn.
+        // Surface it (console.error + an admin toast) so it's diagnosable — the
+        // same fail-loud stance as the read side (catalog overrides, #117).
+        console.error(`[data.put] column '${missing[1]}' missing from '${table}' — saving WITHOUT it; its value is being dropped. Apply the db/00NN migration that adds it.`);
+        if (typeof toast === 'function' && window.currentUser?.isAdmin) {
+          toast(`⚠️ Saved without '${missing[1]}' — that column's migration isn't applied yet. See console.`);
+        }
         delete row[missing[1]];
         continue;
       }
@@ -529,7 +537,13 @@ data.addTradeItem = async function ({ kind, catalogId, catalogHandle, name, phot
     if (!error) return data._tradeItemFromRow(row);
     const missing = /Could not find the '(\w+)' column/i.exec(error.message || '');
     if (missing && missing[1] in insert) {
-      console.warn(`[addTradeItem] missing column ${missing[1]}; retrying without it`);
+      // Loud, not silent — same stance as data.put above: still list so the
+      // user isn't blocked, but the dropped column's value is real data loss,
+      // so make it diagnosable rather than a bare warn.
+      console.error(`[addTradeItem] column '${missing[1]}' missing from 'trade_items' — listing WITHOUT it; its value is being dropped. Apply the db/00NN migration that adds it.`);
+      if (typeof toast === 'function' && window.currentUser?.isAdmin) {
+        toast(`⚠️ Listed without '${missing[1]}' — that column's migration isn't applied yet. See console.`);
+      }
       delete insert[missing[1]];
       continue;
     }
