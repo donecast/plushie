@@ -68,7 +68,34 @@ eventual wrap is painless:
   `ALWAYS_GRANTED_USERNAMES` allowlist). Pure refactors / infra / docs
   don't need an entry.
 
+## Core rules & working style
+- **Don't guess — verify the layer I actually see.** Never claim something works
+  or is fixed without proof from the running app (rendered UI, the DB row, the
+  served asset) — "the code looks right" is not proof. If you can't verify, say
+  "unverified — here's how to confirm." A confident wrong answer costs more than
+  an honest "not sure yet."
+- **After every edit, run the narrowest check that proves it** — load the
+  page/flow or exercise the code path. Don't edit-and-continue unverified.
+- **No fallbacks / no fake success.** If an external call (Supabase, R2) fails,
+  fail loudly — no silent defaults, stubs, or papering over the real cause.
+- **Never invent data.** Missing data shows `N/A` / "No data", never a fake `0`
+  presented as a real measurement.
+- **No prototypes or dummy data** — build real working features; if something
+  can't be done yet, say so rather than shipping something that looks like it works.
+- **Frontend completeness** — walk the actual user scenario; don't build a
+  feature with no UI path and call it done.
+- **Variables over hardcoding** almost always.
+- **Ask before "fixing" a rule that looks wrong** — there's usually a reason.
+- **When handing me a SQL script** to run in the Supabase editor, build in a
+  success message / confirmation query when possible.
+- **Memory:** save personal preferences/feedback proactively; for project-level
+  decisions or invariants, ask first ("Worth saving to memory? …").
+
 ## Branch & PR workflow
+- **On resume after I reply, run `pwd && git branch --show-current`** before
+  editing. If you're on `main` and about to make feature changes — stop, switch.
+- **When I confirm something works, commit and push it yourself** — don't ask me
+  to push for you.
 - **One task = one branch**, cut fresh from the latest `origin/main`
   (`git fetch origin && git switch -c <short-descriptive-name> origin/main`).
   Don't reuse or pin a branch across unrelated tasks.
