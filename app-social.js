@@ -137,6 +137,33 @@ function renderSocialLinks(links) {
   return chips.length ? `<div class="soc-links">${chips.join('')}</div>` : '';
 }
 
+// ─── Invite / share the app (item: growth) ──────────────────────────
+// Uses the native share sheet when available (mobile browsers today; a
+// Capacitor Share plugin later slots in behind the same call), falling back
+// to copying an invite to the clipboard. Points at the public site, NOT
+// location.origin — inside a native webview that is capacitor://localhost,
+// which is useless to hand to a friend.
+const PLUSHCRYPT_SHARE_URL = 'https://plushcrypt.com';
+async function shareApp() {
+  const url = PLUSHCRYPT_SHARE_URL;
+  const text = 'Come track your Plushie Dreadfuls collection with me on The Plush Crypt 🦇';
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'The Plush Crypt', text, url });
+      return;
+    } catch (e) {
+      // Sheet dismissed — done. Any other failure falls through to copy.
+      if (e && e.name === 'AbortError') return;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(`${text} ${url}`);
+    toast('Invite copied — paste it anywhere to spread the word! 🦇');
+  } catch (e) {
+    toast(`Share unavailable — visit ${url}`);
+  }
+}
+
 // ─── Top-level social render dispatch ───────────────────────────────
 // A profile overlay (state.socProfile) takes over the feed subview; the
 // sub-tabs otherwise map 1:1 to the three subviews. All visibility is
@@ -389,9 +416,12 @@ function renderPostCard(p) {
 // ─── Friends ────────────────────────────────────────────────────────
 function renderFriends() {
   const el = document.getElementById('soc-friends');
+  // Requests lead the tab (item: visibility) — a highlighted callout so a
+  // pending request is the first thing you see, not buried under search + help.
   const requests = state.socRequests.length ? `
-    <section class="soc-section">
-      <h2 class="soc-section-head">Friend requests</h2>
+    <section class="soc-section soc-requests-callout">
+      <h2 class="soc-section-head">🦇 Friend requests · ${state.socRequests.length}</h2>
+      <p class="soc-tier-desc">Collectors asking to join your Coven. Accept to follow each other.</p>
       ${state.socRequests.map((r) => `
         <div class="soc-friend-row">
           <button class="soc-userlink" data-soc-action="view-profile" data-uid="${r.userId}">
@@ -465,14 +495,23 @@ function renderFriends() {
       </ul>
     </details>`;
 
+  // Growth nudge: a light card to invite someone to the Crypt (item: sharing).
+  const spreadCard = `
+    <section class="soc-section soc-spread-card">
+      <h2 class="soc-section-head">📣 Spread the word</h2>
+      <p class="soc-tier-desc">Know a collector who'd love this? Send them to the Crypt.</p>
+      <button class="btn-primary" data-soc-action="share-app">🦇 Invite a friend</button>
+    </section>`;
+
   el.innerHTML = `
+    ${requests}
     <div class="soc-search">
       <input type="search" id="soc-search-input" placeholder="Find collectors by @username…" value="${escapeHtml(state.socSearchQuery)}" />
     </div>
     ${tierHelp}
     ${results}
-    ${requests}
-    ${friends}`;
+    ${friends}
+    ${spreadCard}`;
 }
 
 // ─── My profile tab ─────────────────────────────────────────────────
@@ -1328,6 +1367,7 @@ async function onSocialClick(e) {
   switch (a) {
     case 'open-compose': openComposer(); break;
     case 'go-friends': setSocSubTab('friends'); break;
+    case 'share-app': await shareApp(); break;
     case 'view-profile': await openProfile(uid); break;
     case 'close-profile': state.socProfile = null; renderSocial(); break;
     case 'edit-profile': closeSocialModal(); openAccountModal(); break;
