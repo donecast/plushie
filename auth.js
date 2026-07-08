@@ -254,9 +254,42 @@ async function runAuthGate(onReady) {
     document.body.classList.remove('locked');
   }
 
+  // The gate calls into the global `data` layer (data.js), which is a separate
+  // <script> that publishes `window.data` only once it has fully executed. On
+  // a flaky connection — or in the window right after a service-worker cache
+  // bump, when assets are being re-fetched — data.js can momentarily fail to
+  // load. If we dereference `data` before it exists we throw
+  // "Can't find variable: data", fall into the catch below, and dump the user
+  // back to the login screen — silently burning the one-time code they just
+  // used. So wait for `data` to appear before touching it. Returns false only
+  // if it never shows within the timeout (a genuine load failure, not a race).
+  async function waitForData(timeoutMs = 6000) {
+    const ready = () => !!(window.data && typeof window.data.getMyNameFields === 'function');
+    if (ready()) return true;
+    const start = Date.now();
+    return new Promise((resolve) => {
+      const t = setInterval(() => {
+        if (ready()) { clearInterval(t); resolve(true); }
+        else if (Date.now() - start > timeoutMs) { clearInterval(t); resolve(false); }
+      }, 100);
+    });
+  }
+
   async function evaluate() {
     show('loading');
     try {
+      // Don't proceed (and don't crash) until the data layer is loaded. If it
+      // never arrives, the session from a just-verified code still persists, so
+      // guide the user to reload rather than making them request a fresh code.
+      if (!(await waitForData())) {
+        show('login');
+        const msg = document.getElementById('auth-error');
+        if (msg) {
+          msg.textContent = 'Still loading — check your connection and reload the app. You won’t need a new code.';
+          msg.classList.remove('hidden');
+        }
+        return;
+      }
       const session = await auth.getSession();
       if (!session) {
         // Dev-only: try the password bypass before falling back to the
