@@ -541,14 +541,36 @@ async function serverPushDeliverable() {
 // reuses any existing browser subscription, upserts the row keyed on
 // (user, endpoint). Returns true if a subscription is registered.
 async function ensurePushSubscription() {
+  // TEMPORARY diagnostics (db/0078 analytics): push_subscriptions is empty in
+  // prod, so no device is registering for closed-app push and we can't see why
+  // from here. Record the exact bail point on each attempt so we can query
+  // analytics_events (event='push_debug') and pinpoint it, then remove this.
+  const dbg = (step, extra) => { try { data.track?.('push_debug', { step, ...(extra || {}) }); } catch (_) {} };
+
   // Any bail here means server push is NOT deliverable to this device, so we
   // clear the confirmed-registered flag — that's what keeps the local
   // fire-while-open notifications firing as the fallback (see
   // serverPushDeliverable). Only a clean upsert below sets it true.
-  if (!pushSupported()) { await idb.setMeta('push_registered', false); return false; }
-  if (Notification.permission !== 'granted') { await idb.setMeta('push_registered', false); return false; }
+  if (!pushSupported()) {
+    // Break out WHICH capability is missing (esp. PushManager on a non-installed
+    // iOS PWA, or an empty VAPID key) rather than a bare "unsupported".
+    dbg('unsupported', {
+      sw: 'serviceWorker' in navigator,
+      pushManager: 'PushManager' in window,
+      notification: 'Notification' in window,
+      vapid: !!window.VAPID_PUBLIC_KEY,
+      standalone: window.matchMedia?.('(display-mode: standalone)')?.matches ?? null,
+    });
+    await idb.setMeta('push_registered', false);
+    return false;
+  }
+  if (Notification.permission !== 'granted') {
+    dbg('not_granted', { perm: Notification.permission });
+    await idb.setMeta('push_registered', false);
+    return false;
+  }
   const uid = window.currentUser?.id;
-  if (!uid || !window.sb) return false;
+  if (!uid || !window.sb) { dbg('no_user', { hasUid: !!uid, hasSb: !!window.sb }); return false; }
   try {
     const reg = await navigator.serviceWorker.ready;
     let sub = await reg.pushManager.getSubscription();
@@ -571,15 +593,20 @@ async function ensurePushSubscription() {
     if (error) {
       // Upsert failed → server can't reach us. Leave local as the fallback.
       console.warn('push subscribe upsert failed', error.message);
+      dbg('upsert_error', { message: error.message, code: error.code });
       await idb.setMeta('push_registered', false);
       return false;
     }
     // Confirmed stored server-side: server push will deliver, so the local
     // fallbacks can now stand down.
+    dbg('ok', {});
     await idb.setMeta('push_registered', true);
     return true;
   } catch (e) {
+    // Most likely a pushManager.subscribe() rejection (bad key, iOS push
+    // service error, permission edge). Capture the error identity.
     console.warn('push subscribe failed', e);
+    dbg('exception', { name: e?.name || null, message: String(e?.message || e).slice(0, 200) });
     await idb.setMeta('push_registered', false);
     return false;
   }
