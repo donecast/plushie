@@ -216,6 +216,7 @@ function renderFeed() {
 const SOC_REACTIONS = [
   { emoji: '👍', label: 'Like' },
   { emoji: '🖤', label: 'Love' },
+  { emoji: '🤗', label: 'Care' },
   { emoji: '😂', label: 'Haha' },
   { emoji: '😮', label: 'Wow' },
   { emoji: '😢', label: 'Sad' },
