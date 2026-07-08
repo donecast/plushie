@@ -418,9 +418,10 @@ async function maybeFireTradeNotifications() {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (!(await idb.getMeta('notify_enabled'))) return;
   // Real push already covers every trade transition (offer/counter/accept/
-  // decline/ship). If this device is subscribed, stay quiet so we don't double
-  // up with an OS banner. Local stays as the fallback where push isn't set up.
-  if (await pushActive()) return;
+  // decline/ship). Stay quiet only when server push is CONFIRMED deliverable to
+  // this device, so we don't double up with an OS banner. If push isn't
+  // actually wired up (subscription never stored), local remains the fallback.
+  if (await serverPushDeliverable()) return;
   if (!Array.isArray(state.trades) || state.trades.length === 0) return;
 
   const seen = (await idb.getMeta('notified_trade_events')) || {};
@@ -522,12 +523,30 @@ async function pushActive() {
   }
 }
 
+// True only when server push is genuinely deliverable to THIS device: the
+// browser holds a live subscription AND we confirmed it landed in our
+// push_subscriptions table (so send-push can actually reach it). The local
+// fire-while-open fallbacks gate on THIS, not on pushActive() alone. The
+// difference matters: a browser subscription whose DB upsert silently failed
+// makes pushActive() true while the server has nothing to send to — which
+// would suppress the local fallback AND get no server push, leaving the user
+// with zero notifications. Gating on confirmed registration means we fall
+// back to local whenever server delivery isn't actually wired up.
+async function serverPushDeliverable() {
+  if (!(await pushActive())) return false;
+  return !!(await idb.getMeta('push_registered'));
+}
+
 // Ensure this device has a push subscription stored server-side. Idempotent:
 // reuses any existing browser subscription, upserts the row keyed on
 // (user, endpoint). Returns true if a subscription is registered.
 async function ensurePushSubscription() {
-  if (!pushSupported()) return false;
-  if (Notification.permission !== 'granted') return false;
+  // Any bail here means server push is NOT deliverable to this device, so we
+  // clear the confirmed-registered flag — that's what keeps the local
+  // fire-while-open notifications firing as the fallback (see
+  // serverPushDeliverable). Only a clean upsert below sets it true.
+  if (!pushSupported()) { await idb.setMeta('push_registered', false); return false; }
+  if (Notification.permission !== 'granted') { await idb.setMeta('push_registered', false); return false; }
   const uid = window.currentUser?.id;
   if (!uid || !window.sb) return false;
   try {
@@ -549,10 +568,19 @@ async function ensurePushSubscription() {
       user_agent: navigator.userAgent,
       last_seen_at: new Date().toISOString(),
     }, { onConflict: 'user_id,endpoint' });
-    if (error) { console.warn('push subscribe upsert failed', error.message); return false; }
+    if (error) {
+      // Upsert failed → server can't reach us. Leave local as the fallback.
+      console.warn('push subscribe upsert failed', error.message);
+      await idb.setMeta('push_registered', false);
+      return false;
+    }
+    // Confirmed stored server-side: server push will deliver, so the local
+    // fallbacks can now stand down.
+    await idb.setMeta('push_registered', true);
     return true;
   } catch (e) {
     console.warn('push subscribe failed', e);
+    await idb.setMeta('push_registered', false);
     return false;
   }
 }
@@ -560,6 +588,7 @@ async function ensurePushSubscription() {
 // Tear down this device's subscription when the user turns reminders off.
 async function disablePushSubscription() {
   if (!('serviceWorker' in navigator)) return;
+  await idb.setMeta('push_registered', false);
   try {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
@@ -600,9 +629,11 @@ window.sendSelfTestPush = sendSelfTestPush;
 async function maybeFireFriendNotifications() {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (!(await idb.getMeta('notify_enabled'))) return;
-  // Friend requests already arrive as real push; skip the local copy when this
-  // device is subscribed so you don't get two. Local remains the fallback.
-  if (await pushActive()) return;
+  // Friend requests already arrive as real push; skip the local copy only when
+  // server push is CONFIRMED deliverable to this device, so you don't get two.
+  // If push isn't actually wired up, local remains the fallback (otherwise a
+  // half-subscribed device gets neither).
+  if (await serverPushDeliverable()) return;
 
   const reqs = state.socRequests || [];
   const prev = await idb.getMeta('notified_friend_reqs');   // null on first run
@@ -619,60 +650,65 @@ async function maybeFireFriendNotifications() {
 }
 
 let _reminderInFlight = false;
+// Fire a notification ONLY when a wishlist plush actually comes back into
+// stock — the event people care about. This replaced the old daily "N items
+// still out of stock" nag, which fired every day just to say nothing had
+// changed. We track which wishlist items were out of stock last time we
+// looked; anything that was out then and is available now is a genuine
+// restock, so we announce it once. No time throttle: a restock is a one-off
+// transition, and the tracked set is what stops it repeating.
 async function maybeFireReminder() {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (!(await idb.getMeta('notify_enabled'))) return;
   // scheduleReminderCheck() runs on boot, after edits, and on toggle, so two
   // calls can overlap. This synchronous guard lets only one through at a time
-  // so concurrent calls can't each fire the same reminder.
+  // so concurrent calls can't each fire (or race the stored set).
   if (_reminderInFlight) return;
-  // Retirement is read from the live catalog (below), so a check that runs
-  // before the catalog has loaded would miss every cross-reference and nag on
-  // retired items. At boot this fires before loadCatalog() resolves, so bail
-  // until the catalog is in hand — the hourly interval (and the post-catalog
-  // boot call) re-runs it once it's loaded.
+  // Stock + retirement are read from the live catalog, so a check that runs
+  // before the catalog has loaded would see nothing. At boot this fires
+  // before loadCatalog() resolves, so bail until the catalog is in hand — the
+  // hourly interval (and the post-catalog boot call) re-runs it once loaded.
   if (!state.catalog || state.catalog.length === 0) return;
   _reminderInFlight = true;
   try {
-    // Out-of-stock wishlist items, minus retired ones — a retired plush is
-    // gone for good and will never restock, so "check on restock" is just
-    // noise. The wishlist row's own `retired` is always false (see data.js),
-    // so read retirement from the live catalog item, exactly like the card
-    // badges do (app-collection.js).
-    const oos = state.wishlist.filter((w) => {
-      if (!w.outOfStock) return false;
+    // Which wishlist items are OUT OF STOCK right now, keyed by catalog id.
+    // The live catalog is the source of truth (the wishlist row's own
+    // `outOfStock` is a snapshot from when it was added, so it goes stale).
+    // Retired plush are dropped entirely: they're gone for good and can't
+    // restock, so they'd otherwise sit in the tracked set forever. Items
+    // without a catalog match have no live stock signal, so we can't tell.
+    const oosNow = new Set();
+    for (const w of state.wishlist) {
       const liveCat = w.catalogId ? catalogForItem(w) : null;
-      return !(w.retired || (liveCat && liveCat.retired));
-    });
-    if (oos.length === 0) return;
-
-    const last = (await idb.getMeta('last_reminder')) || 0;
-    const dayMs = 24 * 60 * 60 * 1000;
-    if (Date.now() - last < dayMs) return;
-    // Claim the daily slot before showing, so the throttle is committed even
-    // if a second call slips past the in-flight guard between awaits.
-    await idb.setMeta('last_reminder', Date.now());
-
-    const title = '🦇 The Plush Crypt';
-    const body = oos.length === 1
-      ? `Check on restock: ${oos[0].name}`
-      : `${oos.length} out-of-stock wishlist items waiting…`;
-
-    try {
-      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-        const reg = await navigator.serviceWorker.ready;
-        reg.showNotification(title, {
-          body,
-          icon: 'icon-192.png',
-          badge: 'icon-192.png',
-          tag: 'restock-reminder',
-        });
-      } else {
-        new Notification(title, { body, icon: 'icon-192.png' });
-      }
-    } catch (e) {
-      console.warn('Notification failed', e);
+      if (!liveCat) continue;
+      if (w.retired || liveCat.retired) continue;
+      if (!liveCat.available) oosNow.add(w.catalogId);
     }
+
+    const prev = await idb.getMeta('oos_wishlist');   // array of catalogIds; null on first run
+    await idb.setMeta('oos_wishlist', [...oosNow]);
+    // First run after enabling (or after this feature ships): seed the set
+    // silently so a wishlist full of long-standing out-of-stock items doesn't
+    // all "restock" at once on the very first check.
+    if (prev === null) return;
+
+    // Restocked = was out of stock last time, is available now, still on the
+    // wishlist, not retired. Pull the name from the wishlist row / live
+    // catalog at report time.
+    const prevSet = new Set(prev);
+    const restocked = [];
+    for (const w of state.wishlist) {
+      if (!w.catalogId || !prevSet.has(w.catalogId) || oosNow.has(w.catalogId)) continue;
+      const liveCat = catalogForItem(w);
+      if (!liveCat || liveCat.retired || !liveCat.available) continue;
+      restocked.push(w.name || cleanCatalogName(liveCat.name));
+    }
+    if (restocked.length === 0) return;
+
+    const body = restocked.length === 1
+      ? `${restocked[0]} is back in stock! 🖤`
+      : `${restocked.length} wishlist plushes are back in stock 🖤`;
+    await fireLocalNotification('🦇 The Plush Crypt', body, 'restock-alert');
   } finally {
     _reminderInFlight = false;
   }
