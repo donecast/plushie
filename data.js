@@ -3085,7 +3085,7 @@ data.updateMyProfile = async function ({ bio, avatarBlob, socialLinks }) {
 };
 
 // ─── Posts ──────────────────────────────────────────────────────────
-data.createPost = async function ({ body, visibility, photoBlob, catalogId, plushName }) {
+data.createPost = async function ({ body, visibility, photoBlob, catalogId, plushName, poll }) {
   let photoPath = null;
   if (photoBlob instanceof Blob) photoPath = await data.uploadSocialPhoto(photoBlob);
   const { data: row, error } = await sb.from('posts').insert({
@@ -3096,6 +3096,68 @@ data.createPost = async function ({ body, visibility, photoBlob, catalogId, plus
     plush_name: plushName || null,
     visibility: visibility || 'public',
   }).select().single();
+  if (error) throw error;
+  // Optional attached poll (0079). The post body is the question (FB standard);
+  // here we persist the poll row + its options. Options with blank labels are
+  // dropped and duplicates (case-insensitive) collapsed.
+  if (poll && Array.isArray(poll.options)) {
+    const seen = new Set();
+    const options = [];
+    for (const raw of poll.options) {
+      const label = String(raw || '').trim();
+      if (!label) continue;
+      const key = label.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      options.push(label);
+    }
+    if (options.length >= 2) {
+      const { error: pe } = await sb.from('polls').insert({
+        post_id: row.id,
+        multi: !!poll.multi,
+        allow_add: !!poll.allowAdd,
+        closes_at: poll.closesAt || null,
+      });
+      if (pe) throw pe;
+      const { error: oe } = await sb.from('poll_options').insert(
+        options.map((label, i) => ({ post_id: row.id, label, position: i, added_by: window.currentUser.id }))
+      );
+      if (oe) throw oe;
+    }
+  }
+  return row;
+};
+
+// Vote on a poll option, or remove my vote (on=false). Single-choice polls keep
+// one vote per user: we delete my other votes on this post, then insert — the
+// same swap pattern reactPost uses. Multi-choice polls just toggle the one
+// (option_id, user_id) row. RLS rejects votes on a closed poll.
+data.votePoll = async function (postId, optionId, on, multi) {
+  const uid = window.currentUser.id;
+  if (on) {
+    if (!multi) {
+      const { error: de } = await sb.from('poll_votes')
+        .delete().eq('post_id', postId).eq('user_id', uid);
+      if (de) throw de;
+    }
+    const { error } = await sb.from('poll_votes')
+      .upsert({ option_id: optionId, post_id: postId, user_id: uid }, { onConflict: 'option_id,user_id' });
+    if (error) throw error;
+  } else {
+    const { error } = await sb.from('poll_votes')
+      .delete().eq('option_id', optionId).eq('user_id', uid);
+    if (error) throw error;
+  }
+};
+
+// Add an option to an existing poll (only works when the poll has allow_add, or
+// I'm the post author — enforced by RLS). Returns the new option row.
+data.addPollOption = async function (postId, label) {
+  const clean = String(label || '').trim();
+  if (!clean) throw new Error('Empty poll option');
+  const { data: row, error } = await sb.from('poll_options')
+    .insert({ post_id: postId, label: clean, position: 999, added_by: window.currentUser.id })
+    .select().single();
   if (error) throw error;
   return row;
 };
@@ -3181,6 +3243,67 @@ data._hydratePosts = async function (rows) {
     return m ? [...m.entries()].map(([emoji, v]) => ({ emoji, count: v.count, mine: v.mine })) : [];
   };
 
+  // Polls (0079) — best-effort so a pre-0079 client still works. A post has at
+  // most one poll; options + votes hang off post_id. Votes are anonymous in the
+  // product, so we only keep tallies, my own picks, and the distinct voter count
+  // (the denominator for each option's % — matches how Facebook shows multi-
+  // select polls, where one option can reach 100% of voters).
+  const pollByPost = new Map();
+  const optionsByPost = new Map();
+  const votesByOption = new Map();     // option_id -> vote count
+  const myVoteOptions = new Set();     // option_ids I voted for
+  const voterCountByPost = new Map();  // post_id -> distinct voter count
+  try {
+    const [{ data: polls }, { data: options }] = await Promise.all([
+      sb.from('polls').select('*').in('post_id', postIds),
+      sb.from('poll_options').select('*').in('post_id', postIds).order('position', { ascending: true }),
+    ]);
+    for (const pl of (polls || [])) pollByPost.set(pl.post_id, pl);
+    for (const o of (options || [])) {
+      if (!optionsByPost.has(o.post_id)) optionsByPost.set(o.post_id, []);
+      optionsByPost.get(o.post_id).push(o);
+    }
+    const optionIds = (options || []).map((o) => o.id);
+    if (optionIds.length) {
+      const { data: votes } = await sb.from('poll_votes')
+        .select('option_id, post_id, user_id').in('option_id', optionIds);
+      const votersByPost = new Map(); // post_id -> Set(user_id)
+      for (const v of (votes || [])) {
+        votesByOption.set(v.option_id, (votesByOption.get(v.option_id) || 0) + 1);
+        if (v.user_id === uid) myVoteOptions.add(v.option_id);
+        if (!votersByPost.has(v.post_id)) votersByPost.set(v.post_id, new Set());
+        votersByPost.get(v.post_id).add(v.user_id);
+      }
+      for (const [pid, set] of votersByPost) voterCountByPost.set(pid, set.size);
+    }
+  } catch (e) { console.warn('polls load', e); }
+  const pollFor = (pid) => {
+    const pl = pollByPost.get(pid);
+    if (!pl) return null;
+    const opts = optionsByPost.get(pid) || [];
+    const totalVoters = voterCountByPost.get(pid) || 0;
+    const closed = pl.closes_at ? (+new Date(pl.closes_at) <= Date.now()) : false;
+    return {
+      multi: !!pl.multi,
+      allowAdd: !!pl.allow_add,
+      closesAt: pl.closes_at || null,
+      closed,
+      totalVoters,
+      options: opts.map((o) => {
+        const count = votesByOption.get(o.id) || 0;
+        return {
+          id: o.id,
+          label: o.label,
+          count,
+          mine: myVoteOptions.has(o.id),
+          // % of voters (not votes) — sums to 100 for single-choice, and lets a
+          // single option reach 100% for multi-choice, as Facebook does.
+          pct: totalVoters ? Math.round((count / totalVoters) * 100) : 0,
+        };
+      }),
+    };
+  };
+
   // Resolve every author (posts + comment authors) in one batch.
   const ids = new Set(rows.map((r) => r.author_id));
   for (const c of (comments || [])) ids.add(c.author_id);
@@ -3230,6 +3353,7 @@ data._hydratePosts = async function (rows) {
     mine: r.author_id === uid,
     likeCount: likeCount.get(r.id) || 0,
     reactions: postReactionsFor(r.id),
+    poll: pollFor(r.id),
     comments: buildThread(commentsByPost.get(r.id) || [], r.author_id),
     commentCount: (commentsByPost.get(r.id) || []).length,
   })));

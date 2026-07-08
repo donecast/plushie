@@ -389,6 +389,7 @@ function renderPostCard(p) {
     </header>
     ${p.plushName ? `<p class="soc-post-plush">🧸 ${escapeHtml(p.plushName)}</p>` : ''}
     ${p.body ? `<p class="soc-post-body">${linkifyMentions(p.body)}</p>` : ''}
+    ${renderPoll(p)}
     ${img ? `<div class="soc-post-photo"><img src="${escapeHtml(img)}" loading="lazy" alt="" /></div>` : ''}
     <div class="soc-post-actions">
       <span class="soc-react-wrap">
@@ -411,6 +412,44 @@ function renderPostCard(p) {
         </form>` : ''}
     </div>
   </article>`;
+}
+
+// Render a post's attached poll (0079), or '' if there is none. Facebook-style:
+// the post body is the question; each option is a clickable result bar. Results
+// (counts + %) reveal once I've voted or the poll has closed. Percentages are of
+// voters, so a multi-select option can reach 100%. Votes are anonymous here — we
+// deliberately don't show who voted (a departure from Facebook, by design).
+function renderPoll(p) {
+  const poll = p.poll;
+  if (!poll) return '';
+  const closed = poll.closed;
+  const iVoted = poll.options.some((o) => o.mine);
+  const showResults = iVoted || closed;
+  const rows = poll.options.map((o) => {
+    const mark = poll.multi ? (o.mine ? '☑' : '☐') : (o.mine ? '◉' : '○');
+    const bar = showResults ? `<span class="soc-poll-bar" style="width:${o.pct}%"></span>` : '';
+    const tally = showResults ? `<span class="soc-poll-tally">${o.pct}% · ${o.count}</span>` : '';
+    return `<button class="soc-poll-opt-btn${o.mine ? ' chosen' : ''}" data-soc-action="vote-poll"
+      data-post-id="${p.id}" data-option-id="${o.id}" data-multi="${poll.multi ? 1 : 0}" data-on="${o.mine ? 0 : 1}"${closed ? ' disabled' : ''}>
+      ${bar}
+      <span class="soc-poll-opt-face"><span class="soc-poll-mark">${mark}</span><span class="soc-poll-label">${escapeHtml(o.label)}</span></span>
+      ${tally}
+    </button>`;
+  }).join('');
+  const addOption = (poll.allowAdd && !closed) ? `
+    <form class="soc-poll-addform" data-soc-action="add-poll-option" data-post-id="${p.id}">
+      <input type="text" class="soc-poll-addinput" maxlength="80" placeholder="Add an option…" />
+      <button type="submit" class="linklike">Add</button>
+    </form>` : '';
+  const meta = [`${poll.totalVoters} vote${poll.totalVoters === 1 ? '' : 's'}`];
+  if (poll.multi) meta.push('pick one or more');
+  if (closed) meta.push('Final results');
+  else if (poll.closesAt) meta.push(`Ends ${new Date(poll.closesAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`);
+  return `<div class="soc-poll">
+    <div class="soc-poll-list">${rows}</div>
+    ${addOption}
+    <div class="soc-poll-meta">${meta.join(' · ')}</div>
+  </div>`;
 }
 
 // ─── Friends ────────────────────────────────────────────────────────
@@ -810,6 +849,15 @@ function socKebab(menuId, items) {
     </span>`;
 }
 
+// One editable option row in the poll composer. `×` removes it (min 2 enforced
+// on click). Reused when the author taps "Add option".
+function pollOptionRow(value = '') {
+  return `<div class="soc-poll-opt-row">
+    <input type="text" class="soc-poll-opt" maxlength="80" placeholder="Option" value="${escapeHtml(value)}" />
+    <button type="button" class="soc-poll-opt-del" data-soc-action="poll-remove-option-row" aria-label="Remove option">×</button>
+  </div>`;
+}
+
 function openComposer() {
   state.socComposeVis = state.socComposeVis || 'public';
   state.socComposePhoto = null;
@@ -838,6 +886,23 @@ function openComposer() {
         <span id="soc-compose-photo-name" class="soc-file-name"></span>
       </label>` : `
       <p class="soc-help soc-stock-note">📷 Photo uploads are off for now — tag a plush above to share its picture.</p>`}
+      <div class="field soc-poll-compose">
+        <button type="button" class="btn-ghost soc-poll-toggle" data-soc-action="poll-toggle">📊 Add a poll</button>
+        <div id="soc-poll-fields" class="soc-poll-fields" hidden>
+          <p class="soc-help">Your story above is the poll question.</p>
+          <div id="soc-poll-options" class="soc-poll-opts">
+            ${pollOptionRow()}
+            ${pollOptionRow()}
+          </div>
+          <button type="button" class="linklike soc-poll-add-row" data-soc-action="poll-add-option-row">➕ Add option</button>
+          <label class="soc-poll-check"><input type="checkbox" id="soc-poll-multi" /> Allow people to choose more than one</label>
+          <label class="soc-poll-check"><input type="checkbox" id="soc-poll-allowadd" /> Allow anyone to add options</label>
+          <label class="field soc-poll-closes-field">
+            <span>Poll end date (optional)</span>
+            <input type="datetime-local" id="soc-poll-closes" />
+          </label>
+        </div>
+      </div>
       <label class="field">
         <span>Who can see this</span>
         <select id="soc-compose-vis">${visOptions}</select>
@@ -864,8 +929,25 @@ async function submitComposer(e) {
     toast('Add a story, a photo, or tag a plush.');
     return;
   }
+  // Optional attached poll. The story text is the question, so it's required
+  // when a poll is present; need at least two non-blank options.
+  let poll = null;
+  const pollFields = document.getElementById('soc-poll-fields');
+  if (pollFields && !pollFields.hasAttribute('hidden')) {
+    const options = [...document.querySelectorAll('#soc-poll-options .soc-poll-opt')]
+      .map((i) => i.value.trim()).filter(Boolean);
+    if (!body) { toast('Add a question (your story) for the poll.'); return; }
+    if (options.length < 2) { toast('A poll needs at least 2 options.'); return; }
+    const closesRaw = document.getElementById('soc-poll-closes')?.value;
+    poll = {
+      options,
+      multi: document.getElementById('soc-poll-multi')?.checked || false,
+      allowAdd: document.getElementById('soc-poll-allowadd')?.checked || false,
+      closesAt: closesRaw ? new Date(closesRaw).toISOString() : null,
+    };
+  }
   try {
-    await data.createPost({ body, visibility: vis, photoBlob: state.socComposePhoto, catalogId, plushName });
+    await data.createPost({ body, visibility: vis, photoBlob: state.socComposePhoto, catalogId, plushName, poll });
     state.socComposeVis = vis;
     closeSocialModal();
     toast('Posted to the crypt. 🦇');
@@ -1222,7 +1304,9 @@ function wireSocialEvents() {
       const f = e.target.closest('[data-soc-action="submit-comment"]');
       if (f) { e.preventDefault(); submitCommentForm(f); return; }
       const ef = e.target.closest('[data-soc-action="submit-comment-edit"]');
-      if (ef) { e.preventDefault(); submitCommentEdit(ef); }
+      if (ef) { e.preventDefault(); submitCommentEdit(ef); return; }
+      const pf = e.target.closest('[data-soc-action="add-poll-option"]');
+      if (pf) { e.preventDefault(); onAddPollOption(pf); }
     });
     cryptEl.addEventListener('error', (e) => {
       const img = e.target;
@@ -1251,7 +1335,9 @@ function wireSocialEvents() {
     const f = e.target.closest('[data-soc-action="submit-comment"]');
     if (f) { e.preventDefault(); submitCommentForm(f); return; }
     const ef = e.target.closest('[data-soc-action="submit-comment-edit"]');
-    if (ef) { e.preventDefault(); submitCommentEdit(ef); }
+    if (ef) { e.preventDefault(); submitCommentEdit(ef); return; }
+    const pf = e.target.closest('[data-soc-action="add-poll-option"]');
+    if (pf) { e.preventDefault(); onAddPollOption(pf); }
   });
 
   // Graceful image fallback. `error` doesn't bubble, so listen in the
@@ -1341,7 +1427,31 @@ function onSocialModalClick(e) {
     return;
   }
   const action = e.target.closest('[data-soc-action]')?.dataset.socAction;
-  if (action === 'save-top8') saveTop8();
+  if (action === 'save-top8') { saveTop8(); return; }
+  // Poll composer controls (0079).
+  if (action === 'poll-toggle') {
+    const fields = document.getElementById('soc-poll-fields');
+    const btn = e.target.closest('.soc-poll-toggle');
+    if (fields) {
+      const turningOn = fields.hasAttribute('hidden');
+      fields.toggleAttribute('hidden', !turningOn);
+      if (btn) btn.textContent = turningOn ? '📊 Remove poll' : '📊 Add a poll';
+    }
+    return;
+  }
+  if (action === 'poll-add-option-row') {
+    const wrap = document.getElementById('soc-poll-options');
+    if (wrap && wrap.querySelectorAll('.soc-poll-opt-row').length >= 8) { toast('Up to 8 options.'); return; }
+    wrap?.insertAdjacentHTML('beforeend', pollOptionRow());
+    return;
+  }
+  if (action === 'poll-remove-option-row') {
+    const wrap = document.getElementById('soc-poll-options');
+    const row = e.target.closest('.soc-poll-opt-row');
+    if (wrap && wrap.querySelectorAll('.soc-poll-opt-row').length <= 2) { toast('A poll needs at least 2 options.'); return; }
+    row?.remove();
+    return;
+  }
 }
 
 async function onSocialClick(e) {
@@ -1385,6 +1495,7 @@ async function onSocialClick(e) {
     case 'hide-comment': onHideComment(target.dataset.commentId); break;
 
     case 'react-post': await onReactPost(target.dataset.postId, target.dataset.emoji); break;
+    case 'vote-poll': await onVotePoll(target.dataset.postId, target.dataset.optionId, target.dataset.on === '1', target.dataset.multi === '1'); break;
     case 'toggle-comments': onToggleComments(postId); break;
     case 'edit-post': openPostEditor(postId); break;
     case 'delete-post': await onDeletePost(postId); break;
@@ -1551,6 +1662,30 @@ async function onReactPost(postId, emoji) {
     else await data.reactPost(postId, emoji, true);
     await refreshAfterReaction();
   } catch (e) { reactionError(e); }
+}
+
+// Cast, change, or remove a poll vote (0079). `on` says whether the tap should
+// add the vote (false = I'm un-voting the option I already chose). Single-choice
+// swaps happen in data.votePoll; here we just guard against a closed poll and
+// re-render with fresh tallies.
+async function onVotePoll(postId, optionId, on, multi) {
+  const post = findFeedPost(postId);
+  if (post?.poll?.closed) { toast('This poll has ended.'); return; }
+  try {
+    await data.votePoll(postId, optionId, on, multi);
+    await refreshAfterReaction();
+  } catch (e) { console.error('votePoll', e); toast('Could not record your vote.'); }
+}
+
+async function onAddPollOption(form) {
+  const input = form.querySelector('.soc-poll-addinput');
+  const label = input?.value.trim();
+  if (!label) return;
+  try {
+    await data.addPollOption(form.dataset.postId, label);
+    if (input) input.value = '';
+    await refreshAfterReaction();
+  } catch (e) { console.error('addPollOption', e); toast('Could not add that option.'); }
 }
 
 function onToggleComments(postId) {
