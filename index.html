@@ -13,6 +13,29 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Plush Crypt" />
   <title>The Plush Crypt</title>
+
+  <!-- Description + social preview (Open Graph / Twitter Card). Crawlers for
+       Slack, Facebook, LinkedIn, Discord and iMessage read these to build the
+       link-preview card when someone shares plushcrypt.com; with none present
+       the link unfurls to nothing (or a bare URL). URLs here are ABSOLUTE on
+       purpose — this is the one place ./ paths don't work, since an off-site
+       crawler can't resolve a relative path. Keep in sync with the <title>
+       and manifest description. -->
+  <meta name="description" content="A gothic-cute tracker for your Plushie Dreadfuls collection — catalog your plushies, keep a wish list, and trade with other collectors. Independent and fan-made. 🦇" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="The Plush Crypt" />
+  <meta property="og:title" content="The Plush Crypt" />
+  <meta property="og:description" content="A gothic-cute tracker for your Plushie Dreadfuls collection — catalog your plushies, keep a wish list, and trade with other collectors. 🦇" />
+  <meta property="og:url" content="https://plushcrypt.com/" />
+  <meta property="og:image" content="https://plushcrypt.com/icon-512.png" />
+  <meta property="og:image:width" content="512" />
+  <meta property="og:image:height" content="512" />
+  <meta property="og:image:alt" content="The Plush Crypt bat emblem" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="The Plush Crypt" />
+  <meta name="twitter:description" content="A gothic-cute tracker for your Plushie Dreadfuls collection — catalog, wish list, and trades with other collectors. 🦇" />
+  <meta name="twitter:image" content="https://plushcrypt.com/icon-512.png" />
+
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="./icon-192.png" />
@@ -1054,6 +1077,7 @@
             <h3 class="changelog-date">July 8, 2026</h3>
             <ul>
               <li><strong>New “Care” reaction.</strong> Hold Like on any post or comment and you’ll now find a 🤗 Care option alongside Love, Haha, Wow, Sad, and Angry — for when someone needs a hug more than a thumbs-up.</li>
+              <li><strong>Shared links look right now.</strong> Sharing the Crypt to Slack, Facebook, LinkedIn, Discord or iMessage now shows a proper preview card — title, description and our bat emblem — instead of a bare link or nothing at all.</li>
               <li class="changelog-fixes">Fixed a sign-in glitch where entering your code could bounce you back to the login screen and make you request a new one; misc bug fixes.</li>
             </ul>
           </div>
