@@ -418,9 +418,10 @@ async function maybeFireTradeNotifications() {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (!(await idb.getMeta('notify_enabled'))) return;
   // Real push already covers every trade transition (offer/counter/accept/
-  // decline/ship). If this device is subscribed, stay quiet so we don't double
-  // up with an OS banner. Local stays as the fallback where push isn't set up.
-  if (await pushActive()) return;
+  // decline/ship). Stay quiet only when server push is CONFIRMED deliverable to
+  // this device, so we don't double up with an OS banner. If push isn't
+  // actually wired up (subscription never stored), local remains the fallback.
+  if (await serverPushDeliverable()) return;
   if (!Array.isArray(state.trades) || state.trades.length === 0) return;
 
   const seen = (await idb.getMeta('notified_trade_events')) || {};
@@ -522,12 +523,30 @@ async function pushActive() {
   }
 }
 
+// True only when server push is genuinely deliverable to THIS device: the
+// browser holds a live subscription AND we confirmed it landed in our
+// push_subscriptions table (so send-push can actually reach it). The local
+// fire-while-open fallbacks gate on THIS, not on pushActive() alone. The
+// difference matters: a browser subscription whose DB upsert silently failed
+// makes pushActive() true while the server has nothing to send to — which
+// would suppress the local fallback AND get no server push, leaving the user
+// with zero notifications. Gating on confirmed registration means we fall
+// back to local whenever server delivery isn't actually wired up.
+async function serverPushDeliverable() {
+  if (!(await pushActive())) return false;
+  return !!(await idb.getMeta('push_registered'));
+}
+
 // Ensure this device has a push subscription stored server-side. Idempotent:
 // reuses any existing browser subscription, upserts the row keyed on
 // (user, endpoint). Returns true if a subscription is registered.
 async function ensurePushSubscription() {
-  if (!pushSupported()) return false;
-  if (Notification.permission !== 'granted') return false;
+  // Any bail here means server push is NOT deliverable to this device, so we
+  // clear the confirmed-registered flag — that's what keeps the local
+  // fire-while-open notifications firing as the fallback (see
+  // serverPushDeliverable). Only a clean upsert below sets it true.
+  if (!pushSupported()) { await idb.setMeta('push_registered', false); return false; }
+  if (Notification.permission !== 'granted') { await idb.setMeta('push_registered', false); return false; }
   const uid = window.currentUser?.id;
   if (!uid || !window.sb) return false;
   try {
@@ -549,10 +568,19 @@ async function ensurePushSubscription() {
       user_agent: navigator.userAgent,
       last_seen_at: new Date().toISOString(),
     }, { onConflict: 'user_id,endpoint' });
-    if (error) { console.warn('push subscribe upsert failed', error.message); return false; }
+    if (error) {
+      // Upsert failed → server can't reach us. Leave local as the fallback.
+      console.warn('push subscribe upsert failed', error.message);
+      await idb.setMeta('push_registered', false);
+      return false;
+    }
+    // Confirmed stored server-side: server push will deliver, so the local
+    // fallbacks can now stand down.
+    await idb.setMeta('push_registered', true);
     return true;
   } catch (e) {
     console.warn('push subscribe failed', e);
+    await idb.setMeta('push_registered', false);
     return false;
   }
 }
@@ -560,6 +588,7 @@ async function ensurePushSubscription() {
 // Tear down this device's subscription when the user turns reminders off.
 async function disablePushSubscription() {
   if (!('serviceWorker' in navigator)) return;
+  await idb.setMeta('push_registered', false);
   try {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
@@ -600,9 +629,11 @@ window.sendSelfTestPush = sendSelfTestPush;
 async function maybeFireFriendNotifications() {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   if (!(await idb.getMeta('notify_enabled'))) return;
-  // Friend requests already arrive as real push; skip the local copy when this
-  // device is subscribed so you don't get two. Local remains the fallback.
-  if (await pushActive()) return;
+  // Friend requests already arrive as real push; skip the local copy only when
+  // server push is CONFIRMED deliverable to this device, so you don't get two.
+  // If push isn't actually wired up, local remains the fallback (otherwise a
+  // half-subscribed device gets neither).
+  if (await serverPushDeliverable()) return;
 
   const reqs = state.socRequests || [];
   const prev = await idb.getMeta('notified_friend_reqs');   // null on first run
