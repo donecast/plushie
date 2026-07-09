@@ -955,7 +955,12 @@ async function submitComposer(e) {
     await loadSocialData();
     state.socProfile = null;
     setSocSubTab('feed');
-  } catch (err) { console.error('createPost', err); toast('Could not post.'); }
+  } catch (err) {
+    console.error('createPost', err);
+    // createPost undoes the post if an attached poll fails to save, so nothing
+    // half-published survives — say so plainly instead of a bare "Could not post".
+    toast(poll ? 'Could not save your poll — nothing was posted. Please try again.' : 'Could not post.');
+  }
 }
 
 // ─── Edit an existing post ──────────────────────────────────────────
