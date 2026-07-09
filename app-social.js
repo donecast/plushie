@@ -955,7 +955,12 @@ async function submitComposer(e) {
     await loadSocialData();
     state.socProfile = null;
     setSocSubTab('feed');
-  } catch (err) { console.error('createPost', err); toast('Could not post.'); }
+  } catch (err) {
+    console.error('createPost', err);
+    // createPost undoes the post if an attached poll fails to save, so nothing
+    // half-published survives — say so plainly instead of a bare "Could not post".
+    toast(poll ? 'Could not save your poll — nothing was posted. Please try again.' : 'Could not post.');
+  }
 }
 
 // ─── Edit an existing post ──────────────────────────────────────────
@@ -1522,10 +1527,24 @@ async function onSocialClick(e) {
     }
     case 'reply-comment': {
       const cid = target.dataset.commentId;
-      state.socReplyTo = (state.socReplyTo === cid) ? null : cid;
+      const opening = state.socReplyTo !== cid;
+      state.socReplyTo = opening ? cid : null;
       // Make sure the thread is expanded so the reply box is visible.
       if (postId) state.socExpandedComments.add(postId);
       rerenderSocialCurrent();
+      // Expanding the thread + rebuilding the whole feed leaves the freshly
+      // opened reply box off-screen, so the user had to hunt for it. Bring it
+      // to them and focus it after the DOM settles. preventScroll keeps focus
+      // from fighting our own scrollIntoView.
+      if (opening) {
+        requestAnimationFrame(() => {
+          const input = document.querySelector(`.soc-reply-form[data-parent-id="${cid}"] .soc-comment-input`);
+          if (input) {
+            input.scrollIntoView({ block: 'center' });
+            input.focus({ preventScroll: true });
+          }
+        });
+      }
       break;
     }
     case 'view-mention': {
