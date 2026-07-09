@@ -2736,11 +2736,15 @@ data.setDemoMode = function (on) {
 
 data.featureEnabled = function (key, defaultValue = true) {
   // Demo mode hides not-yet-public, gated features so recordings only show
-  // what ordinary collectors have. These two keys gate insider perks; the
-  // allowlist/admin overrides below would otherwise keep them on for
-  // redrambler, so short-circuit them here.
-  if (data.isDemoMode() &&
-      (key === 'feature.custom_clothing' || key === 'feature.user_photo_uploads')) {
+  // what ordinary collectors have. custom_clothing is still an insider perk;
+  // the allowlist/admin override below would otherwise keep it on for
+  // redrambler, so short-circuit it here.
+  // NOTE: user_photo_uploads used to be short-circuited here too, back when it
+  // was an insider-gated perk. Since #128 opened photo suggestions to every
+  // signed-in user, it IS what ordinary collectors see — so demo mode must no
+  // longer hide it, or it misrepresents the live app (and leaves admins with no
+  // way to see the upload field while previewing in demo mode).
+  if (data.isDemoMode() && key === 'feature.custom_clothing') {
     return false;
   }
   // Per-user photo uploads: profiles.photo_uploads_enabled, with an
