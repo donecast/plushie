@@ -1450,10 +1450,18 @@ function wireEvents() {
   // Search is per-section: route the input to whichever section is showing so
   // the text doesn't leak between Collection / Catalog / Wish List, and each
   // restores its own on return (render() re-syncs the box — see below).
+  // Debounce the re-render: each keystroke used to re-filter + re-sort the
+  // whole catalog/collection and rebuild the grid innerHTML synchronously,
+  // making typing janky on large lists. The query state is updated
+  // immediately (so the box + the debounced render both see the latest
+  // text); only the expensive render is coalesced. Mirrors the friends
+  // search debounce in app-social.js.
+  let _searchDebounce;
   document.getElementById('search').addEventListener('input', (e) => {
     const key = activeQueryKey();
     if (key) state[key] = e.target.value;
-    render();
+    clearTimeout(_searchDebounce);
+    _searchDebounce = setTimeout(render, 160);
   });
 
   document.getElementById('check-restocks').addEventListener('click', checkAllRestocks);

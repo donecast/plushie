@@ -133,11 +133,28 @@ function matchesQuery(item, q) {
   return queryMatches(hay, q);
 }
 
+// Memoised catalog-by-id lookup. The render path resolves an item's catalog
+// entry many times per item (category, cover, clothing checks), and a linear
+// state.catalog.find() per call was O(items × catalog) on every render —
+// which fires on every keystroke/tap. Build a Map once and rebuild it only
+// when state.catalog is replaced (it's always reassigned, never mutated in
+// place: app-catalog.js:640, app-core.js:794).
+let _catByIdSrc = null;
+let _catByIdMap = new Map();
+function catalogById(id) {
+  if (!id) return undefined;
+  if (_catByIdSrc !== state.catalog) {
+    _catByIdMap = new Map((state.catalog || []).map((c) => [c.id, c]));
+    _catByIdSrc = state.catalog;
+  }
+  return _catByIdMap.get(id);
+}
+
 // Look up a collection/wishlist item's category by joining to the catalog
 // on catalog_id. Items without a catalog_id fall through to 'other'.
 function itemCategory(item) {
   if (!item.catalogId) return isWearableItem(item) ? 'clothing' : 'other';
-  const cat = state.catalog.find((c) => c.id === item.catalogId);
+  const cat = catalogById(item.catalogId);
   return cat ? catalogCategory(cat) : (isWearableItem(item) ? 'clothing' : 'other');
 }
 
@@ -576,7 +593,7 @@ const PLUSH_CLOTHING_LINES = /plush outfit|dreadful disguises/i;
 const CLOTHING_RE = /\b(outfit|hoodie|sweater|sweatshirt|cardigan|jacket|coat|dress|gown|skirt|overalls|romper|onesie|jumpsuit|jumper|pinafore|pajamas?|robe|vest|tunic|kimono|poncho|cape|capelet|cloak|costume|wings|tutu|scarf|shawl|beanie|bonnet|mask)\b/i;
 
 function catalogForItem(item) {
-  return item.catalogId ? state.catalog.find((c) => c.id === item.catalogId) : null;
+  return item.catalogId ? (catalogById(item.catalogId) || null) : null;
 }
 
 // Does a catalog entry describe wearable plush clothing? Either it's on one
@@ -693,7 +710,7 @@ function cardMetaHtml(item, kind) {
     const missingAcc = Array.isArray(item.missingAccessories) ? item.missingAccessories : [];
     const legacyNoBag = (missingAcc.length === 0 && item.hasBag === false);
     if (missingAcc.length > 0 || legacyNoBag) {
-      const cat = item.catalogId ? state.catalog.find((c) => c.id === item.catalogId) : null;
+      const cat = item.catalogId ? (catalogById(item.catalogId) || null) : null;
       const isPlushie = !cat || (cat.type || '').toLowerCase() === 'plush';
       if (isPlushie) {
         const effective = missingAcc.length ? missingAcc : ['tote bag'];
@@ -1284,7 +1301,7 @@ function openModal(kind, item, { fresh = false } = {}) {
   // charms, customs without parsed data — fall back to the simple
   // bag toggle for backwards compatibility, but only on full-size
   // Plushies. Other types get no accessory section at all.
-  const cat = item.catalogId ? resolveCatalogItem(state.catalog.find((c) => c.id === item.catalogId)) : null;
+  const cat = item.catalogId ? resolveCatalogItem(catalogById(item.catalogId)) : null;
   // Wearables (incl. user-added custom clothing) never get the bag/accessory
   // fallback — a cardigan has no "tote bag".
   const isPlushie = !isWearableItem(item) && (!cat || (cat.type || '').toLowerCase() === 'plush');
