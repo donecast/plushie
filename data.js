@@ -1423,7 +1423,11 @@ data.adminListUsers = async function () {
   // One round trip: per-user counts (collection / wish list / for trade),
   // last seen, full name, and feedback tallies. Falls back to the old
   // profiles+summary path if migration 0045 hasn't been applied yet.
-  const flags = await data._adminModerationFlags().catch(() => new Map());
+  // Don't swallow a real failure here: an empty map would render every user
+  // as un-flagged (not ghosted/blocked/moderator) — a moderator would see
+  // clean content that's actually flagged. Let it throw so the admin UI's
+  // catch shows "Could not load users." instead of a misleading list.
+  const flags = await data._adminModerationFlags();
   const withFlags = (id, base) => {
     const f = flags.get(id) || {};
     return { ...base, is_moderator: f.is_moderator === true, ghosted: f.ghosted === true, app_blocked: f.app_blocked === true };

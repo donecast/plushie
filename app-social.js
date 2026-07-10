@@ -1720,9 +1720,11 @@ async function submitCommentForm(form) {
   if (!body) return;
   const postId = form.dataset.postId;
   const parentId = form.dataset.parentId || null;
-  input.value = '';
   try {
     await data.addComment(postId, body, parentId);
+    // Clear only after the write succeeds — clearing up front lost the user's
+    // typed comment when the request failed.
+    input.value = '';
     state.socReplyTo = null;
     await loadSocialData();
     if (state.socProfile) await openProfile(state.socProfile.profile.id);
