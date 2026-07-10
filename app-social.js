@@ -1933,10 +1933,18 @@ async function boot() {
   // the loads below. The real render() further down replaces it once data
   // lands. Guarded so a render hiccup never aborts boot.
   try { render(); } catch (e) { console.warn('initial loading paint skipped', e); }
-  await loadAll();
-  state.pensOwned = await data.listPens();
-  try { state.pensMeta = await data.listPenMeta(); } catch (e) { console.warn('pens meta load skipped', e); }
-  await loadTradeData();
+  // These four loads are independent once the active collection is known —
+  // run them concurrently instead of a serial await waterfall (~4 round
+  // trips → 1). pens-meta keeps its own tolerance so a miss doesn't abort
+  // the rest; the others reject boot the same way the serial awaits did.
+  let pensOwned;
+  await Promise.all([
+    loadAll(),
+    data.listPens().then((p) => { pensOwned = p; }),
+    data.listPenMeta().then((m) => { state.pensMeta = m; }).catch((e) => console.warn('pens meta load skipped', e)),
+    loadTradeData(),
+  ]);
+  state.pensOwned = pensOwned;
   render();
   // Social is the landing tab — load its feed/friends/requests and
   // repaint when ready (also fires friend-request notifications + badge).
