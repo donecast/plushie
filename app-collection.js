@@ -1206,6 +1206,11 @@ function adjustPen(id, delta) {
   render();   // optimistic — UI updates immediately, sync runs in the background
   data.setPen(id, next).catch((e) => {
     console.error('setPen', e);
+    // Reconcile: the optimistic count never saved, so revert it instead of
+    // leaving a wrong number on screen presented as real (until a reload).
+    if (current === 0) state.pensOwned.delete(id);
+    else state.pensOwned.set(id, current);
+    render();
     toast('Could not save pen count.');
   });
 }
@@ -1523,8 +1528,10 @@ async function submitCustomClothing(e) {
   }
 }
 
+let _savingEdit = false;
 async function submitForm(e) {
   e.preventDefault();
+  if (_savingEdit) return;   // guard against double-submit
   const existing = state.collection.find((x) => x.id === state.editingId);
   if (!existing) { closeModal(); return; }
 
@@ -1563,30 +1570,40 @@ async function submitForm(e) {
     record.photoPath = null;
   }
 
-  await data.put(kind, record);
+  // Guard the save: on failure the old code left an unhandled rejection —
+  // no toast, modal stuck open, loadAll/render never ran, looking hung.
+  _savingEdit = true;
+  try {
+    await data.put(kind, record);
 
-  // Persist per-item visibility separately (item 11) — best-effort so a
-  // pre-migration client still saves everything else cleanly.
-  if (record.visibility && record.visibility !== existing.visibility) {
-    try { await data.setItemVisibility(record.id, record.visibility); }
-    catch (err) { console.warn('setItemVisibility', err); }
-  }
-
-  // Persist the "worn by" assignment when the field is shown (clothing
-  // accessories). Dedicated update so it never rides through _itemToRow.
-  const wornField = document.getElementById('field-worn-by');
-  if (wornField && !wornField.classList.contains('hidden')) {
-    const wornVal = document.getElementById('f-worn-by').value || null;
-    if ((existing.wornBy || null) !== wornVal) {
-      try { await data.setWornBy(existing.id, wornVal); }
-      catch (err) { console.warn('setWornBy', err); }
+    // Persist per-item visibility separately (item 11) — best-effort so a
+    // pre-migration client still saves everything else cleanly.
+    if (record.visibility && record.visibility !== existing.visibility) {
+      try { await data.setItemVisibility(record.id, record.visibility); }
+      catch (err) { console.warn('setItemVisibility', err); }
     }
-  }
 
-  await loadAll();
-  closeModal();
-  render();
-  toast('Updated.');
-  scheduleReminderCheck();
+    // Persist the "worn by" assignment when the field is shown (clothing
+    // accessories). Dedicated update so it never rides through _itemToRow.
+    const wornField = document.getElementById('field-worn-by');
+    if (wornField && !wornField.classList.contains('hidden')) {
+      const wornVal = document.getElementById('f-worn-by').value || null;
+      if ((existing.wornBy || null) !== wornVal) {
+        try { await data.setWornBy(existing.id, wornVal); }
+        catch (err) { console.warn('setWornBy', err); }
+      }
+    }
+
+    await loadAll();
+    closeModal();
+    render();
+    toast('Updated.');
+    scheduleReminderCheck();
+  } catch (err) {
+    console.error('save edit', err);
+    toast('Could not save: ' + (err?.message || err));
+  } finally {
+    _savingEdit = false;
+  }
 }
 
