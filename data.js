@@ -840,42 +840,14 @@ data._autoShareAddress = async function (tradeId) {
   }
 };
 
-// Accept a trade — also marks the parent as 'countered' if this is a counter response,
-// and reserves quantities on each line item. Done client-side without a transaction;
-// the reserved check constraint catches over-reservation.
+// Accept a trade: flip pending -> accepted and reserve each line item.
+// Runs in one atomic SECURITY DEFINER RPC (db/0081) so a concurrent accept
+// of the same item can't over-reserve (the old client-side read-modify-write
+// last-write-wins could) and a failed reservation rolls the status back.
+// The RPC raises 'item_unavailable', 'trade_not_pending', or 'forbidden'.
 data.acceptTrade = async function (tradeId) {
-  const { data: lines, error: lineErr } = await sb
-    .from('trade_line_items')
-    .select('trade_item_id, quantity')
-    .eq('trade_id', tradeId);
-  if (lineErr) throw lineErr;
-
-  // Try to reserve each unique item by reading its current values and updating.
-  // If two acceptors race and over-reserve, the check constraint trips.
-  const byItem = new Map();
-  for (const l of lines) byItem.set(l.trade_item_id, (byItem.get(l.trade_item_id) || 0) + l.quantity);
-
-  for (const [itemId, qty] of byItem) {
-    const { data: cur, error } = await sb
-      .from('trade_items')
-      .select('quantity, reserved')
-      .eq('id', itemId)
-      .single();
-    if (error) throw error;
-    const newReserved = cur.reserved + qty;
-    if (newReserved > cur.quantity) throw new Error('item_unavailable');
-    const { error: upErr } = await sb
-      .from('trade_items')
-      .update({ reserved: newReserved })
-      .eq('id', itemId);
-    if (upErr) throw upErr;
-  }
-
-  const { error: stErr } = await sb
-    .from('trades')
-    .update({ status: 'accepted', responded_at: new Date().toISOString() })
-    .eq('id', tradeId);
-  if (stErr) throw stErr;
+  const { error } = await sb.rpc('accept_trade', { target_trade: tradeId });
+  if (error) throw error;
   await data._autoShareAddress(tradeId);
 };
 
@@ -3546,13 +3518,14 @@ data.setTopPlushes = async function (entries, { keepTom = true } = {}) {
       photo_path: photoPath,
     });
   }
-  // Replace-all: clear then insert the new ordering.
-  const { error: delErr } = await sb.from('top_plushes').delete().eq('owner_id', uid);
-  if (delErr) throw delErr;
-  if (rows.length) {
-    const { error } = await sb.from('top_plushes').insert(rows);
-    if (error) throw error;
-  }
+  // Replace-all in one atomic RPC (db/0081): the old delete-then-insert had
+  // no transaction, so a failed insert permanently wiped the user's Top 8
+  // (free plan = no backups). The RPC deletes + inserts in one transaction —
+  // if the insert fails the delete rolls back and the old list survives.
+  // owner_id is forced to auth.uid() server-side, so we strip it here.
+  const payload = rows.map(({ owner_id, ...r }) => r);
+  const { error } = await sb.rpc('set_top_plushes', { p_rows: payload });
+  if (error) throw error;
 };
 
 window.data = data;
