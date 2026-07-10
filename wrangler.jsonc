@@ -6,6 +6,11 @@
   "observability": {
     "enabled": true
   },
+  // Public JWKS endpoint used to verify the ES256 session tokens the client
+  // sends on uploads/deletes (worker/r2-storage.js). Public info — no secret.
+  "vars": {
+    "SUPABASE_JWKS_URL": "https://ixymtbrvtysikhuitfta.supabase.co/auth/v1/.well-known/jwks.json"
+  },
   "r2_buckets": [
     {
       "binding": "PHOTOS",
