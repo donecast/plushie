@@ -3247,6 +3247,7 @@ data._hydratePosts = async function (rows) {
   const pollByPost = new Map();
   const optionsByPost = new Map();
   const votesByOption = new Map();     // option_id -> vote count
+  const votersByOption = new Map();    // option_id -> [user_id, …] (who voted; polls are non-anonymous, FB-style)
   const myVoteOptions = new Set();     // option_ids I voted for
   const voterCountByPost = new Map();  // post_id -> distinct voter count
   try {
@@ -3266,6 +3267,8 @@ data._hydratePosts = async function (rows) {
       const votersByPost = new Map(); // post_id -> Set(user_id)
       for (const v of (votes || [])) {
         votesByOption.set(v.option_id, (votesByOption.get(v.option_id) || 0) + 1);
+        if (!votersByOption.has(v.option_id)) votersByOption.set(v.option_id, []);
+        votersByOption.get(v.option_id).push(v.user_id);
         if (v.user_id === uid) myVoteOptions.add(v.option_id);
         if (!votersByPost.has(v.post_id)) votersByPost.set(v.post_id, new Set());
         votersByPost.get(v.post_id).add(v.user_id);
@@ -3295,6 +3298,13 @@ data._hydratePosts = async function (rows) {
           // % of voters (not votes) — sums to 100 for single-choice, and lets a
           // single option reach 100% for multi-choice, as Facebook does.
           pct: totalVoters ? Math.round((count / totalVoters) * 100) : 0,
+          // Who voted for this option (FB-style, non-anonymous). Resolved to
+          // display names; ids that don't resolve (e.g. ghosted) fall back below.
+          voters: (votersByOption.get(o.id) || []).map((vid) => ({
+            id: vid,
+            name: profs.get(vid)?.username ?? 'unknown',
+            avatarUrl: profs.get(vid)?.avatarUrl ?? null,
+          })),
         };
       }),
     };
@@ -3303,6 +3313,7 @@ data._hydratePosts = async function (rows) {
   // Resolve every author (posts + comment authors) in one batch.
   const ids = new Set(rows.map((r) => r.author_id));
   for (const c of (comments || [])) ids.add(c.author_id);
+  for (const voters of votersByOption.values()) for (const vid of voters) ids.add(vid);
   const profs = await data._resolveProfiles([...ids]);
 
   // Build a threaded comment tree (top-level + nested replies), preserving the

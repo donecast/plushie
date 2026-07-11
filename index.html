@@ -42,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=139" />
+  <link rel="stylesheet" href="./styles.css?v=140" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -1074,6 +1074,13 @@
 
         <div class="changelog">
           <div class="changelog-day">
+            <h3 class="changelog-date">July 11, 2026</h3>
+            <ul>
+              <li>Polls now show who voted — once results are in, tap the number of votes under any option to see the list of people who picked it.</li>
+              <li class="changelog-fixes">Fixed the poll composer so the option boxes only appear after you tap <em>Add a poll</em> — no more filling in choices that quietly didn't get attached to your post; misc bug fixes.</li>
+            </ul>
+          </div>
+          <div class="changelog-day">
             <h3 class="changelog-date">July 10, 2026</h3>
             <ul>
               <li class="changelog-fixes">Made trades and your Top 8 more reliable under the hood, and stopped a half-typed comment from vanishing if it failed to post; misc bug fixes.</li>
@@ -1786,18 +1793,18 @@
   <script src="./config.js?v=54"></script>
   <script src="./auth.js?v=63"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=100"></script>
+  <script src="./data.js?v=101"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=184"></script>
-  <script src="./app-catalog.js?v=184"></script>
-  <script src="./app-collection.js?v=184"></script>
-  <script src="./app-ui.js?v=184"></script>
-  <script src="./app-trade.js?v=184"></script>
-  <script src="./app-account.js?v=184"></script>
-  <script src="./app-admin.js?v=184"></script>
-  <script src="./app-admin-catalog.js?v=184"></script>
-  <script src="./app-social.js?v=184"></script>
+  <script src="./app-core.js?v=185"></script>
+  <script src="./app-catalog.js?v=185"></script>
+  <script src="./app-collection.js?v=185"></script>
+  <script src="./app-ui.js?v=185"></script>
+  <script src="./app-trade.js?v=185"></script>
+  <script src="./app-account.js?v=185"></script>
+  <script src="./app-admin.js?v=185"></script>
+  <script src="./app-admin-catalog.js?v=185"></script>
+  <script src="./app-social.js?v=185"></script>
 </body>
 </html>
