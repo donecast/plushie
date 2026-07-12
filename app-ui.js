@@ -1174,10 +1174,22 @@ function activeQueryKey() {
   return null;
 }
 
-// Switch to a top-level tab by name (home/catalog/crypt/trade). Clicks the
-// header tab so it reuses that tab's full enter logic. Returns false if the
-// tab isn't present (e.g. signed-out shell).
+// Switch to a top-level tab by name (home/catalog/crypt/trade), or one of the
+// surfaces that live outside the header tab strip: 'messages' (the 💬 icon)
+// and 'admin' (the user-menu entry). Clicks the owning control so each reuses
+// its full enter logic. Returns false if the target isn't present (e.g.
+// signed-out shell). Used by notification taps (hash + notification-nav).
 function goToTab(tab) {
+  if (tab === 'messages') {
+    const dm = document.getElementById('dm-btn');
+    if (dm) { dm.click(); return true; }
+    return false;
+  }
+  if (tab === 'admin') {
+    const item = document.querySelector('#user-menu [data-go="admin"]');
+    if (item) { item.click(); return true; }
+    return false;
+  }
   const top = document.querySelector(`header .tabs .tab[data-tab="${tab}"]`);
   if (top) { top.click(); return true; }
   return false;
