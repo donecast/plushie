@@ -387,6 +387,28 @@ async function submitDmForm(form) {
 // While a conversation is open, poll for the other side's replies. The timer
 // self-heals: it clears itself the moment the user is anywhere else, so tab
 // hops can't leak intervals.
+// Refresh whatever messages surface is on screen (open conversation or the
+// thread list). Called by the 8s in-view poll AND by the realtime stream so
+// an incoming message lands on screen the moment it exists.
+async function refreshDmView() {
+  const viewing = state.tab === 'home' && state.socSubTab === 'messages' && !state.socProfile;
+  if (!viewing) return;
+  try {
+    if (state.dmPartner) {
+      const fresh = await data.listDmMessages(state.dmPartner.id);
+      if (fresh.length !== state.dmMessages.length) {
+        const hadNew = fresh.length > state.dmMessages.length && fresh.some((m) => !m.mine);
+        state.dmMessages = fresh;
+        if (hadNew) await data.markDmRead(state.dmPartner.id);
+        renderMessages();
+      }
+    } else {
+      await loadDmThreads();
+      renderMessages();
+    }
+  } catch (e) { console.warn('dm refresh', e); }
+}
+
 function ensureDmPoll() {
   const viewing = state.tab === 'home' && state.socSubTab === 'messages' && !state.socProfile;
   if (!viewing) { clearInterval(window._dmTimer); window._dmTimer = null; return; }
@@ -394,21 +416,43 @@ function ensureDmPoll() {
   window._dmTimer = setInterval(async () => {
     const stillViewing = state.tab === 'home' && state.socSubTab === 'messages' && !state.socProfile;
     if (!stillViewing) { clearInterval(window._dmTimer); window._dmTimer = null; return; }
-    try {
-      if (state.dmPartner) {
-        const fresh = await data.listDmMessages(state.dmPartner.id);
-        if (fresh.length !== state.dmMessages.length) {
-          const hadNew = fresh.length > state.dmMessages.length && fresh.some((m) => !m.mine);
-          state.dmMessages = fresh;
-          if (hadNew) await data.markDmRead(state.dmPartner.id);
-          renderMessages();
-        }
-      } else {
-        await loadDmThreads();
-        renderMessages();
-      }
-    } catch (e) { console.warn('dm poll', e); }
+    await refreshDmView();
   }, 8000);
+}
+
+// ─── Realtime notification stream (db/0087) ──────────────────────────
+// Every notifiable event queues a `notifications` row (db/0085); the table
+// is published on the Supabase Realtime websocket, so we hear about our own
+// rows the instant they're written (RLS scopes the stream to auth.uid()).
+// Each event triggers the same refresh the 5-minute poll does — the poll
+// stays as the safety net for dropped sockets. A DM event also refreshes
+// the open conversation, so chat feels like chat.
+function subscribeNotificationStream() {
+  const uid = window.currentUser?.id;
+  if (!uid || typeof window.sb?.channel !== 'function') return;
+  try { window._notifStream?.unsubscribe?.(); } catch (_) { /* stale channel */ }
+  try {
+    window._notifStream = window.sb
+      .channel('notif-stream-' + uid)
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${uid}` },
+        (payload) => {
+          // Debounce bursts (a popular post) into one refresh sweep. The DM
+          // flag accumulates across the burst so a mixed burst still
+          // refreshes the open conversation.
+          if ((payload?.new?.tag || '').startsWith('dm-')) window._notifStreamHasDm = true;
+          clearTimeout(window._notifStreamDebounce);
+          window._notifStreamDebounce = setTimeout(() => {
+            const hadDm = window._notifStreamHasDm;
+            window._notifStreamHasDm = false;
+            refreshSocialBadge();
+            if (hadDm) refreshDmView();
+          }, 400);
+        })
+      .subscribe();
+  } catch (e) {
+    console.warn('notification stream unavailable — polling covers it', e);
+  }
 }
 
 function updateDmBadge() {
@@ -2202,6 +2246,7 @@ async function boot() {
     if (state.tab === 'home') renderSocial();
   });
   scheduleSocialCheck();  // keep polling for new requests while the app is open
+  subscribeNotificationStream();  // realtime: hear our notification rows instantly (db/0087)
   updateNotifyButton();
   registerSW();
   // Notifications default to ON: subscribe now if the OS already permits it,
