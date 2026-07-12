@@ -5012,3 +5012,51 @@ body.maint-locked { overflow: hidden; }
   .modal-card-split .account-section { padding: 10px 0; }
   .modal-card-split .field { margin-bottom: 10px; }
 }
+
+/* ─── Share links (0089) — public wish list / crypt page + manage modal ─── */
+.share-page {
+  position: fixed; inset: 0; z-index: 400; overflow-y: auto;
+  background: var(--bg); color: var(--ink);
+}
+.share-head {
+  padding: 14px 18px; font-weight: 800; font-size: 1.05rem;
+  color: var(--ink-2); border-bottom: 1px solid var(--hairline);
+}
+.share-body { max-width: 860px; margin: 0 auto; padding: 22px 16px 48px; }
+.share-body h1 { margin: 4px 0 6px; overflow-wrap: anywhere; }
+.share-sub { margin: 0 0 18px; color: var(--ink-dim); }
+.share-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+.share-card {
+  display: flex; flex-direction: column; gap: 6px; padding: 10px;
+  border: 1px solid var(--hairline); border-radius: 14px;
+  background: var(--bg-2); color: inherit; text-decoration: none;
+}
+a.share-card:hover { border-color: var(--rose-1); }
+.share-card-media {
+  aspect-ratio: 1; border-radius: 10px; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.share-card-media img { width: 100%; height: 100%; object-fit: cover; }
+.share-noimg { font-size: 2rem; }
+.share-card-name { font-weight: 700; line-height: 1.25; overflow-wrap: anywhere; }
+.share-badge {
+  align-self: flex-start; padding: 2px 8px; border-radius: 999px;
+  font-size: .78rem; border: 1px solid var(--hairline); color: var(--ink-dim);
+}
+.share-card-go { margin-top: auto; font-size: .85rem; color: var(--rose-1); }
+.share-empty { color: var(--ink-dim); margin: 24px 0; }
+.share-footer {
+  margin-top: 32px; padding-top: 18px; border-top: 1px solid var(--hairline);
+  display: flex; flex-direction: column; gap: 12px; align-items: flex-start;
+}
+.share-join { display: inline-block; text-decoration: none; }
+
+.share-list-modal { display: flex; flex-direction: column; gap: 12px; }
+.share-list-modal h2 { margin: 0; }
+.share-list-explain { margin: 0; line-height: 1.5; }
+.share-list-modal #sl-link { width: 100%; }
+.share-list-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.share-list-footer { display: flex; justify-content: flex-end; }

@@ -1547,6 +1547,9 @@ function wireEvents() {
   });
 
   document.getElementById('check-restocks').addEventListener('click', checkAllRestocks);
+  // Share links (db/0089): read-only public pages for the wish list / crypt.
+  document.getElementById('wish-share')?.addEventListener('click', () => openShareListModal('wishlist'));
+  document.getElementById('col-share')?.addEventListener('click', () => openShareListModal('collection'));
   const notifyChk = document.getElementById('acct-notify');
   if (notifyChk) notifyChk.addEventListener('change', async () => {
     await toggleNotifications();

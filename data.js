@@ -3032,6 +3032,45 @@ data.searchUsers = async function (prefix, limit = 12) {
 };
 
 // ─── Profile ────────────────────────────────────────────────────────
+// ─── Share links (db/0089) ──────────────────────────────────────────
+// Opt-in read-only public pages for a wish list or crypt showcase. The
+// token is the whole secret: minting/revoking is RLS-scoped to the owner;
+// viewing goes through the anon-callable shared_list_page RPC.
+data.getShareLink = async function (kind) {
+  const { data: row, error } = await sb.from('share_links').select('token')
+    .eq('user_id', window.currentUser.id)
+    .eq('collection_id', data.collectionId)
+    .eq('kind', kind)
+    .maybeSingle();
+  if (error) throw error;
+  return row?.token || null;
+};
+
+data.createShareLink = async function (kind) {
+  const existing = await data.getShareLink(kind);
+  if (existing) return existing;
+  const { data: row, error } = await sb.from('share_links')
+    .insert({ user_id: window.currentUser.id, collection_id: data.collectionId, kind })
+    .select('token').single();
+  if (error) throw error;
+  return row.token;
+};
+
+data.revokeShareLink = async function (kind) {
+  const { error } = await sb.from('share_links').delete()
+    .eq('user_id', window.currentUser.id)
+    .eq('collection_id', data.collectionId)
+    .eq('kind', kind);
+  if (error) throw error;
+};
+
+// Anonymous read — runs before (and without) sign-in on the share page.
+data.fetchSharedPage = async function (token) {
+  const { data: page, error } = await sb.rpc('shared_list_page', { p_token: token });
+  if (error) throw error;
+  return page;   // { owner, kind, items } | null (unknown/revoked token)
+};
+
 data.getSocialProfile = async function (userId) {
   // social_links may not exist pre-0035; fall back to the base columns so an
   // un-migrated client still loads profiles.

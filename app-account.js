@@ -95,6 +95,133 @@ async function onShareClick(e) {
   }
 }
 
+// ─── Share links (db/0089) — public wish list / crypt pages ─────────
+// Mint / copy / revoke an unguessable read-only link. The viewer side is
+// renderSharedListPage below, which runs INSTEAD of the auth gate when the
+// app is opened with ?share=TOKEN.
+
+async function openShareListModal(kind) {
+  const isWish = kind === 'wishlist';
+  let token = null;
+  try { token = await data.getShareLink(kind); }
+  catch (e) { console.error('getShareLink', e); toast('Could not check your share link.'); return; }
+
+  const pubCount = (state.collection || []).filter((it) => it.visibility === 'public').length;
+  const totCount = (state.collection || []).length;
+  const what = isWish ? 'wish list' : 'crypt';
+  const explain = isWish
+    ? `Anyone with the link — <strong>no account needed</strong> — sees the item names, photos, stock status, and store links. Never your notes. Perfect for birthdays. 🎁`
+    : `Anyone with the link — <strong>no account needed</strong> — sees only the plushies you've marked <strong>Public</strong> (name, photo, how many). Right now that's <strong>${pubCount} of ${totCount}</strong>. Personal meaning never shows.`;
+
+  openSocialModal(`
+    <div class="share-list-modal">
+      <h2>🔗 Share your ${what}</h2>
+      <p class="share-list-explain">${explain}</p>
+      <div id="sl-link-wrap" class="${token ? '' : 'hidden'}">
+        <input id="sl-link" type="text" readonly aria-label="Your share link" />
+        <div class="share-list-actions">
+          <button class="btn-primary" id="sl-copy">Copy link</button>
+          <button class="btn-ghost soc-danger" id="sl-revoke">🚫 Stop sharing</button>
+        </div>
+        <p class="account-hint">Stopping kills this link everywhere; sharing again makes a brand-new one.</p>
+      </div>
+      <div id="sl-create-wrap" class="${token ? 'hidden' : ''}">
+        <button class="btn-primary" id="sl-create">Create the link</button>
+      </div>
+      <div class="share-list-footer"><button class="btn-ghost" data-close-social>Close</button></div>
+    </div>`);
+
+  const linkFor = (t) => `${window.location.origin}${window.location.pathname}?share=${t}`;
+  const input = document.getElementById('sl-link');
+  if (token) input.value = linkFor(token);
+
+  document.getElementById('sl-create').addEventListener('click', async () => {
+    try {
+      token = await data.createShareLink(kind);
+      input.value = linkFor(token);
+      showEl('sl-link-wrap'); hideEl('sl-create-wrap');
+      toast('Link created — copy it and hand it out. 🖤');
+    } catch (e) { console.error('createShareLink', e); toast('Could not create the link.'); }
+  });
+  document.getElementById('sl-copy').addEventListener('click', async () => {
+    input.select();
+    try { await navigator.clipboard.writeText(input.value); toast('Link copied.'); }
+    catch { document.execCommand('copy'); toast('Link copied.'); }
+  });
+  document.getElementById('sl-revoke').addEventListener('click', async () => {
+    try {
+      await data.revokeShareLink(kind);
+      token = null; input.value = '';
+      hideEl('sl-link-wrap'); showEl('sl-create-wrap');
+      toast('Link revoked — it no longer opens for anyone.');
+    } catch (e) { console.error('revokeShareLink', e); toast('Could not revoke the link.'); }
+  });
+}
+
+// The viewer side: a read-only, signed-out page for ?share=TOKEN. Replaces
+// the auth gate entirely for that visit; "join" CTA goes to the normal app.
+async function renderSharedListPage(token) {
+  document.title = 'A shared list — The Plush Crypt';
+
+  // Catalog stock images as the fallback for items whose photo snapshot
+  // isn't a public URL (storage paths need auth to sign). Best-effort.
+  let imageById = new Map();
+  try {
+    const r = await fetch('./catalog.json?v=69', { cache: 'no-cache' });
+    if (r.ok) {
+      const json = await r.json();
+      const items = expandVariants((json.products || []).filter(isPlushieCollectible));
+      imageById = new Map(items.filter((i) => i.image).map((i) => [i.id, shopifyImageVariant(i.image, 400)]));
+    }
+  } catch (e) { console.warn('share page catalog load', e); }
+
+  let page = null, failed = false;
+  try { page = await data.fetchSharedPage(token); }
+  catch (e) { console.error('fetchSharedPage', e); failed = true; }
+
+  const joinCta = `<a class="btn-primary share-join" href="./">🦇 Keep your own crypt — join The Plush Crypt</a>`;
+  let inner;
+  if (failed) {
+    inner = `<p class="share-empty">The crypt door is stuck — try this link again in a moment. 🕯️</p>`;
+  } else if (!page) {
+    inner = `<p class="share-empty">This link has been sealed away. Ask your collector friend for a fresh one. 🕯️</p>${joinCta}`;
+  } else {
+    const isWish = page.kind === 'wishlist';
+    const items = page.items || [];
+    const cards = items.map((it) => {
+      const img = it.photo || imageById.get(it.catalogId) || null;
+      const media = img ? `<img src="${escapeHtml(img)}" loading="lazy" alt="" />` : `<span class="share-noimg">🖤</span>`;
+      const badge = isWish && it.outOfStock ? `<span class="share-badge">Sold out right now</span>` : '';
+      const qty = !isWish && it.quantity > 1 ? `<span class="share-badge">×${it.quantity}</span>` : '';
+      const body = `<div class="share-card-media">${media}</div>
+        <span class="share-card-name">${escapeHtml(it.name)}</span>${badge}${qty}`;
+      return isWish && it.url
+        ? `<a class="share-card" href="${escapeHtml(it.url)}" target="_blank" rel="noopener">${body}<span class="share-card-go">See it in the store ↗</span></a>`
+        : `<div class="share-card">${body}</div>`;
+    }).join('');
+    const empty = isWish
+      ? `<p class="share-empty">Nothing on the wish list right now — lucky them. 🖤</p>`
+      : `<p class="share-empty">No plushies on display right now. 🖤</p>`;
+    inner = `
+      <h1>@${escapeHtml(page.owner)}'s ${isWish ? 'wish list' : 'crypt'} ${isWish ? '🎁' : '🧸'}</h1>
+      <p class="share-sub">${isWish
+        ? 'Plushie Dreadfuls they\'re wishing for — tap any to see it in the store.'
+        : 'A peek at the plushies haunting their crypt.'}</p>
+      ${items.length ? `<div class="share-grid">${cards}</div>` : empty}
+      <footer class="share-footer">
+        <p>Made with The Plush Crypt — a home for Plushie Dreadfuls collectors.</p>
+        ${joinCta}
+      </footer>`;
+  }
+
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="share-page" class="share-page">
+      <header class="share-head">🦇 The Plush Crypt</header>
+      <div class="share-body">${inner}</div>
+    </div>`);
+  window.removeBootSplash?.();
+}
+
 async function switchCollection(collectionId) {
   await data.switchActiveCollection(collectionId);
   await loadAll();
