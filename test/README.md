@@ -42,7 +42,10 @@ present, otherwise the legacy single `app.js`.
   can't ship as an *invisible* fix (stale cache). Enforces: all `app-*.js`
   share one `?v=`; every `?v=` asset exists; the SW precache list is real and
   query-string-free; no root-absolute (Capacitor-hostile) asset paths; unique
-  migration numbers. Plus a git-aware check that any versioned asset whose
+  migration numbers; `<script>` tags in the load-bearing order (supports before
+  parts, parts in harness-`PARTS` order, `app-social.js` last); every local
+  asset either cache-busted or SW-precached. Plus a git-aware check that any
+  versioned asset whose
   bytes changed vs `origin/main` had its `?v=` **and** the `sw.js` `CACHE`
   bumped (skips cleanly when no base ref is resolvable).
 
