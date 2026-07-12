@@ -700,6 +700,49 @@ async function maybeFireDmNotification(unread) {
   await fireLocalNotification('🦇 The Plush Crypt', body, 'dm-unread');
 }
 
+// ─── Notification inbox drain (db/0085) ──────────────────────────────
+// Every server-side push event also queues a `notifications` row, even when
+// the recipient has no push subscription. This poll (piggybacking the 5-min
+// social check) locally fires whatever real push didn't deliver — the
+// uniform fallback that finally covers post events (comments, replies,
+// likes, mentions, feedback, approvals) while the app is open. Tags whose
+// bespoke pollers already announce them (friends, trades, DMs) are marked
+// delivered but not re-shown, so nothing ever doubles up.
+const QUEUE_OWNED_ELSEWHERE = (tag) =>
+  !tag ? false
+  : tag === 'friend-request' || tag === 'friend-accept'   // maybeFireFriendNotifications
+    || tag.startsWith('dm-')                              // maybeFireDmNotification
+    || tag.startsWith('trade-');                          // maybeFireTradeNotifications
+
+let _queueDrainInFlight = false;
+async function maybeFireQueuedNotifications() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  if (!(await idb.getMeta('notify_enabled'))) return;
+  if (_queueDrainInFlight) return;
+  _queueDrainInFlight = true;
+  try {
+    const rows = await data.listUndeliveredNotifications();
+    if (!rows.length) return;
+    // With confirmed server push, the OS banner already showed these —
+    // just clear the queue. Otherwise we ARE the delivery.
+    if (!(await serverPushDeliverable())) {
+      const show = rows.filter((r) => !QUEUE_OWNED_ELSEWHERE(r.tag));
+      if (show.length > 3) {
+        // A pile (first open in a while): one digest instead of a buzz-storm.
+        await fireLocalNotification('🦇 The Plush Crypt',
+          `${show.length} things happened in the crypt while you were away 🦇`, 'crypt-digest');
+      } else {
+        for (const r of show) await fireLocalNotification(r.title, r.body, r.tag);
+      }
+    }
+    await data.markNotificationsDelivered(rows.map((r) => r.id));
+  } catch (e) {
+    console.warn('notification queue drain', e);
+  } finally {
+    _queueDrainInFlight = false;
+  }
+}
+
 let _reminderInFlight = false;
 // Fire a notification ONLY when a wishlist plush actually comes back into
 // stock — the event people care about. This replaced the old daily "N items

@@ -132,6 +132,10 @@ async function refreshSocialBadge() {
       maybeFireDmNotification(state.dmUnread).catch((e) => console.warn(e));
     }
   } catch (e) { console.warn('dm badge', e); }
+  // Drain the server-side notification queue (db/0085): locally fire
+  // anything real push didn't deliver — posts, replies, mentions, feedback,
+  // approvals. The uniform fallback; see maybeFireQueuedNotifications.
+  maybeFireQueuedNotifications().catch((e) => console.warn(e));
 }
 
 // Poll for new friend requests every few minutes while the app is open
