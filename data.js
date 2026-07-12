@@ -3605,4 +3605,29 @@ data.dmUnreadCount = async function () {
   return count || 0;
 };
 
+// ─── Notification inbox (db/0085) ────────────────────────────────────
+// Every push trigger queues here via _push_send; the app-open poll
+// (maybeFireQueuedNotifications) locally fires whatever real push didn't
+// deliver. Oldest first so a burst reads in order.
+data.listUndeliveredNotifications = async function ({ limit = 20 } = {}) {
+  const { data: rows, error } = await sb
+    .from('notifications')
+    .select('id, title, body, url, tag, created_at')
+    .eq('user_id', window.currentUser.id)
+    .is('delivered_at', null)
+    .order('created_at', { ascending: true })
+    .limit(limit);
+  if (error) throw error;
+  return rows || [];
+};
+
+data.markNotificationsDelivered = async function (ids) {
+  if (!ids?.length) return;
+  const { error } = await sb
+    .from('notifications')
+    .update({ delivered_at: new Date().toISOString() })
+    .in('id', ids);
+  if (error) throw error;
+};
+
 window.data = data;
