@@ -12,9 +12,16 @@
 // ─── Service worker ──────────────────────────────────────────────────
 function registerSW() {
   if (!('serviceWorker' in navigator)) return;
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW failed', e));
-  });
+  const go = () => navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW failed', e));
+  // registerSW() runs from boot(), which lands AFTER the window 'load' event
+  // on all but the slowest visits — and a 'load' listener added after the
+  // event has fired never runs. That silently skipped SW registration for
+  // whole sessions (and left navigator.serviceWorker.ready hanging forever,
+  // which is how push subscriptions never got stored — the 0-rows mystery).
+  // Register immediately when load already happened; only defer when we
+  // genuinely beat it.
+  if (document.readyState === 'complete') go();
+  else window.addEventListener('load', go, { once: true });
 }
 
 // ─── Boot ────────────────────────────────────────────────────────────

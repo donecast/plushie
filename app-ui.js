@@ -572,7 +572,18 @@ async function ensurePushSubscription() {
   const uid = window.currentUser?.id;
   if (!uid || !window.sb) { dbg('no_user', { hasUid: !!uid, hasSb: !!window.sb }); return false; }
   try {
-    const reg = await navigator.serviceWorker.ready;
+    // Self-sufficient: if this session never registered the SW (the old
+    // load-listener race), register it now rather than depending on boot's
+    // registerSW() having won. And NEVER await .ready bare — it's a promise
+    // that simply never settles when no SW activates, which is exactly how
+    // this function used to hang silently before its first diagnostic.
+    if (!(await navigator.serviceWorker.getRegistration())) {
+      await navigator.serviceWorker.register('./sw.js');
+    }
+    const reg = await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('sw-ready-timeout')), 15000)),
+    ]);
     let sub = await reg.pushManager.getSubscription();
     if (!sub) {
       sub = await reg.pushManager.subscribe({
