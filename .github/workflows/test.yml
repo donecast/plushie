@@ -12,7 +12,13 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      # Full history + origin/main so the release-hygiene guard can diff the
+      # branch against main to check that changed assets were cache-busted.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Make origin/main available for the release-hygiene diff
+        run: git fetch --no-tags origin main:refs/remotes/origin/main || true
       - uses: actions/setup-node@v4
         with:
           node-version: '20'

@@ -37,6 +37,14 @@ present, otherwise the legacy single `app.js`.
   (`cleanCatalogName`, `canonicalizeAccessoryName`, `normalizeAccessories`,
   …), product categorisation (`catalogCategory`, `itemStatus`), image-URL
   helpers, and the search-query parser (`parseQuery`, `matchesQuery`).
+- **`release-hygiene.test.js` (Tier 0)** — guards the ship-time conventions a
+  no-build static site can't get from a compiler, so a correct code change
+  can't ship as an *invisible* fix (stale cache). Enforces: all `app-*.js`
+  share one `?v=`; every `?v=` asset exists; the SW precache list is real and
+  query-string-free; no root-absolute (Capacitor-hostile) asset paths; unique
+  migration numbers. Plus a git-aware check that any versioned asset whose
+  bytes changed vs `origin/main` had its `?v=` **and** the `sw.js` `CACHE`
+  bumped (skips cleanly when no base ref is resolvable).
 
 ## What's intentionally not here (yet)
 
