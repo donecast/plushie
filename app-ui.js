@@ -1257,6 +1257,9 @@ function wireEvents() {
     shell.addEventListener('click', (e) => {
       const t = e.target.closest('[data-tab]');
       if (!t) return;
+      // Messages is a Home sub-surface, not a top-level tab — route the
+      // bottom-nav 💬 through the header icon so both share one enter logic.
+      if (t.dataset.tab === 'messages') { document.getElementById('dm-btn')?.click(); return; }
       // A data-subtab (e.g. the wishlist thumbnails) lands on that crypt sub-tab.
       if (t.dataset.subtab) state.colSubTab = t.dataset.subtab;
       // Stirrings feed entries open the exact item they refer to (detail rail or
