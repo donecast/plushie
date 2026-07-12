@@ -63,6 +63,87 @@ function makeNode() {
   });
 }
 
+// ── Recording DOM (opt-in) ─────────────────────────────────────────────────
+// The proxy DOM above swallows every write, which is right for load-time
+// safety but useless for render tests: you can't see what render() painted.
+// The recording DOM keeps the same permissive, can't-throw surface but gives
+// each getElementById(id) a SINGLE stateful element whose property writes
+// (innerHTML, textContent, value, hidden, …) are stored and readable back —
+// so a test can seed state, call render(), and assert on the HTML produced.
+// querySelector(All) still return permissive stubs/[]: innerHTML is stored as
+// a string, never parsed, so element-tree queries can't be answered. That
+// keeps the target honest — assertions read the recorded HTML, not the tree.
+function makeRecordingDom() {
+  const registry = new Map(); // id → element (auto-vivified, stable)
+
+  function makeEl(id) {
+    const store = {
+      id: id || '', innerHTML: '', textContent: '', innerText: '', value: '',
+      className: '', hidden: false, disabled: false, checked: false, open: false,
+    };
+    const classes = new Set();
+    const classList = {
+      add: (...cs) => cs.forEach((c) => classes.add(c)),
+      remove: (...cs) => cs.forEach((c) => classes.delete(c)),
+      toggle: (c, force) => {
+        const on = force === undefined ? !classes.has(c) : !!force;
+        if (on) classes.add(c); else classes.delete(c);
+        return on;
+      },
+      contains: (c) => classes.has(c),
+    };
+    const dataset = {};
+    const style = {};
+    return new Proxy(function () {}, {
+      get(_t, prop) {
+        if (prop === 'classList') return classList;
+        if (prop === 'dataset') return dataset;
+        if (prop === 'style') return style;
+        if (typeof prop === 'string' && prop in store) return store[prop];
+        if (prop === 'children' || prop === 'childNodes') return [];
+        if (prop === 'closest') return () => null;
+        if (prop === 'querySelector') return () => makeNode();
+        if (prop === 'querySelectorAll' || prop === 'getElementsByClassName') return () => [];
+        if (prop === 'getAttribute') return (n) => (store[`@${n}`] !== undefined ? store[`@${n}`] : null);
+        if (prop === 'setAttribute') return (n, v) => { store[`@${n}`] = String(v); };
+        if (prop === 'removeAttribute') return (n) => { delete store[`@${n}`]; };
+        if (prop === 'insertAdjacentHTML') return (_pos, html) => { store.innerHTML += html; };
+        if (prop === 'addEventListener' || prop === 'removeEventListener') return () => {};
+        if (prop === 'appendChild' || prop === 'append' || prop === 'prepend' || prop === 'insertBefore') return (x) => x;
+        if (prop === 'cloneNode') return () => makeEl();
+        if (prop === Symbol.toPrimitive) return () => '';
+        return () => makeNode(); // unknown method — stay permissive, never throw
+      },
+      set(_t, prop, v) { if (typeof prop === 'string') store[prop] = v; return true; },
+      apply() { return makeNode(); },
+    });
+  }
+
+  const body = makeEl('body'), head = makeEl('head'), root = makeEl('html');
+  const document = new Proxy({}, {
+    get(_t, p) {
+      if (p === 'body') return body;
+      if (p === 'head') return head;
+      if (p === 'documentElement') return root;
+      if (p === 'getElementById') return (id) => {
+        if (!registry.has(id)) registry.set(id, makeEl(id));
+        return registry.get(id);
+      };
+      if (p === 'createElement') return () => makeEl();
+      if (p === 'querySelector') return () => makeNode();
+      if (p === 'querySelectorAll' || p === 'getElementsByClassName') return () => [];
+      if (p === 'addEventListener' || p === 'removeEventListener') return () => {};
+      if (p === 'cookie') return '';
+      if (p === 'readyState') return 'complete';
+      return () => makeNode();
+    },
+  });
+
+  // html(id) — the recorded innerHTML of an element, '' if never touched.
+  const html = (id) => (registry.has(id) ? registry.get(id).innerHTML : '');
+  return { document, registry, html };
+}
+
 function makeDocument() {
   return new Proxy({}, {
     get(_t, p) {
@@ -79,7 +160,10 @@ function makeDocument() {
 
 // Build a fresh context with the app source loaded. Returns helpers for
 // poking at the global functions the app defines.
-function loadApp() {
+// opts.dom: 'proxy' (default — swallow everything) | 'recording' (stateful
+// per-id elements; adds `dom.{registry,html}` to the return for assertions).
+function loadApp(opts = {}) {
+  const recording = opts.dom === 'recording' ? makeRecordingDom() : null;
   const sandbox = {};
   const win = new Proxy(sandbox, {
     get(t, p) { return p in t ? t[p] : undefined; },
@@ -87,7 +171,8 @@ function loadApp() {
   });
 
   Object.assign(sandbox, {
-    window: win, self: win, globalThis: win, document: makeDocument(),
+    window: win, self: win, globalThis: win,
+    document: recording ? recording.document : makeDocument(),
     navigator: { userAgent: 'plush-crypt-test', serviceWorker: { register: () => Promise.resolve(), addEventListener() {} }, onLine: true },
     location: { href: 'https://plushcrypt.com/', origin: 'https://plushcrypt.com', hostname: 'plushcrypt.com', search: '', pathname: '/', hash: '', reload() {}, assign() {} },
     localStorage: { getItem: () => null, setItem() {}, removeItem() {}, clear() {} },
@@ -127,8 +212,15 @@ function loadApp() {
 
   const typeOf = (expr) => vm.runInContext(`typeof (${expr})`, ctx);
   const setGlobal = (k, v) => { sandbox[k] = v; };
+  // Run arbitrary code inside the app's realm. Needed to reach top-level
+  // const/let bindings like `state` — they live in the context's lexical
+  // scope, not on the sandbox object, so tests can't touch them from outside.
+  const exec = (code) => vm.runInContext(code, ctx);
+  // Seed `state` fields from a plain object (values cross the realm boundary
+  // via a sandbox temp; fine for JSON-ish data, Sets/Maps stay in-realm).
+  const seedState = (patch) => { sandbox.__patch = patch; exec('Object.assign(state, __patch)'); delete sandbox.__patch; };
 
-  return { ctx, sandbox, files, call, typeOf, setGlobal };
+  return { ctx, sandbox, files, call, typeOf, setGlobal, exec, seedState, dom: recording };
 }
 
 module.exports = { loadApp, PARTS };
