@@ -119,6 +119,46 @@ test('migration numbers are unique (collisions, not gaps, are the bug)', () => {
   );
 });
 
+test('script tags load in the load-bearing order (supports first, parts in sequence, app-social last)', () => {
+  // The app-*.js parts share one global scope with no import/export, so the
+  // <script> order in index.html IS the dependency graph. PARTS (from the test
+  // harness) is the single source of truth for that order; app-social.js boots
+  // the app and must stay last.
+  const { PARTS } = require('./harness.js');
+  const html = read('index.html');
+  const scripts = [...html.matchAll(/<script src="\.\/([^"?]+)/g)].map((m) => m[1]);
+  const appParts = scripts.filter((s) => /^app-.*\.js$/.test(s));
+  assert.deepEqual(appParts, PARTS, 'app-*.js script tags must match the harness PARTS order exactly');
+  assert.equal(scripts[scripts.length - 1], 'app-social.js', 'app-social.js boots the app and must be the last script');
+  // config/auth/db/data define the globals the parts read — all must precede
+  // the first app part (a part loading first is a load-time ReferenceError).
+  const firstPart = scripts.indexOf(appParts[0]);
+  for (const support of ['config.js', 'auth.js', 'db.js', 'data.js']) {
+    const idx = scripts.indexOf(support);
+    assert.ok(idx !== -1 && idx < firstPart, `${support} must load before the first app-*.js part`);
+  }
+});
+
+test('every local asset in index.html is covered by the SW strategy (?v= or precached)', () => {
+  // The SW serves versioned files (?v=N) from its fetch handler and precaches
+  // the unversioned shell in ASSETS. A local asset with neither is invisible
+  // to cache invalidation: it can go stale with no way to bust it.
+  const html = read('index.html');
+  const sw = read('sw.js');
+  const precached = new Set(
+    [...sw.match(/const ASSETS\s*=\s*\[([^\]]*)\]/)[1].matchAll(/'([^']+)'/g)]
+      .map((m) => m[1].replace(/^\.\//, '')),
+  );
+  const locals = [...html.matchAll(/\b(?:src|href)="\.\/([^"]+)"/g)].map((m) => m[1]);
+  const uncovered = [...new Set(locals)]
+    .filter((ref) => !ref.includes('?v='))
+    .filter((ref) => !precached.has(ref));
+  assert.deepEqual(
+    uncovered, [],
+    `local asset(s) with no cache-bust and no SW precache entry — they can go stale forever: ${uncovered.join(', ')}`,
+  );
+});
+
 // ── git-aware bump guard ────────────────────────────────────────────────────
 // Resolve a base commit to diff the working tree against. Prefer an explicit
 // override, then origin/main, then main. Returns null if nothing resolves (bare
