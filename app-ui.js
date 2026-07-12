@@ -1655,6 +1655,10 @@ function wireEvents() {
   document.getElementById('tl-suggestion').addEventListener('click', (e) => {
     if (e.target.closest('#tl-use-collection')) useCollectionPhoto();
   });
+  document.getElementById('tl-extras').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-tl-extra]');
+    if (btn) setTradeListExtra(parseInt(btn.dataset.tlExtra, 10), btn.dataset.tlExtraVal === 'yes');
+  });
   document.getElementById('tl-save').addEventListener('click', saveTradeList);
 
   // Feedback modal — three structured thumbs.
