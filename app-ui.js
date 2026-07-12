@@ -676,6 +676,19 @@ async function maybeFireFriendNotifications() {
   await fireLocalNotification('🦇 The Plush Crypt', body, 'friend-request');
 }
 
+// New private message(s) landed while the app is open. Same stance as
+// friend requests: real push covers it when confirmed deliverable; local
+// is the fallback so a half-subscribed device still hears about it.
+async function maybeFireDmNotification(unread) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  if (!(await idb.getMeta('notify_enabled'))) return;
+  if (await serverPushDeliverable()) return;
+  // Don't buzz about a conversation the user is literally looking at.
+  if (state.tab === 'home' && state.socSubTab === 'messages') return;
+  const body = unread === 1 ? 'You have a new message 💌' : `${unread} unread messages in the crypt 💌`;
+  await fireLocalNotification('🦇 The Plush Crypt', body, 'dm-unread');
+}
+
 let _reminderInFlight = false;
 // Fire a notification ONLY when a wishlist plush actually comes back into
 // stock — the event people care about. This replaced the old daily "N items
@@ -1691,6 +1704,20 @@ function wireEvents() {
     state.socProfile = null;
     await loadSocialData();
     state.socSubTab = 'friends';
+    render();
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    saveFilters();
+  });
+
+  // Messages (💬) — same ambient pattern as the Coven icon: land on Home,
+  // open the thread list (or straight back into the conversation that was
+  // open before, if any — matches Messenger's "resume where you were").
+  document.getElementById('dm-btn')?.addEventListener('click', async () => {
+    tabScroll.set(state.tab, window.scrollY);
+    state.tab = 'home';
+    state.socProfile = null;
+    state.socSubTab = 'messages';
+    try { await loadDmThreads(); } catch (e) { console.warn('dm threads', e); }
     render();
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' }));
     saveFilters();

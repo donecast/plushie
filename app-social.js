@@ -54,6 +54,9 @@ async function loadSocialData() {
     state.socRequests = requests;
     state.socPendingCount = requests.length;
     maybeFireFriendNotifications().catch((e) => console.warn(e));
+    // DM threads ride along (best-effort — a miss shouldn't sink the feed)
+    // so the 💬 badge is right from first paint.
+    loadDmThreads().catch((e) => console.warn('dm threads', e));
   } catch (e) {
     console.error('loadSocialData', e);
     toast('Could not load the crypt social feed.');
@@ -75,6 +78,16 @@ async function refreshSocialBadge() {
     updateSocialBadge();
     maybeFireFriendNotifications().catch((e) => console.warn(e));
   } catch (e) { console.warn('social badge', e); }
+  try {
+    // 💬 unread pip rides the same poll. Announce genuinely-new arrivals
+    // locally (push covers the closed-app case; this covers app-open).
+    const prevUnread = state.dmUnread || 0;
+    state.dmUnread = await data.dmUnreadCount();
+    updateDmBadge();
+    if (state.dmUnread > prevUnread) {
+      maybeFireDmNotification(state.dmUnread).catch((e) => console.warn(e));
+    }
+  } catch (e) { console.warn('dm badge', e); }
 }
 
 // Poll for new friend requests every few minutes while the app is open
@@ -174,6 +187,7 @@ function renderSocial() {
   document.getElementById('soc-feed').classList.toggle('hidden', !showFeed);
   document.getElementById('soc-friends').classList.toggle('hidden', onProfile || state.socSubTab !== 'friends');
   document.getElementById('soc-me').classList.toggle('hidden', onProfile || state.socSubTab !== 'me');
+  document.getElementById('soc-messages')?.classList.toggle('hidden', onProfile || state.socSubTab !== 'messages');
   document.querySelectorAll('#social-view .subtab').forEach((s) =>
     s.classList.toggle('active', !onProfile && s.dataset.socSubtab === state.socSubTab));
 
@@ -184,6 +198,178 @@ function renderSocial() {
   if (state.socSubTab === 'feed') renderFeed();
   else if (state.socSubTab === 'friends') renderFriends();
   else if (state.socSubTab === 'me') renderMyProfileTab();
+  else if (state.socSubTab === 'messages') renderMessages();
+}
+
+// ─── Private messages (db/0083) ─────────────────────────────────────
+// Facebook-Messenger shape: the 💬 header icon opens a thread list (one row
+// per conversation partner, latest line + unread pip); tapping a thread —
+// or "💬 Message" on a friend row / profile — opens the conversation with a
+// bubble timeline and a composer. Friends-only; the DB enforces that (plus
+// blocks and the ghost illusion), the client just surfaces the affordances.
+
+function renderMessages() {
+  const el = document.getElementById('soc-messages');
+  if (!el) return;
+  el.innerHTML = state.dmPartner ? dmConversationHtml() : dmThreadListHtml();
+  if (state.dmPartner) {
+    // Land scrolled to the newest message, and keep the composer handy.
+    const list = document.getElementById('dm-msg-list');
+    if (list) requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
+  }
+  ensureDmPoll();
+}
+
+function dmThreadListHtml() {
+  const threads = state.dmThreads;
+  const rows = threads.map((t) => `
+    <button class="dm-thread-row ${t.unread ? 'dm-unread' : ''}" data-soc-action="open-dm"
+            data-uid="${t.partnerId}" data-name="${escapeHtml(t.username)}">
+      ${socAvatar(t.avatarUrl, t.username)}
+      <span class="dm-thread-main">
+        <span class="dm-thread-name">@${escapeHtml(t.username)}</span>
+        <span class="dm-thread-preview">${t.lastFromMe ? 'You: ' : ''}${escapeHtml(t.lastBody)}</span>
+      </span>
+      <span class="dm-thread-meta">
+        <span class="dm-thread-time">${escapeHtml(socTimeAgo(t.lastAt))}</span>
+        ${t.unread ? `<span class="tab-badge dm-thread-badge">${t.unread}</span>` : ''}
+      </span>
+    </button>`).join('');
+  return `
+    <section class="soc-section">
+      <h2 class="soc-section-head">💬 Messages</h2>
+      ${threads.length ? `<div class="dm-thread-list">${rows}</div>`
+        : `<p class="empty-note">No messages yet. Find a friend in your
+             <button class="linklike" data-soc-action="go-friends">Coven</button>
+             and hit 💬 Message to start a conversation.</p>`}
+    </section>`;
+}
+
+function dmConversationHtml() {
+  const p = state.dmPartner;
+  const msgs = state.dmMessages;
+  let lastDay = '';
+  const bubbles = msgs.map((m) => {
+    // A quiet day separator whenever the calendar date changes.
+    const day = new Date(m.createdAt).toDateString();
+    const sep = day !== lastDay ? `<div class="dm-day-sep">${escapeHtml(formatDate(m.createdAt))}</div>` : '';
+    lastDay = day;
+    return `${sep}
+      <div class="dm-bubble-row ${m.mine ? 'dm-mine' : 'dm-theirs'}">
+        <div class="dm-bubble">${linkifyMentions(m.body)}</div>
+        <span class="dm-bubble-time">${escapeHtml(socTimeAgo(m.createdAt))}</span>
+      </div>`;
+  }).join('');
+  return `
+    <section class="soc-section dm-conversation">
+      <header class="dm-convo-head">
+        <button class="linklike soc-back" data-soc-action="dm-back">← Messages</button>
+        <button class="soc-userlink" data-soc-action="view-profile" data-uid="${p.id}">
+          ${socAvatar(p.avatarUrl, p.username)} <span>@${escapeHtml(p.username)}</span>
+        </button>
+      </header>
+      <div id="dm-msg-list" class="dm-msg-list">
+        ${msgs.length ? bubbles : '<p class="empty-note">No messages yet — say hi 🦇</p>'}
+      </div>
+      <form class="soc-comment-form dm-compose" data-soc-action="submit-dm">
+        <input type="text" id="dm-input" class="soc-comment-input" maxlength="2000"
+               placeholder="Message @${escapeHtml(p.username)}…" autocomplete="off" />
+        <button class="btn-primary" type="submit">Send</button>
+      </form>
+    </section>`;
+}
+
+async function loadDmThreads() {
+  state.dmThreads = await data.listDmThreads();
+  state.dmUnread = state.dmThreads.reduce((n, t) => n + t.unread, 0);
+  updateDmBadge();
+}
+
+// Open a conversation (from a thread row, a friend row, or a profile).
+async function openDm(uid, username) {
+  state.tab = 'home';
+  state.socProfile = null;
+  state.socSubTab = 'messages';
+  // Avatar from whatever list we already have; the thread list refresh fills it in.
+  const known = state.dmThreads.find((t) => t.partnerId === uid)
+    || state.socFriends.find((f) => f.userId === uid);
+  state.dmPartner = { id: uid, username, avatarUrl: known?.avatarUrl ?? known?.avatarURL ?? null };
+  try {
+    state.dmMessages = await data.listDmMessages(uid);
+    await data.markDmRead(uid);
+    await loadDmThreads();          // clears this thread's unread from the badge
+  } catch (e) {
+    console.error('openDm', e);
+    toast('Could not load the conversation.');
+  }
+  render();
+}
+
+function closeDm() {
+  state.dmPartner = null;
+  state.dmMessages = [];
+  renderMessages();
+}
+
+async function submitDmForm(form) {
+  const input = form.querySelector('#dm-input');
+  const body = (input?.value || '').trim();
+  const p = state.dmPartner;
+  if (!body || !p) return;
+  const btn = form.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  try {
+    const row = await data.sendDm(p.id, body);
+    state.dmMessages.push({ id: row.id, mine: true, body, createdAt: row.created_at, readAt: null });
+    input.value = '';
+    renderMessages();
+    document.getElementById('dm-input')?.focus();
+    loadDmThreads().catch(() => {});
+  } catch (e) {
+    console.error('sendDm', e);
+    // The DB refuses non-friends and blocked pairs (RLS) — say so plainly.
+    toast(/row-level security|violates/i.test(e?.message || '')
+      ? 'You can only message friends in your Coven.'
+      : 'Could not send — try again.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// While a conversation is open, poll for the other side's replies. The timer
+// self-heals: it clears itself the moment the user is anywhere else, so tab
+// hops can't leak intervals.
+function ensureDmPoll() {
+  const viewing = state.tab === 'home' && state.socSubTab === 'messages' && !state.socProfile;
+  if (!viewing) { clearInterval(window._dmTimer); window._dmTimer = null; return; }
+  if (window._dmTimer) return;
+  window._dmTimer = setInterval(async () => {
+    const stillViewing = state.tab === 'home' && state.socSubTab === 'messages' && !state.socProfile;
+    if (!stillViewing) { clearInterval(window._dmTimer); window._dmTimer = null; return; }
+    try {
+      if (state.dmPartner) {
+        const fresh = await data.listDmMessages(state.dmPartner.id);
+        if (fresh.length !== state.dmMessages.length) {
+          const hadNew = fresh.length > state.dmMessages.length && fresh.some((m) => !m.mine);
+          state.dmMessages = fresh;
+          if (hadNew) await data.markDmRead(state.dmPartner.id);
+          renderMessages();
+        }
+      } else {
+        await loadDmThreads();
+        renderMessages();
+      }
+    } catch (e) { console.warn('dm poll', e); }
+  }, 8000);
+}
+
+function updateDmBadge() {
+  const n = state.dmUnread || 0;
+  const b = document.getElementById('dm-badge');
+  if (b) {
+    b.textContent = n;
+    b.classList.toggle('hidden', n === 0);
+  }
 }
 
 // ─── Feed ───────────────────────────────────────────────────────────
@@ -496,6 +682,7 @@ function renderFriends() {
             </button>
           </div>
           <span class="soc-friend-actions">
+            <button class="btn-ghost" data-soc-action="open-dm" data-uid="${f.userId}" data-name="${escapeHtml(f.username)}">💬 Message</button>
             <button class="btn-ghost" data-soc-action="toggle-coffin" data-uid="${f.userId}" data-on="${f.isCoffinBuddy ? '0' : '1'}">
               ${f.isCoffinBuddy ? '🚫 Coffin Buddies' : 'Add to Coffin Buddies'}
             </button>
@@ -691,6 +878,7 @@ function renderProfileInto(el, { profile, posts = [], top8 = [], friendship, isM
         ? '<span class="soc-rel-tag">⚰️ Coffin Buddies</span>'
         : (fr.isInner ? '<span class="soc-rel-tag">🏰 Castle Crew</span>' : '<span class="soc-rel-tag">🦇 In your Coven</span>');
       relBtns = `${tierTag}
+               <button class="btn-primary" data-soc-action="open-dm" data-uid="${profile.id}" data-name="${escapeHtml(profile.username || '')}">💬 Message</button>
                <button class="btn-ghost" data-soc-action="toggle-coffin" data-uid="${profile.id}" data-on="${fr.isCoffinBuddy ? '0' : '1'}">${fr.isCoffinBuddy ? '🚫 Coffin Buddies' : 'Add to Coffin Buddies'}</button>
                <button class="btn-ghost" data-soc-action="toggle-inner" data-uid="${profile.id}" data-on="${fr.isInner ? '0' : '1'}">${fr.isInner ? '🚫 Castle Crew' : 'Add to Castle Crew'}</button>
                <button class="btn-ghost" data-soc-action="remove-friend" data-uid="${profile.id}">🚫 Coven</button>`;
@@ -1343,7 +1531,9 @@ function wireSocialEvents() {
     const ef = e.target.closest('[data-soc-action="submit-comment-edit"]');
     if (ef) { e.preventDefault(); submitCommentEdit(ef); return; }
     const pf = e.target.closest('[data-soc-action="add-poll-option"]');
-    if (pf) { e.preventDefault(); onAddPollOption(pf); }
+    if (pf) { e.preventDefault(); onAddPollOption(pf); return; }
+    const df = e.target.closest('[data-soc-action="submit-dm"]');
+    if (df) { e.preventDefault(); submitDmForm(df); }
   });
 
   // Graceful image fallback. `error` doesn't bubble, so listen in the
@@ -1483,6 +1673,8 @@ async function onSocialClick(e) {
   switch (a) {
     case 'open-compose': openComposer(); break;
     case 'go-friends': setSocSubTab('friends'); break;
+    case 'open-dm': await openDm(uid, target.dataset.name); break;
+    case 'dm-back': closeDm(); break;
     case 'share-app': await shareApp(); break;
     case 'view-profile': await openProfile(uid); break;
     case 'close-profile': state.socProfile = null; renderSocial(); break;

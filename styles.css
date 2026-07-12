@@ -4563,6 +4563,55 @@ body.maint-locked { overflow: hidden; }
 .soc-friend-row .soc-userlink span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .soc-friend-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .soc-friend-actions button { font-size: 0.78rem; padding: 5px 9px; }
+
+/* ─── Private messages (💬) ─────────────────────────────────────────── */
+.dm-thread-list { display: flex; flex-direction: column; }
+.dm-thread-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 10px 4px; border: 0; border-bottom: 1px solid var(--hairline);
+  background: none; text-align: left; cursor: pointer; color: inherit;
+  font: inherit;
+}
+.dm-thread-row:hover { background: var(--surface-2); }
+.dm-thread-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dm-thread-name { font-weight: 700; }
+.dm-thread-preview {
+  font-size: 0.82rem; color: var(--muted-1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dm-unread .dm-thread-preview { color: var(--ink-1); font-weight: 700; }
+.dm-thread-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.dm-thread-time { font-size: 0.72rem; color: var(--muted-2); }
+.dm-thread-badge { position: static; }
+
+.dm-convo-head {
+  display: flex; align-items: center; gap: 12px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--hairline);
+}
+.dm-msg-list {
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: 60vh; overflow-y: auto; padding: 12px 2px;
+}
+.dm-day-sep {
+  align-self: center; margin: 8px 0 2px;
+  font-size: 0.72rem; color: var(--muted-2);
+}
+.dm-bubble-row { display: flex; flex-direction: column; max-width: 78%; }
+.dm-bubble-row.dm-mine   { align-self: flex-end; align-items: flex-end; }
+.dm-bubble-row.dm-theirs { align-self: flex-start; align-items: flex-start; }
+.dm-bubble {
+  padding: 8px 12px; border-radius: 16px;
+  background: var(--surface-2); color: var(--ink-1);
+  overflow-wrap: anywhere;
+}
+.dm-mine .dm-bubble {
+  background: var(--rose-1); color: #fff;
+  border-bottom-right-radius: 5px;
+}
+.dm-mine .dm-bubble .soc-mention { color: inherit; text-decoration: underline; }
+.dm-theirs .dm-bubble { border-bottom-left-radius: 5px; }
+.dm-bubble-time { font-size: 0.66rem; color: var(--muted-2); margin: 2px 4px 0; }
+.dm-compose { margin-top: 10px; }
 .soc-inner-tag, .soc-rel-tag {
   font-size: 0.72rem; color: var(--gold); white-space: nowrap; flex: none;
   background: var(--gold-soft-bg, var(--blush)); border-radius: 999px; padding: 2px 8px;

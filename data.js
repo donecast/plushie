@@ -3532,4 +3532,77 @@ data.setTopPlushes = async function (entries, { keepTom = true } = {}) {
   if (error) throw error;
 };
 
+// ─── Private messages (DMs, db/0083) ─────────────────────────────────
+// Friends-only 1:1 messages. All the rules live in the DB (RLS): friends
+// only, blocks kill the channel, ghosted senders are filtered from the
+// recipient's reads. No isGhosted() client guard here on purpose — a ghost
+// still sees their own conversations and can "send" (the recipient just
+// never receives), which is the same illusion the feed maintains.
+
+// Thread list: latest message + unread count per partner, newest first.
+data.listDmThreads = async function () {
+  const { data: rows, error } = await sb.rpc('dm_threads');
+  if (error) throw error;
+  return await Promise.all((rows || []).map(async (r) => ({
+    partnerId: r.partner_id,
+    username: r.username,
+    avatarUrl: r.avatar_path ? await data.socialPhotoUrl(r.avatar_path) : null,
+    lastBody: r.last_body,
+    lastFromMe: r.last_sender === window.currentUser.id,
+    lastAt: r.last_at,
+    unread: Number(r.unread) || 0,
+  })));
+};
+
+// One conversation, oldest → newest (capped; DMs are short-form).
+data.listDmMessages = async function (partnerId, { limit = 200 } = {}) {
+  const uid = window.currentUser.id;
+  const { data: rows, error } = await sb
+    .from('dm_messages')
+    .select('id, sender_id, recipient_id, body, created_at, read_at')
+    .or(`and(sender_id.eq.${uid},recipient_id.eq.${partnerId}),and(sender_id.eq.${partnerId},recipient_id.eq.${uid})`)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (rows || []).reverse().map((m) => ({
+    id: m.id,
+    mine: m.sender_id === uid,
+    body: m.body,
+    createdAt: m.created_at,
+    readAt: m.read_at,
+  }));
+};
+
+data.sendDm = async function (recipientId, body) {
+  const { data: row, error } = await sb
+    .from('dm_messages')
+    .insert({ sender_id: window.currentUser.id, recipient_id: recipientId, body })
+    .select('id, created_at')
+    .single();
+  if (error) throw error;
+  return row;
+};
+
+// Mark everything they sent me as read (opening the conversation).
+data.markDmRead = async function (partnerId) {
+  const { error } = await sb
+    .from('dm_messages')
+    .update({ read_at: new Date().toISOString() })
+    .eq('recipient_id', window.currentUser.id)
+    .eq('sender_id', partnerId)
+    .is('read_at', null);
+  if (error) throw error;
+};
+
+// Total unread across all conversations — drives the 💬 header badge.
+data.dmUnreadCount = async function () {
+  const { count, error } = await sb
+    .from('dm_messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('recipient_id', window.currentUser.id)
+    .is('read_at', null);
+  if (error) throw error;
+  return count || 0;
+};
+
 window.data = data;
