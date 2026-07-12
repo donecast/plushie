@@ -2341,17 +2341,28 @@ async function boot() {
 // immediately rather than waiting for boot() (which is gated behind auth).
 wireLegalModal();
 
-// Gate the app behind sign-in + profile. The auth overlay handles its own UI;
-// once both exist, runAuthGate's callback fires and the app boots normally.
-runAuthGate(() => {
-  // Record this visit for the admin "last seen" column. Fire-and-forget.
-  data.touchLastSeen?.();
-  // Retention instrument (db/0078): one deduped 'app_open' per visit.
-  data.trackSession?.();
-  boot().catch((e) => {
-    console.error(e);
-    toast('Something went wrong loading the app.');
+// ?share=TOKEN (db/0089): a read-only public wish list / crypt page. It
+// replaces the auth gate for this visit — no account needed to look. The
+// page's join CTA links back to ./ which boots the normal gated app.
+const _shareToken = new URLSearchParams(window.location.search).get('share');
+if (_shareToken) {
+  renderSharedListPage(_shareToken).catch((e) => {
+    console.error('share page', e);
+    window.removeBootSplash?.();
   });
-}).catch((e) => {
-  console.error('auth bootstrap', e);
-});
+} else {
+  // Gate the app behind sign-in + profile. The auth overlay handles its own
+  // UI; once both exist, runAuthGate's callback fires and the app boots.
+  runAuthGate(() => {
+    // Record this visit for the admin "last seen" column. Fire-and-forget.
+    data.touchLastSeen?.();
+    // Retention instrument (db/0078): one deduped 'app_open' per visit.
+    data.trackSession?.();
+    boot().catch((e) => {
+      console.error(e);
+      toast('Something went wrong loading the app.');
+    });
+  }).catch((e) => {
+    console.error('auth bootstrap', e);
+  });
+}

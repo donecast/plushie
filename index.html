@@ -42,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=144" />
+  <link rel="stylesheet" href="./styles.css?v=145" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -243,6 +243,7 @@
           <option value="compact">Compact list</option>
         </select>
         <button id="col-arrange" class="filter-arrange" type="button" title="Drag your collection into a custom order">↕ Arrange</button>
+        <button id="col-share" class="filter-action" type="button" title="Get a link to your Public items that anyone can open — no account needed">🔗 Share</button>
         <button class="filter-clear" data-clear-tab="collection">Clear filters</button>
       </div>
       <div id="wishlist-actions" class="filters hidden">
@@ -273,6 +274,7 @@
         </select>
         <button id="wish-arrange" class="filter-arrange" type="button" title="Drag your wish list into priority order">↕ Arrange</button>
         <button id="check-restocks" class="filter-action">Check restocks</button>
+        <button id="wish-share" class="filter-action" type="button" title="Get a link anyone can open — no account needed. Perfect for birthdays.">🔗 Share list</button>
         <button class="filter-clear" data-clear-tab="wishlist">Clear filters</button>
       </div>
       <div id="catalog-filters" class="filters hidden">
@@ -1138,6 +1140,7 @@
           <div class="changelog-day">
             <h3 class="changelog-date">July 12, 2026</h3>
             <ul>
+              <li><strong>Share your wish list with anyone. 🎁</strong> New 🔗 Share buttons on your Wish List and collection give you a link that opens for <em>anyone</em> — no account needed — showing names, photos, and store links (never your notes). Perfect for birthday hint-dropping. For your collection, only items you've marked Public appear. Stop sharing any time; the old link dies instantly.</li>
               <li><strong>Relics! 🗝️</strong> The Crypt now leaves you little keepsakes for taking part — your first plush, your first trade, your first Coven friend, a photo that makes the catalog, a full year haunting the Crypt, and more. They live on a new Relic shelf on your profile, and the feed shows a golden card when someone unearths one. No checklists, no pressure — relics find <em>you</em>.</li>
               <li><strong>Honest trade listings.</strong> When you offer something for trade, the form now asks which of its extras (tote bag, ribbon, and so on) actually come with it and shows your answers right on the listing — plus a new notes box for things like “still in shrink wrap.” And the “use the photo you already have” shortcut only appears for photos you took yourself, never a saved copy of the store picture.</li>
               <li><strong>Notifications are instant now.</strong> New activity reaches your device the moment it happens while the Crypt is open — no more waiting on the next check-in.</li>
@@ -1870,18 +1873,18 @@
   <script src="./config.js?v=54"></script>
   <script src="./auth.js?v=65"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=104"></script>
+  <script src="./data.js?v=105"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=194"></script>
-  <script src="./app-catalog.js?v=194"></script>
-  <script src="./app-collection.js?v=194"></script>
-  <script src="./app-ui.js?v=194"></script>
-  <script src="./app-trade.js?v=194"></script>
-  <script src="./app-account.js?v=194"></script>
-  <script src="./app-admin.js?v=194"></script>
-  <script src="./app-admin-catalog.js?v=194"></script>
-  <script src="./app-social.js?v=194"></script>
+  <script src="./app-core.js?v=195"></script>
+  <script src="./app-catalog.js?v=195"></script>
+  <script src="./app-collection.js?v=195"></script>
+  <script src="./app-ui.js?v=195"></script>
+  <script src="./app-trade.js?v=195"></script>
+  <script src="./app-account.js?v=195"></script>
+  <script src="./app-admin.js?v=195"></script>
+  <script src="./app-admin-catalog.js?v=195"></script>
+  <script src="./app-social.js?v=195"></script>
 </body>
 </html>
