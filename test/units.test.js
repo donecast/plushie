@@ -512,3 +512,28 @@ test('catalog card: hot "Suggest a picture" on store-only items, none on communi
   assert.doesNotMatch(comm, /cat-suggest-photo/);           // real community photo → no nag
   assert.match(noimg, /data-action="cat-suggest-photo"/);   // no image → button shows
 });
+
+test('photo-less offerings are gated out of trading (db/0082 mirror)', () => {
+  const app = loadApp();
+  assert.equal(app.call('offeringNeedsPhotos', { photos: [] }), true);
+  assert.equal(app.call('offeringNeedsPhotos', {}), true);
+  assert.equal(app.call('offeringNeedsPhotos', { photos: [{ url: 'x' }] }), false);
+
+  // Browse card: no proof photos → inert "Awaiting photos" CTA, no quick-trade.
+  const vm = require('node:vm');
+  const res = vm.runInContext(`
+    window.currentUser = { id: 'me' };
+    state.catalog = []; state.colView = 'cards';
+    JSON.stringify({
+      bare: renderOfferingCard({ id:'t1', ownerId:'u1', name:'Gingerdread Rabbit',
+        available:1, reserved:0, quantity:1, photos: [] }),
+      proofed: renderOfferingCard({ id:'t2', ownerId:'u1', name:'Tornado Rabbit',
+        available:1, reserved:0, quantity:1, photos: [{ id:'p1', url:'https://r2.dev/p.jpg' }] }),
+    })
+  `, app.ctx);
+  const { bare, proofed } = JSON.parse(res);
+  assert.match(bare, /Awaiting photos/);
+  assert.doesNotMatch(bare, /data-action="quick-trade"/);
+  assert.match(proofed, /data-action="quick-trade"/);
+  assert.doesNotMatch(proofed, /Awaiting photos/);
+});

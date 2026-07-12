@@ -2186,6 +2186,13 @@ body.cl-insider .changelog-gated strong { color: #2f6fed; }
   border: 1px dashed var(--gold-edge); border-radius: 7px;
   background: var(--blush);
 }
+/* Owner-facing nudge on a photo-less offering (not tradeable until fixed). */
+.trade-proof-warning {
+  margin: 6px 0 0; font-family: var(--sans); font-size: 0.72rem;
+  font-weight: 600; line-height: 1.35; color: var(--negative-text);
+}
+/* Offer-builder row for an untradeable (photo-less) offering. */
+.picker-row-disabled { opacity: 0.55; }
 
 /* ─── Trade-list modal photo picker ──────────────────────────────── */
 .tl-photo-grid {

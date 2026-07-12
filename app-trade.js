@@ -351,6 +351,14 @@ function catalogImageFor(catalogId) {
   return cat?.image ? shopifyImageVariant(cat.image, 400) : null;
 }
 
+// An offering with no real proof photos can be listed (grandfathered rows
+// from before PR #145 required them) but can NOT enter a trade — the DB
+// enforces this too (db/0082), so this helper is the single client-side
+// truth for "is this offering actually tradeable yet".
+function offeringNeedsPhotos(it) {
+  return (it.photos || []).length === 0;
+}
+
 // A horizontal strip of tappable real-photo thumbnails (zoom on tap). Returns
 // '' when a seeking item has no gallery (you don't own it, so none is expected).
 // An OFFERING with no photos yet — grandfathered from before we required them —
@@ -393,7 +401,9 @@ function renderOfferingCard(it) {
         <ul class="trade-offer-facts">${facts.join('')}</ul>
         ${renderProofStrip({ ...it, kind: 'offering' })}
       </div>
-      <button class="btn-primary trade-offer-cta" data-action="quick-trade" data-uid="${it.ownerId}" data-item-id="${it.id}">I'll trade for this</button>
+      ${offeringNeedsPhotos(it)
+        ? `<button class="btn-primary trade-offer-cta" disabled title="This can't be traded until the owner adds real photos of it">📷 Awaiting photos</button>`
+        : `<button class="btn-primary trade-offer-cta" data-action="quick-trade" data-uid="${it.ownerId}" data-item-id="${it.id}">I'll trade for this</button>`}
     </li>
   `;
 }
@@ -419,6 +429,9 @@ function renderMyTradeItems() {
                 <div class="card-meta">
                   ${kind === 'offering' ? `<span>${it.available} available · ${it.reserved} reserved</span>` : ''}
                 </div>
+                ${kind === 'offering' && offeringNeedsPhotos(it)
+                  ? `<p class="trade-proof-warning">📷 Not tradeable yet — tap Manage and add a real photo so traders can see its condition.</p>`
+                  : ''}
               </div>
               <div class="card-actions">
                 ${kind === 'offering' ? `<button data-action="trade-item-manage" data-id="${it.id}">Manage</button>` : ''}
@@ -856,7 +869,7 @@ async function openOfferModal(recipientId, parentTradeId, preselectedItemId) {
   const recipientPicks = new Map();
   if (preselectedItemId) {
     const found = recipientItems.find((it) => it.id === preselectedItemId);
-    if (found && found.available > 0) recipientPicks.set(preselectedItemId, 1);
+    if (found && found.available > 0 && !offeringNeedsPhotos(found)) recipientPicks.set(preselectedItemId, 1);
   }
 
   state.offerDraft = {
@@ -883,6 +896,18 @@ function renderOfferBuilder() {
   const lineRows = (items, picksMap, who) => items.length === 0
     ? `<p class="dim">${who === 'them' ? '@' + d.recipientUsername + ' isn\'t offering anything right now.' : 'You have nothing listed for trade yet. Add something from your Collection.'}</p>`
     : items.map((it) => {
+        // No proof photos = not tradeable (db/0082 rejects it server-side
+        // too). Shown but inert, so the list still reflects what exists.
+        if (offeringNeedsPhotos(it)) {
+          const hint = who === 'me'
+            ? 'Add a real photo (My Offerings → Manage) to trade this'
+            : 'The owner hasn’t added real photos yet';
+          return `
+            <div class="picker-row picker-row-disabled" title="${hint}">
+              <div class="picker-name">${escapeHtml(it.name)} <span class="dim">📷 awaiting photos</span></div>
+            </div>
+          `;
+        }
         const avail = (it.quantity ?? 0) - (it.reserved ?? 0);
         const cur = picksMap.get(it.id) || 0;
         return `
@@ -914,7 +939,7 @@ function pickerAdjust(who, id, delta) {
   const map = who === 'me' ? d.proposerPicks : d.recipientPicks;
   const pool = who === 'me' ? d.myItems : d.recipientItems;
   const it = pool.find((x) => x.id === id);
-  if (!it) return;
+  if (!it || offeringNeedsPhotos(it)) return;
   const max = (it.quantity ?? 0) - (it.reserved ?? 0);
   const cur = map.get(id) || 0;
   const next = Math.max(0, Math.min(max, cur + delta));
@@ -949,7 +974,11 @@ async function sendOffer() {
     render();
   } catch (err) {
     console.error(err);
-    toast('Could not send offer.');
+    // db/0082 refuses photo-less offerings server-side; surface the real
+    // reason instead of a generic failure.
+    toast(/TRADE_PROOF_REQUIRED/.test(err?.message || '')
+      ? 'An item in this trade has no real photos yet — it can’t be traded until its owner adds one.'
+      : 'Could not send offer.');
   }
 }
 
