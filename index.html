@@ -64,6 +64,57 @@
   </script>
 </head>
 <body>
+  <!-- Boot splash: covers the empty app shell from the very first paint until
+       the app is actually ready to look at — either the auth gate needs the
+       user (login/code/username/consent) or boot()'s first render has put up
+       the "Summoning…" placeholders. Everything it needs (style + the
+       removeBootSplash hook + a failsafe) is inline in this block, so it
+       works before styles.css or any app script has loaded — and the
+       failsafe timer tears it down even if every later script fails, so a
+       broken load can never leave the page bricked behind an overlay.
+       Colors are hardcoded mirrors of the --canvas/--ink-2/--muted-1 tokens
+       in styles.css (both themes) because the stylesheet may not be loaded
+       yet when this paints. -->
+  <div id="boot-splash" role="status" aria-label="Loading The Plush Crypt">
+    <style>
+      #boot-splash {
+        position: fixed; inset: 0; z-index: 2000;
+        display: flex; align-items: center; justify-content: center;
+        background: #f4eff3; color: #3c2150;
+        text-align: center; opacity: 1; transition: opacity .35s ease;
+      }
+      [data-theme="dark"] #boot-splash { background: #1a0d26; color: #ffd6f0; }
+      #boot-splash .boot-mark { font-size: 56px; line-height: 1; animation: boot-bob 1.8s ease-in-out infinite; }
+      #boot-splash .boot-title { margin-top: 14px; font-family: 'Cinzel Decorative', Georgia, serif; font-weight: 700; font-size: 22px; letter-spacing: .04em; }
+      #boot-splash .boot-sub { margin-top: 8px; font-family: Georgia, serif; font-style: italic; font-size: 15px; color: #6a5570; animation: boot-pulse 1.8s ease-in-out infinite; }
+      [data-theme="dark"] #boot-splash .boot-sub { color: #b598d4; }
+      @keyframes boot-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+      @keyframes boot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+      @media (prefers-reduced-motion: reduce) {
+        #boot-splash .boot-mark, #boot-splash .boot-sub { animation: none; }
+      }
+    </style>
+    <div>
+      <div class="boot-mark">🦇</div>
+      <div class="boot-title">The Plush Crypt</div>
+      <div class="boot-sub">Unlocking the crypt…</div>
+    </div>
+  </div>
+  <script>
+    // Fade out and remove the boot splash. Idempotent; called from the auth
+    // gate (when it needs the user) and from boot()'s first paint.
+    window.removeBootSplash = function () {
+      var el = document.getElementById('boot-splash');
+      if (!el || el.dataset.leaving) return;
+      el.dataset.leaving = '1';
+      el.style.opacity = '0';
+      setTimeout(function () { el.remove(); }, 400);
+    };
+    // Failsafe: if the app never gets far enough to call it (script failed to
+    // load, unexpected boot crash), drop the splash anyway so whatever state
+    // the page IS in stays visible/debuggable.
+    setTimeout(function () { window.removeBootSplash(); }, 12000);
+  </script>
   <header>
     <div class="header-inner">
       <div class="brand">
@@ -1074,6 +1125,13 @@
 
         <div class="changelog">
           <div class="changelog-day">
+            <h3 class="changelog-date">July 11, 2026</h3>
+            <ul>
+              <li><strong>A proper welcome.</strong> Opening the Crypt now greets you with a little bat splash screen while everything wakes up, instead of a bare half-loaded page.</li>
+              <li class="changelog-fixes">Misc bug fixes.</li>
+            </ul>
+          </div>
+          <div class="changelog-day">
             <h3 class="changelog-date">July 10, 2026</h3>
             <ul>
               <li class="changelog-fixes">Made trades and your Top 8 more reliable under the hood, and stopped a half-typed comment from vanishing if it failed to post; misc bug fixes.</li>
@@ -1784,20 +1842,20 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./config.js?v=54"></script>
-  <script src="./auth.js?v=63"></script>
+  <script src="./auth.js?v=64"></script>
   <script src="./db.js?v=51"></script>
   <script src="./data.js?v=100"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=184"></script>
-  <script src="./app-catalog.js?v=184"></script>
-  <script src="./app-collection.js?v=184"></script>
-  <script src="./app-ui.js?v=184"></script>
-  <script src="./app-trade.js?v=184"></script>
-  <script src="./app-account.js?v=184"></script>
-  <script src="./app-admin.js?v=184"></script>
-  <script src="./app-admin-catalog.js?v=184"></script>
-  <script src="./app-social.js?v=184"></script>
+  <script src="./app-core.js?v=185"></script>
+  <script src="./app-catalog.js?v=185"></script>
+  <script src="./app-collection.js?v=185"></script>
+  <script src="./app-ui.js?v=185"></script>
+  <script src="./app-trade.js?v=185"></script>
+  <script src="./app-account.js?v=185"></script>
+  <script src="./app-admin.js?v=185"></script>
+  <script src="./app-admin-catalog.js?v=185"></script>
+  <script src="./app-social.js?v=185"></script>
 </body>
 </html>
