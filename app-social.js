@@ -505,6 +505,39 @@ const SOC_REACTIONS = [
 const SOC_REACTION_DEFAULT = '👍';
 const SOC_REACTION_LABEL = Object.fromEntries(SOC_REACTIONS.map((r) => [r.emoji, r.label]));
 
+// Relics (db/0088) — participation achievements, never completionism. Keys and
+// copy mirror _relic_meta() in the migration; an unknown key (older client vs.
+// a newer relic) falls back to the post's plain body text, so nothing breaks.
+const RELIC_META = {
+  'first-soul':         { emoji: '🕯️', title: 'First Soul',         blurb: 'welcomed their first plush into the crypt' },
+  'first-proclamation': { emoji: '📜', title: 'First Proclamation', blurb: 'made their first post to the crypt' },
+  'coven-kin':          { emoji: '🦇', title: 'Coven Kin',          blurb: 'formed their first Coven bond' },
+  'first-pact':         { emoji: '🤝', title: 'First Pact',         blurb: 'completed their first trade' },
+  'seasoned-trader':    { emoji: '🕸️', title: 'Seasoned Trader',    blurb: 'completed five trades' },
+  'honest-quill':       { emoji: '🪶', title: 'Honest Quill',       blurb: 'left honest feedback after a trade' },
+  'crypt-chronicler':   { emoji: '📷', title: 'Crypt Chronicler',   blurb: 'had a photo enshrined in the catalog' },
+  'year-one':           { emoji: '🕰️', title: 'Year One',           blurb: 'has haunted the crypt for a full year' },
+};
+
+// The relic shelf shown on profiles (and the My Crypt footer). Earned relics
+// only — no grey placeholders, no progress bars: the crypt doesn't do FOMO.
+function renderRelicShelf(relics, isMe) {
+  const earned = (relics || []).filter((r) => RELIC_META[r.key]);
+  if (!earned.length) {
+    return isMe
+      ? `<p class="empty-note">Relics find you as you take part in crypt life — trading, posting, making friends. No checklists, no pressure. 🖤</p>`
+      : '';
+  }
+  return `<div class="soc-relic-shelf">${earned.map((r) => {
+    const m = RELIC_META[r.key];
+    const when = new Date(r.earnedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    return `<div class="soc-relic" title="${escapeHtml(m.title)} — ${escapeHtml(m.blurb)} (${escapeHtml(when)})">
+      <span class="soc-relic-emblem">${m.emoji}</span>
+      <span class="soc-relic-name">${escapeHtml(m.title)}</span>
+    </div>`;
+  }).join('')}</div>`;
+}
+
 // Escape text, then linkify @username mentions into tappable chips (item 5).
 function linkifyMentions(text) {
   return escapeHtml(text || '').replace(/@([a-zA-Z0-9_-]{3,20})/g,
@@ -645,6 +678,21 @@ function postKebabHtml(p) {
   ]);
 }
 
+// A relic-unlock post (db/0088) renders as an ornate banner instead of its
+// plain body; unknown keys fall back to the body text (the server snapshots
+// a readable sentence exactly for that case).
+function renderRelicBanner(p) {
+  const m = p.relicKey && RELIC_META[p.relicKey];
+  if (!m) return '';
+  return `<div class="soc-relic-banner">
+    <span class="soc-relic-emblem">${m.emoji}</span>
+    <div class="soc-relic-text">
+      <strong>Relic unearthed: ${escapeHtml(m.title)}</strong>
+      <span>${escapeHtml(m.blurb)} 🖤</span>
+    </div>
+  </div>`;
+}
+
 function renderPostCard(p) {
   const img = p.photoUrl || catalogImageFor(p.catalogId);
   const expanded = state.socExpandedComments.has(p.id);
@@ -669,7 +717,7 @@ function renderPostCard(p) {
       ${postKebabHtml(p)}
     </header>
     ${p.plushName ? `<p class="soc-post-plush">🧸 ${escapeHtml(p.plushName)}</p>` : ''}
-    ${p.body ? `<p class="soc-post-body">${linkifyMentions(p.body)}</p>` : ''}
+    ${renderRelicBanner(p) || (p.body ? `<p class="soc-post-body">${linkifyMentions(p.body)}</p>` : '')}
     ${renderPoll(p)}
     ${img ? `<div class="soc-post-photo"><img src="${escapeHtml(img)}" loading="lazy" alt="" /></div>` : ''}
     <div class="soc-post-actions">
@@ -843,6 +891,7 @@ function renderMyProfileTab() {
     profile: { id: window.currentUser.id, username: window.currentUser.username, displayName: state._myDisplayName, bio: state._myBio, avatarUrl: state._myAvatarUrl, socialLinks: state._mySocialLinks },
     posts: state._myPosts || [],
     top8: state._myTop8 || [],
+    relics: state._myRelics || [],
     isMe: true,
   });
   el.insertAdjacentHTML('beforeend', renderBlockedManager());
@@ -874,6 +923,7 @@ function renderCryptMasthead() {
     isMe: true,
     omitTop8: true,
     omitPosts: true,
+    omitRelics: true,   // slim header; the relic shelf lives in the crypt footer
   });
 }
 
@@ -889,6 +939,7 @@ function renderCryptFooter() {
     t: (state._myTop8 || []).map((x) => (x && (x.id ?? x.itemId)) ?? x),
     p: posts,
     k: (state.myBlocks || []).map((x) => x.id),
+    r: (state._myRelics || []).map((x) => x.key),
   });
   if (el._footerSig === sig && el.childNodes.length) return;
   el._footerSig = sig;
@@ -896,6 +947,10 @@ function renderCryptFooter() {
     <section class="soc-section">
       <h2 class="soc-section-head">Top 8 Buns 🐰</h2>
       ${renderTop8(state._myTop8 || [], true)}
+    </section>
+    <section class="soc-section">
+      <h2 class="soc-section-head">Relics 🗝️</h2>
+      ${renderRelicShelf(state._myRelics || [], true)}
     </section>
     <section class="soc-section">
       <h2 class="soc-section-head">Your posts</h2>
@@ -925,11 +980,12 @@ function renderBlockedManager() {
 // ─── Viewing someone's profile (overlay) ────────────────────────────
 async function openProfile(userId) {
   try {
-    const [profile, posts, top8, friendship] = await Promise.all([
+    const [profile, posts, top8, friendship, relics] = await Promise.all([
       data.getSocialProfile(userId),
       data.listUserPosts(userId),
       data.getTopPlushes(userId),
       data.friendshipWith(userId),
+      data.listRelics(userId),
     ]);
     if (!profile) { toast('Profile not found.'); return; }
     const isMe = userId === window.currentUser.id;
@@ -937,7 +993,7 @@ async function openProfile(userId) {
     // content isn't yours to see. (If YOU blocked them, we still show the
     // profile so you can Unblock.)
     if (!isMe && data.isBlocked(userId) && !data.isMyBlock(userId)) {
-      state.socProfile = { profile, posts: [], top8: [], friendship: 'none', isMe, unavailable: true };
+      state.socProfile = { profile, posts: [], top8: [], relics: [], friendship: 'none', isMe, unavailable: true };
       renderSocial();
       return;
     }
@@ -945,12 +1001,13 @@ async function openProfile(userId) {
       profile, friendship, isMe,
       posts: stripBlocked(posts),
       top8,
+      relics,
     };
     renderSocial();
   } catch (e) { console.error('openProfile', e); toast('Could not open profile.'); }
 }
 
-function renderProfileInto(el, { profile, posts = [], top8 = [], friendship, isMe, withBack, unavailable, omitPosts, omitTop8 }) {
+function renderProfileInto(el, { profile, posts = [], top8 = [], relics = [], friendship, isMe, withBack, unavailable, omitPosts, omitTop8, omitRelics }) {
   if (unavailable) {
     el.innerHTML = `
       ${withBack ? `<button class="linklike soc-back" data-soc-action="close-profile">← Back to feed</button>` : ''}
@@ -1008,6 +1065,10 @@ function renderProfileInto(el, { profile, posts = [], top8 = [], friendship, isM
     ${omitTop8 ? '' : `<section class="soc-section">
       <h2 class="soc-section-head">Top 8 Buns 🐰</h2>
       ${top8Html}
+    </section>`}
+    ${omitRelics || (!isMe && !(relics || []).some((r) => RELIC_META[r.key])) ? '' : `<section class="soc-section">
+      <h2 class="soc-section-head">Relics 🗝️</h2>
+      ${renderRelicShelf(relics, isMe)}
     </section>`}
     ${omitPosts ? '' : `<section class="soc-section">
       <h2 class="soc-section-head">${isMe ? 'Your posts' : 'Posts'}</h2>
@@ -1683,10 +1744,11 @@ function wireSocialEvents() {
 
 async function loadMyProfileCache() {
   try {
-    const [profile, posts, top8] = await Promise.all([
+    const [profile, posts, top8, relics] = await Promise.all([
       data.getSocialProfile(window.currentUser.id),
       data.listUserPosts(window.currentUser.id),
       data.getTopPlushes(window.currentUser.id),
+      data.listRelics(window.currentUser.id),
     ]);
     state._myBio = profile?.bio || '';
     state._myDisplayName = profile?.displayName || null;
@@ -1694,6 +1756,7 @@ async function loadMyProfileCache() {
     state._mySocialLinks = profile?.socialLinks || {};
     state._myPosts = posts;
     state._myTop8 = top8;
+    state._myRelics = relics;
   } catch (e) { console.warn('loadMyProfileCache', e); }
 }
 
@@ -2247,6 +2310,7 @@ async function boot() {
   });
   scheduleSocialCheck();  // keep polling for new requests while the app is open
   subscribeNotificationStream();  // realtime: hear our notification rows instantly (db/0087)
+  data.claimTimeRelics?.();  // time-based relics (year-one) — fire-and-forget (db/0088)
   updateNotifyButton();
   registerSW();
   // Notifications default to ON: subscribe now if the OS already permits it,
