@@ -520,13 +520,15 @@ data.listMyTradeItems = async function () {
   return items;
 };
 
-data.addTradeItem = async function ({ kind, catalogId, catalogHandle, name, photoPath, photoSocialPath, quantity, notes }) {
+data.addTradeItem = async function ({ kind, catalogId, catalogHandle, name, photoPath, photoSocialPath, quantity, notes, extras }) {
   const insert = {
     owner_id: window.currentUser.id,
     kind, catalog_id: catalogId, catalog_handle: catalogHandle,
     name, photo_path: photoPath ?? null,
     photo_social_path: photoSocialPath ?? null,
     quantity, notes: notes ?? null,
+    // [{ name, included }] snapshot of the includes checklist (migration 0086).
+    extras: extras ?? null,
   };
   // photo_social_path arrived in migration 0024 — if it hasn't been run
   // yet, PostgREST rejects the unknown column; strip it and retry so
@@ -555,6 +557,7 @@ data.updateTradeItem = async function (id, patch) {
   const row = {};
   if ('quantity' in patch) row.quantity = patch.quantity;
   if ('notes' in patch) row.notes = patch.notes;
+  if ('extras' in patch) row.extras = patch.extras;
   if ('photoSocialPath' in patch) row.photo_social_path = patch.photoSocialPath;
   row.updated_at = new Date().toISOString();
   const { error } = await sb.from('trade_items').update(row).eq('id', id);
@@ -645,13 +648,21 @@ data.deleteTradeItem = async function (id) {
 // ─── Discovery ─────────────────────────────────────────────────────
 data.browseOfferings = async function () {
   // All offerings except the current user's, where at least one unit is unreserved.
-  const { data: rows, error } = await sb
+  const fetchRows = (cols) => sb
     .from('trade_items')
-    .select('id, owner_id, name, catalog_id, catalog_handle, photo_path, photo_social_path, quantity, reserved, notes, created_at, kind')
+    .select(cols)
     .eq('kind', 'offering')
     .eq('archived', false)
     .neq('owner_id', window.currentUser.id)
     .order('created_at', { ascending: false });
+  const BASE_COLS = 'id, owner_id, name, catalog_id, catalog_handle, photo_path, photo_social_path, quantity, reserved, notes, created_at, kind';
+  let { data: rows, error } = await fetchRows(`${BASE_COLS}, extras`);
+  if (error && /extras/i.test(error.message || '')) {
+    // Migration 0086 not applied yet — retry without the column so Browse
+    // keeps working, but loudly: includes checklists are invisible until then.
+    console.error("[browseOfferings] 'extras' column missing — apply db/0086 (includes checklists won't show until then).");
+    ({ data: rows, error } = await fetchRows(BASE_COLS));
+  }
   if (error) throw error;
   // Refresh the blocked set so we never surface offerings from someone
   // you're blocked-with (either direction).
@@ -2657,6 +2668,7 @@ data._tradeItemFromRow = function (r) {
     reserved: r.reserved,
     available: r.quantity - r.reserved,
     notes: r.notes,
+    extras: Array.isArray(r.extras) ? r.extras : null,
     createdAt: r.created_at ? +new Date(r.created_at) : Date.now(),
   };
 };

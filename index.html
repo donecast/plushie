@@ -42,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=142" />
+  <link rel="stylesheet" href="./styles.css?v=143" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -657,6 +657,14 @@
         <input type="file" id="tl-photo-input" accept="image/*" capture="environment" multiple hidden />
         <button type="button" class="btn-ghost" id="tl-add-photo">📷 Add photo</button>
       </div>
+      <div class="field hidden" id="tl-extras-field">
+        <span>What's included? <span class="dim">— this one ships with extras; tell traders which are here</span></span>
+        <div id="tl-extras" class="tl-extras"></div>
+      </div>
+      <label class="field">
+        <span>Notes <span class="dim">— condition, shrink-wrapped, anything traders should know</span></span>
+        <textarea id="tl-notes" rows="2" maxlength="300" placeholder="e.g. Brand new, still in shrink wrap"></textarea>
+      </label>
       <p id="tl-error" class="auth-error hidden"></p>
       <div class="form-actions">
         <button type="button" class="btn-ghost" data-close-tradelist>Cancel</button>
@@ -1130,6 +1138,7 @@
           <div class="changelog-day">
             <h3 class="changelog-date">July 12, 2026</h3>
             <ul>
+              <li><strong>Honest trade listings.</strong> When you offer something for trade, the form now asks which of its extras (tote bag, ribbon, and so on) actually come with it and shows your answers right on the listing — plus a new notes box for things like “still in shrink wrap.” And the “use the photo you already have” shortcut only appears for photos you took yourself, never a saved copy of the store picture.</li>
               <li><strong>Notifications arrive even without push set up.</strong> If your device isn't signed up for push (or can't be), the Crypt now delivers your notifications itself while the app is open — so comments, replies, and mentions reach you either way.</li>
               <li><strong>Way more notifications.</strong> You'll now hear when someone <strong>replies to your comment</strong>, <strong>@mentions you</strong> in a post or comment, or <strong>leaves you trade feedback</strong> — and if a photo or plush you suggested makes it into the catalog, we'll tell you that too. Tapping any notification takes you straight to the right place.</li>
               <li class="changelog-fixes">Misc bug fixes.</li>
@@ -1859,18 +1868,18 @@
   <script src="./config.js?v=54"></script>
   <script src="./auth.js?v=65"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=102"></script>
+  <script src="./data.js?v=103"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=191"></script>
-  <script src="./app-catalog.js?v=191"></script>
-  <script src="./app-collection.js?v=191"></script>
-  <script src="./app-ui.js?v=191"></script>
-  <script src="./app-trade.js?v=191"></script>
-  <script src="./app-account.js?v=191"></script>
-  <script src="./app-admin.js?v=191"></script>
-  <script src="./app-admin-catalog.js?v=191"></script>
-  <script src="./app-social.js?v=191"></script>
+  <script src="./app-core.js?v=192"></script>
+  <script src="./app-catalog.js?v=192"></script>
+  <script src="./app-collection.js?v=192"></script>
+  <script src="./app-ui.js?v=192"></script>
+  <script src="./app-trade.js?v=192"></script>
+  <script src="./app-account.js?v=192"></script>
+  <script src="./app-admin.js?v=192"></script>
+  <script src="./app-admin-catalog.js?v=192"></script>
+  <script src="./app-social.js?v=192"></script>
 </body>
 </html>

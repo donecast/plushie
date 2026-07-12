@@ -2257,6 +2257,31 @@ body.cl-insider .changelog-gated strong { color: #2f6fed; }
 .tl-suggestion-text strong { font-size: 0.85rem; color: var(--ink); }
 .tl-suggestion-text span { font-size: 0.75rem; color: var(--muted-1); line-height: 1.3; }
 .tl-suggestion button { flex: 0 0 auto; white-space: nowrap; }
+/* Includes checklist ("what's included?") in the trade-list modal. */
+.tl-extras { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 10px; }
+.tl-extra-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.tl-extra-name {
+  font-family: var(--sans); font-size: 0.85rem; color: var(--ink);
+  min-width: 0; overflow-wrap: anywhere;
+}
+.tl-extra-choice { display: flex; gap: 6px; flex: 0 0 auto; }
+.tl-extra-btn {
+  font-family: var(--sans); font-size: 0.78rem; font-weight: 700;
+  padding: 4px 14px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--gold-edge); background: var(--blush); color: var(--muted-1);
+}
+.tl-extra-btn.tl-extra-yes {
+  background: var(--positive-fill); color: var(--positive-text);
+  border-color: var(--positive-edge);
+}
+.tl-extra-btn.tl-extra-no {
+  background: var(--negative-fill); color: var(--negative-text);
+  border-color: var(--rose-seam);
+}
+/* Missing-extras line on a Browse offering card. */
+.trade-offer-missing { color: var(--negative-text); font-weight: 600; }
 .trader-head {
   display: flex;
   justify-content: space-between;

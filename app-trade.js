@@ -392,6 +392,14 @@ function renderOfferingCard(it) {
     `<li>${TRADE_CAT_LABEL[tradeItemCategory(it)] || 'Other'}</li>`,
     `<li>Available: ${it.available}</li>`,
   ];
+  // The owner's answers to the includes checklist — missing extras get their
+  // own warning-styled line so nobody has to ask "does the bag come with it?".
+  if (Array.isArray(it.extras) && it.extras.length) {
+    const has = it.extras.filter((e) => e.included).map((e) => e.name);
+    const missing = it.extras.filter((e) => !e.included).map((e) => e.name);
+    if (has.length) facts.push(`<li>Includes: ${escapeHtml(has.join(', '))}</li>`);
+    if (missing.length) facts.push(`<li class="trade-offer-missing">Missing: ${escapeHtml(missing.join(', '))}</li>`);
+  }
   if (it.notes) facts.push(`<li class="trade-offer-note">${escapeHtml(it.notes)}</li>`);
   return `
     <li class="trade-offer-row">
@@ -992,7 +1000,8 @@ function closeOfferModal() {
 // Uploads are perceptually fingerprinted against the product's catalog stock
 // image and rejected on a near match, so nobody can pass the stock render off
 // as proof they own the physical plush. Handles both a fresh listing and
-// editing an existing offering (quantity + add/remove photos).
+// editing an existing offering (quantity, photos, notes, and a yes/no
+// includes checklist for the product's expected extras).
 const TRADE_MAX_PHOTOS = 5;
 // dHash Hamming distance at/under which an upload is treated as the stock
 // image. Kept tight so we never reject a genuine photo — the same image at a
@@ -1009,6 +1018,7 @@ async function openTradeListModal(catalogItem, owned, existing) {
     removedIds: [],
     stockHash: null,
     collectionPhoto: null,   // { path, url } — their own existing photo, offered as a one-tap option
+    extras: buildTradeListExtras(catalogItem, existing),
     saving: false,
   };
   document.getElementById('tl-title').textContent = existing ? 'Manage your offering' : 'Offer for trade';
@@ -1017,31 +1027,97 @@ async function openTradeListModal(catalogItem, owned, existing) {
   qtyInput.max = String(owned);
   qtyInput.min = String(Math.max(1, state.tradeListDraft.existingReserved || 1));
   qtyInput.value = String(existing?.quantity || owned || 1);
+  document.getElementById('tl-notes').value = existing?.notes || '';
   hideEl('tl-error');
+  renderTradeListExtras();
   renderTradeListPhotos();
   showEl('trade-list-modal');
   // Fingerprint the stock image in the background so the reject check is ready
   // by the time they add a photo. May stay null (cross-origin canvas taint) —
   // then we fail open and just require an upload.
   const stockUrl = catalogImageFor(catalogItem.catalogId);
-  if (stockUrl) {
-    perceptualHash(stockUrl)
-      .then((h) => { if (state.tradeListDraft) state.tradeListDraft.stockHash = h; })
-      .catch(() => {});
-  }
+  const stockHashReady = stockUrl
+    ? perceptualHash(stockUrl)
+        .then((h) => { if (state.tradeListDraft?.catalogItem === catalogItem) state.tradeListDraft.stockHash = h; return h; })
+        .catch(() => null)
+    : Promise.resolve(null);
   // If they've already photographed this item in their collection, offer that
   // shot as a one-tap option — only when first listing it, and never forced:
-  // someone trading a *different* copy just ignores it and uploads fresh. It's
-  // their own upload, so it skips the stock-image check.
-  if (!existing && catalogItem.photoPath) {
+  // someone trading a *different* copy just ignores it and uploads fresh.
+  // "Photographed" must mean THEIR OWN shot: adding from the catalog snapshots
+  // the STORE image into the collection (or hot-links its URL), so an http(s)
+  // photoPath, or one whose pixels dHash-match the stock render, is the store
+  // picture wearing a collection costume — never suggest those. Unlike the
+  // upload check this fails CLOSED (most collection covers ARE the snapshot):
+  // if either hash can't be computed we just don't show the shortcut.
+  if (!existing && catalogItem.photoPath && !/^https?:\/\//i.test(catalogItem.photoPath)) {
     data.photoUrl(catalogItem.photoPath)
-      .then((url) => {
-        if (!url || !state.tradeListDraft) return;
+      .then(async (url) => {
+        if (!url) return;
+        if (stockUrl) {
+          const [stockHash, shotHash] = await Promise.all([stockHashReady, perceptualHash(url)]);
+          if (stockHash == null || shotHash == null) return;
+          if (hammingDistance(shotHash, stockHash) <= STOCK_MATCH_MAX_DISTANCE) return;
+        }
+        if (state.tradeListDraft?.catalogItem !== catalogItem) return;   // modal moved on
         state.tradeListDraft.collectionPhoto = { path: catalogItem.photoPath, url };
         renderTradeListSuggestion();
       })
       .catch(() => {});
   }
+}
+
+// The includes checklist for the offer modal, built from the catalog item's
+// parsed Set Includes so we ask about each expected extra (bag, ribbon, …) by
+// name. `included` is true/false/null — null means "not answered yet", and
+// saving requires an answer for every row. Editing prefills from the saved
+// offering; a fresh listing prefills "No" for anything the owner's collection
+// row already marks missing (anything else stays an explicit question).
+function buildTradeListExtras(catalogItem, existing) {
+  if (!catalogItem.catalogId) return [];
+  const raw = catalogById(catalogItem.catalogId);
+  const cat = raw ? resolveCatalogItem(raw) : null;
+  const expected = (cat && Array.isArray(cat.accessories)) ? cat.accessories : [];
+  if (!expected.length) return [];
+  const saved = new Map((existing?.extras || []).map((e) => [e.name, !!e.included]));
+  const colItem = state.collection.find((c) => c.catalogId === catalogItem.catalogId);
+  const missing = Array.isArray(colItem?.missingAccessories) ? colItem.missingAccessories : [];
+  return expected.map((acc) => {
+    const name = typeof acc === 'string' ? acc : acc.name;
+    const key = typeof acc === 'string' ? acc.toLowerCase() : (acc.key || name.toLowerCase());
+    let included = saved.has(name) ? saved.get(name) : null;
+    if (included === null && missing.includes(key)) included = false;
+    return { name, included };
+  });
+}
+
+// One explicit Yes/No row per expected extra — asked outright rather than
+// pre-checked, because "did they just not look?" is exactly the doubt the
+// other trader needs resolved before shipping.
+function renderTradeListExtras() {
+  const field = document.getElementById('tl-extras-field');
+  const box = document.getElementById('tl-extras');
+  if (!field || !box) return;
+  const extras = state.tradeListDraft?.extras || [];
+  if (!extras.length) { field.classList.add('hidden'); box.innerHTML = ''; return; }
+  box.innerHTML = extras.map((e, i) => `
+    <div class="tl-extra-row">
+      <span class="tl-extra-name">${escapeHtml(e.name)}</span>
+      <div class="tl-extra-choice" role="group" aria-label="Is ${escapeHtml(e.name)} included?">
+        <button type="button" class="tl-extra-btn${e.included === true ? ' tl-extra-yes' : ''}" data-tl-extra="${i}" data-tl-extra-val="yes">Yes</button>
+        <button type="button" class="tl-extra-btn${e.included === false ? ' tl-extra-no' : ''}" data-tl-extra="${i}" data-tl-extra-val="no">No</button>
+      </div>
+    </div>
+  `).join('');
+  field.classList.remove('hidden');
+}
+
+function setTradeListExtra(idx, included) {
+  const row = state.tradeListDraft?.extras?.[idx];
+  if (!row) return;
+  row.included = included;
+  hideEl('tl-error');
+  renderTradeListExtras();
 }
 
 // Renders the "use the photo you already have" prompt, shown only while an
@@ -1135,6 +1211,11 @@ async function saveTradeList() {
   const d = state.tradeListDraft;
   if (!d || d.saving) return;
   if (d.photos.length < 1) { tlError('Add at least one real photo of your plush.'); return; }
+  // Every expected extra needs an explicit Yes/No before the listing goes up.
+  const unanswered = (d.extras || []).find((e) => e.included === null);
+  if (unanswered) { tlError(`Is "${unanswered.name}" included? Answer Yes or No for each extra.`); return; }
+  const notes = document.getElementById('tl-notes').value.trim() || null;
+  const extras = (d.extras || []).length ? d.extras.map((e) => ({ name: e.name, included: e.included })) : null;
   let qty = parseInt(document.getElementById('tl-qty').value, 10);
   if (Number.isNaN(qty)) qty = d.owned;
   // Ceiling at what you own; floor at what's already reserved in live trades.
@@ -1164,7 +1245,7 @@ async function saveTradeList() {
     const cover = ordered[0] || null;
 
     if (d.existingId) {
-      await data.updateTradeItem(d.existingId, { quantity: qty, photoSocialPath: cover });
+      await data.updateTradeItem(d.existingId, { quantity: qty, photoSocialPath: cover, notes, extras });
       for (const id of d.removedIds) {
         try { await data.deleteTradeItemPhoto(id); } catch (err) { console.warn('remove trade photo', err); }
       }
@@ -1182,6 +1263,8 @@ async function saveTradeList() {
         photoPath: item.photoPath ?? null,   // owner's own collection view
         photoSocialPath: cover,              // public cover = first real photo
         quantity: qty,
+        notes,
+        extras,
       });
       if (created?.id) await data.addTradeItemPhotos(created.id, ordered, 0);
       toast(`Offering ${qty} for trade.`);
