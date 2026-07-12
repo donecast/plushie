@@ -3059,6 +3059,28 @@ data.getSocialProfile = async function (userId) {
   };
 };
 
+// ─── Relics (db/0088) ───────────────────────────────────────────────
+// Achievement badges. Earned server-side (triggers + claim_time_relics);
+// the client only ever reads them. Best-effort: a pre-0088 backend just
+// yields an empty shelf rather than a broken profile.
+data.listRelics = async function (userId) {
+  try {
+    const { data: rows, error } = await sb
+      .from('user_relics')
+      .select('relic_key, earned_at')
+      .eq('user_id', userId)
+      .order('earned_at', { ascending: true });
+    if (error) throw error;
+    return (rows || []).map((r) => ({ key: r.relic_key, earnedAt: r.earned_at }));
+  } catch (e) { console.warn('listRelics', e); return []; }
+};
+
+// Boot-time claim for time-based relics (year-one). Fire-and-forget.
+data.claimTimeRelics = async function () {
+  try { await sb.rpc('claim_time_relics'); }
+  catch (e) { console.warn('claimTimeRelics', e); }
+};
+
 data.updateMyProfile = async function ({ bio, avatarBlob, socialLinks }) {
   const patch = {};
   if (bio !== undefined) patch.bio = bio;
@@ -3354,6 +3376,7 @@ data._hydratePosts = async function (rows) {
     catalogId: r.catalog_id,
     plushName: r.plush_name,
     visibility: r.visibility,
+    relicKey: r.relic_key || null,   // db/0088 — renders the ornate relic card
     createdAt: r.created_at,
     // "edited" when updated_at drifts more than a few seconds past
     // created_at (the insert sets them ~equal).

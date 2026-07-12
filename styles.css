@@ -4411,6 +4411,25 @@ body.maint-locked { overflow: hidden; }
   display: block; margin: 0 auto;
   max-width: 100%; max-height: 70vh; width: auto; height: auto;
 }
+/* ─── Relics (0088) — unlock banner on feed posts + profile shelf ─── */
+.soc-relic-banner {
+  display: flex; align-items: center; gap: 12px;
+  margin: 10px 0; padding: 12px 14px;
+  border: 1px solid var(--gold); border-radius: 12px;
+  background: linear-gradient(135deg, rgba(199,161,74,.12), rgba(199,161,74,.03));
+}
+.soc-relic-emblem { font-size: 1.9rem; line-height: 1; flex: 0 0 auto; }
+.soc-relic-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.soc-relic-text strong { color: var(--gold); }
+.soc-relic-text span { color: var(--ink-dim); font-size: .92rem; }
+.soc-relic-shelf { display: flex; flex-wrap: wrap; gap: 8px; }
+.soc-relic {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 12px; border: 1px solid var(--hairline); border-radius: 999px;
+  background: linear-gradient(135deg, rgba(199,161,74,.10), transparent);
+}
+.soc-relic-name { font-weight: 600; font-size: .92rem; white-space: nowrap; }
+
 /* ─── Poll (0079) — Facebook-style result bars ─── */
 .soc-poll { margin: 10px 0; display: flex; flex-direction: column; gap: 6px; }
 .soc-poll-list { display: flex; flex-direction: column; gap: 6px; }
