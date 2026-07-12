@@ -248,6 +248,10 @@ async function runAuthGate(onReady) {
     overlay.classList.remove('hidden');
     document.body.classList.add('locked');
     Object.entries(steps).forEach(([k, el]) => el.classList.toggle('hidden', k !== step));
+    // Any interactive step means the user has something to do — get the boot
+    // splash (index.html) out of the way. The 'loading' step stays covered by
+    // the splash; it's the same wait, just prettier.
+    if (step !== 'loading') window.removeBootSplash?.();
   }
   function hide() {
     overlay.classList.add('hidden');

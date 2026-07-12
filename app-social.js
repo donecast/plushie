@@ -1867,6 +1867,7 @@ function showMaintenanceScreen(reason) {
   }
   el.classList.remove('hidden');
   document.body.classList.add('maint-locked');
+  window.removeBootSplash?.();   // takeover replaces the app — splash must not sit on top
 }
 
 // Full-screen takeover for a user an admin has blocked from the entire app
@@ -1877,6 +1878,7 @@ function showBlockedScreen() {
   if (!el) { showMaintenanceScreen(''); return; } // fail closed onto the generic takeover
   el.classList.remove('hidden');
   document.body.classList.add('maint-locked');
+  window.removeBootSplash?.();
 }
 
 // Full-screen "your account has been deleted" takeover for a user who asked to
@@ -1888,6 +1890,7 @@ function showDeletedScreen() {
   if (!el) { showBlockedScreen(); return; } // fail closed onto the block takeover
   el.classList.remove('hidden');
   document.body.classList.add('maint-locked');
+  window.removeBootSplash?.();
 }
 
 let eventsWired = false;
@@ -1933,6 +1936,10 @@ async function boot() {
   // the loads below. The real render() further down replaces it once data
   // lands. Guarded so a render hiccup never aborts boot.
   try { render(); } catch (e) { console.warn('initial loading paint skipped', e); }
+  // The shell + "Summoning…" placeholders are up — drop the boot splash
+  // (index.html). Fires even if that paint failed: whatever the page shows
+  // now beats a stuck splash.
+  window.removeBootSplash?.();
   // These four loads are independent once the active collection is known —
   // run them concurrently instead of a serial await waterfall (~4 round
   // trips → 1). pens-meta keeps its own tolerance so a miss doesn't abort
