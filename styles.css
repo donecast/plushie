@@ -1977,6 +1977,30 @@ body.cl-insider .changelog-gated strong { color: #2f6fed; }
 }
 
 /* ─── Toast ────────────────────────────── */
+/* "✨ updated — refresh" banner (showUpdateBanner): parked above the bottom
+   nav / toast area, persistent until tapped. */
+.update-banner {
+  position: fixed;
+  bottom: calc(70px + env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  background: var(--ink-2);
+  color: #fff;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 0.85rem;
+  z-index: 210;
+  box-shadow: var(--shadow-popover);
+  animation: toastIn 0.25s ease;
+}
+.update-banner .btn-primary { white-space: nowrap; }
+
 .toast {
   position: fixed;
   bottom: 24px;

@@ -985,9 +985,14 @@ function render() {
   document.querySelectorAll('.tab').forEach((t) =>
     t.classList.toggle('active', t.dataset.tab === tab)
   );
-  // Mobile bottom nav mirrors the active tab (same data-tab values).
+  // Mobile bottom nav mirrors the active tab (same data-tab values). The 💬
+  // Messages tab is really Home + the messages sub-surface, so it lights up
+  // for that combination and steals Home's highlight while it does.
+  const onMessages = tab === 'home' && state.socSubTab === 'messages' && !state.socProfile;
   document.querySelectorAll('.bottom-tab').forEach((t) => {
-    const on = t.dataset.tab === tab;
+    const on = t.dataset.tab === 'messages'
+      ? onMessages
+      : (t.dataset.tab === tab && !(t.dataset.tab === 'home' && onMessages));
     t.classList.toggle('active', on);
     t.setAttribute('aria-selected', on ? 'true' : 'false');
   });

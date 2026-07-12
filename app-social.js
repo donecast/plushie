@@ -12,7 +12,16 @@
 // ─── Service worker ──────────────────────────────────────────────────
 function registerSW() {
   if (!('serviceWorker' in navigator)) return;
-  const go = () => navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW failed', e));
+  const go = () => navigator.serviceWorker.register('./sw.js').then((reg) => {
+    // A resumed installed PWA never re-navigates, so it can sit on a stale
+    // bundle across deploys indefinitely — new features silently invisible
+    // until the user happens to fully relaunch. Check for a new SW whenever
+    // the app returns to the foreground; the browser no-ops when sw.js is
+    // unchanged, so this costs nothing between deploys.
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) reg?.update?.().catch(() => {});
+    });
+  }).catch((e) => console.warn('SW failed', e));
   // registerSW() runs from boot(), which lands AFTER the window 'load' event
   // on all but the slowest visits — and a 'load' listener added after the
   // event has fired never runs. That silently skipped SW registration for
@@ -22,6 +31,34 @@ function registerSW() {
   // genuinely beat it.
   if (document.readyState === 'complete') go();
   else window.addEventListener('load', go, { once: true });
+
+  // The new SW takes control immediately (skipWaiting + clients.claim in
+  // sw.js), so a controller change on an already-controlled page means a
+  // deploy landed while this session was open. Offer a one-tap refresh
+  // instead of letting the old bundle keep running. The first claim on a
+  // previously-uncontrolled page (initial install) is not an update — skip it.
+  let hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener?.('controllerchange', () => {
+    if (!hadController) { hadController = true; return; }
+    showUpdateBanner();
+  });
+}
+
+// Fixed "✨ updated — refresh" banner. Deliberately NOT an auto-reload: the
+// user may be mid-post/comment/trade-note and a forced reload would eat it.
+function showUpdateBanner() {
+  if (document.getElementById('update-banner')) return;
+  const el = document.createElement('div');
+  el.id = 'update-banner';
+  el.className = 'update-banner';
+  const label = document.createElement('span');
+  label.textContent = '✨ Update ready';
+  const btn = document.createElement('button');
+  btn.className = 'btn-primary';
+  btn.textContent = 'Refresh';
+  btn.addEventListener('click', () => location.reload());
+  el.append(label, btn);
+  document.body.appendChild(el);
 }
 
 // ─── Boot ────────────────────────────────────────────────────────────
@@ -372,8 +409,10 @@ function ensureDmPoll() {
 
 function updateDmBadge() {
   const n = state.dmUnread || 0;
-  const b = document.getElementById('dm-badge');
-  if (b) {
+  // Header 💬 (desktop) + bottom-nav Messages tab (mobile).
+  for (const id of ['dm-badge', 'bn-dm-badge']) {
+    const b = document.getElementById(id);
+    if (!b) continue;
     b.textContent = n;
     b.classList.toggle('hidden', n === 0);
   }
