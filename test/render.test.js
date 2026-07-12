@@ -131,3 +131,54 @@ test('empty-but-loaded feed shows the quiet-crypt note, not a spinner', () => {
   assert.match(html, /The crypt is quiet/);
   assert.ok(!html.includes('Summoning'), 'loaded-empty feed should not show the loading placeholder');
 });
+
+test('messages: thread list and conversation paint, bodies escaped', () => {
+  const app = loadForRender();
+
+  // Thread list: one unread conversation.
+  app.seedState({
+    tab: 'home', socSubTab: 'messages', dmPartner: null,
+    dmThreads: [{ partnerId: 'u-amber', username: 'redrambler', avatarUrl: null,
+                  lastBody: 'Is the <b>Gingerdread</b> still available?', lastFromMe: false,
+                  lastAt: '2026-07-11T00:00:00Z', unread: 2 }],
+  });
+  app.exec("state.ready.add('social')");
+  app.call('render');
+  let html = app.dom.html('soc-messages');
+  assert.match(html, /@redrambler/);
+  assert.match(html, /data-soc-action="open-dm"/);
+  assert.ok(!html.includes('<b>Gingerdread</b>'), 'thread preview must be HTML-escaped');
+
+  // Open conversation: bubbles for both sides, composer present, escaping holds.
+  app.seedState({
+    dmPartner: { id: 'u-amber', username: 'redrambler', avatarUrl: null },
+    dmMessages: [
+      { id: 'm1', mine: false, body: 'Trade you a <script>pen</script>?', createdAt: '2026-07-11T00:00:00Z', readAt: null },
+      { id: 'm2', mine: true, body: 'Deal!', createdAt: '2026-07-11T00:01:00Z', readAt: null },
+    ],
+  });
+  app.call('render');
+  html = app.dom.html('soc-messages');
+  assert.match(html, /dm-theirs/);
+  assert.match(html, /dm-mine/);
+  assert.match(html, /Deal!/);
+  assert.ok(!html.includes('<script>'), 'message body must be HTML-escaped');
+  assert.match(html, /data-soc-action="submit-dm"/);
+  assert.match(html, /data-soc-action="dm-back"/);
+
+  // The in-view poll timer must not outlive the test.
+  app.exec('clearInterval(window._dmTimer); window._dmTimer = null;');
+});
+
+test('messages: friend rows and friend profiles offer a Message button', () => {
+  const app = loadForRender();
+  app.seedState({
+    tab: 'home', socSubTab: 'friends',
+    socFriends: [{ userId: 'u-amber', username: 'redrambler', avatarUrl: null, isInner: false, isCoffinBuddy: false }],
+    socRequests: [], socSearch: [],
+  });
+  app.exec("state.ready.add('social')");
+  app.call('render');
+  const html = app.dom.html('soc-friends');
+  assert.match(html, /data-soc-action="open-dm" data-uid="u-amber" data-name="redrambler"/);
+});
