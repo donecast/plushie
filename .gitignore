@@ -18,3 +18,6 @@ www/
 ios/
 android/
 .capacitor/
+
+# Local Claude session state (worktrees from concurrent sessions, hooks)
+.claude/
