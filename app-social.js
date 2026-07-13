@@ -598,6 +598,18 @@ function commentKebabHtml(c) {
   ]);
 }
 
+// 📷 attach control for comment/reply forms (0090). The picked blob lives on
+// the form element itself (form._photoBlob, set by the delegated change
+// handler) so it survives typing but is naturally dropped on a re-render —
+// same lifetime as the unsent text next to it. Hidden when uploads are off.
+function commentPhotoPickerHtml() {
+  if (!data.featureEnabled('feature.user_photo_uploads')) return '';
+  return `<label class="soc-comment-photo-btn" title="Attach a photo">
+    <span class="soc-comment-photo-ico">📷</span>
+    <input type="file" class="soc-comment-photo-input" accept="image/*" hidden />
+  </label>`;
+}
+
 function commentBubbleHtml(c, postId) {
   // Editing swaps the bubble for an inline form; otherwise show bubble + actions.
   const editing = state.socEditComment === c.id;
@@ -634,7 +646,8 @@ function commentBubbleHtml(c, postId) {
       <div class="soc-comment-bubble-wrap">
         <div class="soc-comment-bubble">
           <button class="soc-userlink soc-comment-author" data-soc-action="view-profile" data-uid="${c.authorId}"><b>@${escapeHtml(c.authorName)}</b></button>
-          <div class="soc-comment-text">${linkifyMentions(c.body)}</div>
+          ${c.body ? `<div class="soc-comment-text">${linkifyMentions(c.body)}</div>` : ''}
+          ${c.photoUrl ? `<button class="soc-comment-photo" type="button" data-soc-action="zoom-comment-photo" data-src="${escapeHtml(c.photoUrl)}" data-name="@${escapeHtml(c.authorName)}"><img src="${escapeHtml(c.photoUrl)}" loading="lazy" alt="" /></button>` : ''}
         </div>
         ${summaryPill}
       </div>
@@ -662,6 +675,7 @@ function renderComment(c, postId, depth = 0) {
         ${commentBubbleHtml(c, postId)}
         ${replying ? `
           <form class="soc-comment-form soc-reply-form" data-soc-action="submit-comment" data-post-id="${postId}" data-parent-id="${c.id}">
+            ${commentPhotoPickerHtml()}
             <input type="text" class="soc-comment-input" maxlength="500" placeholder="Reply to @${escapeHtml(c.authorName)}…" />
             <button class="btn-primary" type="submit">Reply</button>
           </form>` : ''}
@@ -756,6 +770,7 @@ function renderPostCard(p) {
       ${shownComments.map((c) => renderComment(c, p.id)).join('')}
       ${expanded ? `
         <form class="soc-comment-form" data-soc-action="submit-comment" data-post-id="${p.id}">
+          ${commentPhotoPickerHtml()}
           <input type="text" class="soc-comment-input" maxlength="500" placeholder="Add a comment… (@mention someone)" />
           <button class="btn-primary" type="submit">Post</button>
         </form>` : ''}
@@ -1677,13 +1692,14 @@ function wireSocialEvents() {
       const pf = e.target.closest('[data-soc-action="add-poll-option"]');
       if (pf) { e.preventDefault(); onAddPollOption(pf); }
     });
+    cryptEl.addEventListener('change', onCommentPhotoPick);
     cryptEl.addEventListener('error', (e) => {
       const img = e.target;
       if (img.tagName !== 'IMG' || img.dataset.fellBack) return;
       img.dataset.fellBack = '1';
       const slot = img.closest('.soc-top8-photo');
       if (slot) { slot.innerHTML = '<span class="no-photo">🖤</span>'; return; }
-      const photo = img.closest('.soc-post-photo');
+      const photo = img.closest('.soc-post-photo, .soc-comment-photo');
       if (photo) { photo.remove(); }
     }, true);
   }
@@ -1698,6 +1714,9 @@ function wireSocialEvents() {
       if (state.socSubTab === 'friends' && !state.socProfile) renderFriends();
     }, 250);
   });
+
+  // Comment/reply 📷 picks anywhere in the social view (0090).
+  document.getElementById('social-view').addEventListener('change', onCommentPhotoPick);
 
   // Comment submit + compose/profile/top8 forms (submit events).
   document.getElementById('social-view').addEventListener('submit', (e) => {
@@ -1720,7 +1739,7 @@ function wireSocialEvents() {
     img.dataset.fellBack = '1';
     const slot = img.closest('.soc-top8-photo');
     if (slot) { slot.innerHTML = '<span class="no-photo">🖤</span>'; return; }
-    const photo = img.closest('.soc-post-photo');
+    const photo = img.closest('.soc-post-photo, .soc-comment-photo');
     if (photo) { photo.remove(); }
   }, true);
   document.getElementById('social-modal').addEventListener('submit', (e) => {
@@ -1858,6 +1877,7 @@ async function onSocialClick(e) {
     case 'edit-profile': closeSocialModal(); openAccountModal(); break;
     case 'edit-top8': openTop8Picker(); break;
     case 'zoom-top8': openLightbox(target.dataset.src, target.dataset.name); break;
+    case 'zoom-comment-photo': openLightbox(target.dataset.src, target.dataset.name || ''); break;
     case 'view-relic': openRelicCard(target.dataset.relicKey, target.dataset.earnedAt); break;
 
     case 'toggle-menu': {
@@ -2084,17 +2104,44 @@ function onToggleComments(postId) {
   rerenderSocialCurrent();
 }
 
+// A comment form's 📷 pick (0090): compress + stash the blob on the form and
+// swap the icon for a thumbnail so you can see what's about to be attached.
+// Re-tapping opens the picker again; cancelling it clears the pending photo.
+async function onCommentPhotoPick(e) {
+  if (!e.target.classList?.contains('soc-comment-photo-input')) return;
+  const form = e.target.closest('form');
+  const ico = form?.querySelector('.soc-comment-photo-ico');
+  if (!form || !ico) return;
+  const file = e.target.files?.[0];
+  if (!file) {
+    form._photoBlob = null;
+    ico.textContent = '📷';
+    return;
+  }
+  try {
+    form._photoBlob = await compressImage(file);
+    ico.innerHTML = `<img class="soc-comment-photo-thumb" src="${URL.createObjectURL(form._photoBlob)}" alt="Photo attached" />`;
+  } catch (err) {
+    console.warn('compress', err);
+    form._photoBlob = null;
+    ico.textContent = '📷';
+    toast('Could not read that image.');
+  }
+}
+
 async function submitCommentForm(form) {
   const input = form.querySelector('.soc-comment-input');
   const body = input.value.trim();
-  if (!body) return;
+  const photoBlob = form._photoBlob || null;   // set by the 📷 picker (0090)
+  if (!body && !photoBlob) return;
   const postId = form.dataset.postId;
   const parentId = form.dataset.parentId || null;
   try {
-    await data.addComment(postId, body, parentId);
+    await data.addComment(postId, body, parentId, photoBlob);
     // Clear only after the write succeeds — clearing up front lost the user's
     // typed comment when the request failed.
     input.value = '';
+    form._photoBlob = null;
     state.socReplyTo = null;
     await loadSocialData();
     if (state.socProfile) await openProfile(state.socProfile.profile.id);
