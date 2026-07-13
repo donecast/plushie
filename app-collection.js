@@ -986,13 +986,15 @@ function render() {
     t.classList.toggle('active', t.dataset.tab === tab)
   );
   // Mobile bottom nav mirrors the active tab (same data-tab values). The 💬
-  // Messages tab is really Home + the messages sub-surface, so it lights up
-  // for that combination and steals Home's highlight while it does.
+  // Messages and 👥 Coven tabs are really Home + a sub-surface, so each lights
+  // up for its combination and steals Home's highlight while it does.
   const onMessages = tab === 'home' && state.socSubTab === 'messages' && !state.socProfile;
+  const onCoven = tab === 'home' && state.socSubTab === 'friends' && !state.socProfile;
   document.querySelectorAll('.bottom-tab').forEach((t) => {
-    const on = t.dataset.tab === 'messages'
-      ? onMessages
-      : (t.dataset.tab === tab && !(t.dataset.tab === 'home' && onMessages));
+    let on;
+    if (t.dataset.tab === 'messages') on = onMessages;
+    else if (t.dataset.tab === 'coven') on = onCoven;
+    else on = t.dataset.tab === tab && !(t.dataset.tab === 'home' && (onMessages || onCoven));
     t.classList.toggle('active', on);
     t.setAttribute('aria-selected', on ? 'true' : 'false');
   });

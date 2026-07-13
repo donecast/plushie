@@ -1228,6 +1228,11 @@ function goToTab(tab) {
     if (dm) { dm.click(); return true; }
     return false;
   }
+  if (tab === 'coven') {
+    const cv = document.getElementById('coven-btn');
+    if (cv) { cv.click(); return true; }
+    return false;
+  }
   if (tab === 'admin') {
     const item = document.querySelector('#user-menu [data-go="admin"]');
     if (item) { item.click(); return true; }
@@ -1312,9 +1317,11 @@ function wireEvents() {
     shell.addEventListener('click', (e) => {
       const t = e.target.closest('[data-tab]');
       if (!t) return;
-      // Messages is a Home sub-surface, not a top-level tab — route the
-      // bottom-nav 💬 through the header icon so both share one enter logic.
+      // Messages and Coven are Home sub-surfaces, not top-level tabs — route
+      // the bottom-nav 💬/👥 through their header icons so each pair shares
+      // one enter logic.
       if (t.dataset.tab === 'messages') { document.getElementById('dm-btn')?.click(); return; }
+      if (t.dataset.tab === 'coven') { document.getElementById('coven-btn')?.click(); return; }
       // A data-subtab (e.g. the wishlist thumbnails) lands on that crypt sub-tab.
       if (t.dataset.subtab) state.colSubTab = t.dataset.subtab;
       // Stirrings feed entries open the exact item they refer to (detail rail or
