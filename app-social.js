@@ -147,7 +147,7 @@ function scheduleSocialCheck() {
 
 function updateSocialBadge() {
   const n = state.socPendingCount || 0;
-  for (const id of ['coven-badge', 'soc-friends-badge']) {
+  for (const id of ['coven-badge', 'soc-friends-badge', 'bn-coven-badge']) {
     const b = document.getElementById(id);
     if (!b) continue;
     b.textContent = n;
