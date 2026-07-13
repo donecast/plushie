@@ -4417,6 +4417,8 @@ body.maint-locked { overflow: hidden; }
   margin: 10px 0; padding: 12px 14px;
   border: 1px solid var(--gold); border-radius: 12px;
   background: linear-gradient(135deg, rgba(199,161,74,.12), rgba(199,161,74,.03));
+  /* Tappable (opens the relic card) — reset the button chrome. */
+  width: 100%; font: inherit; color: inherit; text-align: left; cursor: pointer;
 }
 .soc-relic-emblem { font-size: 1.9rem; line-height: 1; flex: 0 0 auto; }
 .soc-relic-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -4427,8 +4429,21 @@ body.maint-locked { overflow: hidden; }
   display: inline-flex; align-items: center; gap: 7px;
   padding: 7px 12px; border: 1px solid var(--hairline); border-radius: 999px;
   background: linear-gradient(135deg, rgba(199,161,74,.10), transparent);
+  /* Tappable (opens the relic card) — reset the button chrome. */
+  font: inherit; color: inherit; cursor: pointer;
 }
 .soc-relic-name { font-weight: 600; font-size: .92rem; white-space: nowrap; }
+
+/* The tapped-open relic card: the relic writ large, with a plain explanation. */
+.soc-relic-card { text-align: center; padding: 8px 4px 4px; }
+.soc-relic-card-emblem { display: block; font-size: 4rem; line-height: 1.15; }
+.soc-relic-card h2 { color: var(--gold); margin: 10px 0 4px; }
+.soc-relic-card-how { margin: 12px 0 0; }
+.soc-relic-card-when { margin: 8px 0 0; color: var(--ink-dim); font-size: .92rem; }
+.soc-relic-card-about {
+  margin: 16px 0 0; padding-top: 12px; border-top: 1px solid var(--hairline);
+  color: var(--ink-dim); font-size: .92rem;
+}
 
 /* ─── Poll (0079) — Facebook-style result bars ─── */
 .soc-poll { margin: 10px 0; display: flex; flex-direction: column; gap: 6px; }
