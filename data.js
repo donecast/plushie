@@ -312,16 +312,28 @@ const data = {
     return path;
   },
 
-  async _r2Delete(bucket, path) {
+  // strict: throw instead of silently skipping/failing, for callers where a
+  // file left behind is a real problem (admin catalog photo removal) rather
+  // than best-effort tidy-up (user photo replacement).
+  async _r2Delete(bucket, path, { strict = false } = {}) {
     const base = (window.R2_BASE || '').replace(/\/$/, '');
-    if (!base || !path) return;
+    if (!base || !path) {
+      if (strict) throw new Error('R2 not configured — file not deleted');
+      return;
+    }
     const { data: session } = await sb.auth.getSession();
     const jwt = session?.session?.access_token;
-    if (!jwt) return;
-    await fetch(`${base}/${bucket}/${path}`, {
+    if (!jwt) {
+      if (strict) throw new Error('Not signed in — file not deleted');
+      return;
+    }
+    const req = fetch(`${base}/${bucket}/${path}`, {
       method: 'DELETE',
       headers: { 'authorization': `Bearer ${jwt}` },
-    }).catch(() => {});
+    });
+    if (!strict) { await req.catch(() => {}); return; }
+    const resp = await req;
+    if (!resp.ok) throw new Error(`R2 delete failed (${resp.status}) — file not deleted`);
   },
 
   async _urlFor(bucket, path) {
@@ -1796,9 +1808,66 @@ data.adminAddCatalogPhoto = async function (target, { slot, imageUrl = null, ima
   return saved;
 };
 
+// The R2 objects a catalog_photos row owns. A row can reference its file two
+// ways at once — an `image_path` key and/or an `image_url` that points back
+// at our own R2 worker (the photo pipeline writes both for the same object) —
+// so resolve each and dedupe. A URL on any other host is an external
+// hot-link: nothing of ours to delete.
+data._r2PhotoLocations = function (row) {
+  const out = new Map();
+  if (row.image_path) {
+    const bucket = row.bucket || 'catalog';
+    out.set(`${bucket}/${row.image_path}`, { bucket, path: row.image_path });
+  }
+  const base = (window.R2_BASE || '').replace(/\/$/, '');
+  if (base && row.image_url && row.image_url.startsWith(base + '/')) {
+    const rest = row.image_url.slice(base.length + 1).split(/[?#]/)[0];
+    const slash = rest.indexOf('/');
+    if (slash > 0) {
+      const bucket = rest.slice(0, slash);
+      const path = decodeURIComponent(rest.slice(slash + 1));
+      if (path) out.set(`${bucket}/${path}`, { bucket, path });
+    }
+  }
+  return [...out.values()];
+};
+
+// Deleting a photo removes its FILE too when we host it: an admin rejecting a
+// community shot and reverting to the store photo must not leave the file in
+// the bucket (a store cover means "no usable community photo exists"). Files
+// delete FIRST and loudly — on failure the row survives so the admin can
+// retry, and re-deleting an already-gone R2 key is a no-op, so a
+// half-finished retry converges.
 data.adminDeleteCatalogPhoto = async function (photoId) {
+  const { data: row, error: loadErr } = await sb.from('catalog_photos')
+    .select('id, bucket, image_path, image_url, target_handle, target_variant_id')
+    .eq('id', photoId).maybeSingle();
+  if (loadErr) throw loadErr;
+  if (!row) return; // already gone (double-click, another admin)
+
+  for (const loc of data._r2PhotoLocations(row)) {
+    await data._r2Delete(loc.bucket, loc.path, { strict: true });
+  }
+
   const { error } = await sb.from('catalog_photos').delete().eq('id', photoId);
   if (error) throw error;
+
+  // If this photo was mirrored as the live cover, clear the mirror back to
+  // the store default — the file is gone, so the stale URL would 404. Same
+  // resolved-URL expression adminSetCatalogPhotoPrimary mirrors, so an exact
+  // match identifies "this photo is the cover".
+  const coverUrl = row.image_url || (row.image_path ? await data.catalogImageUrl(row.image_path) : null);
+  if (!coverUrl) return;
+  const cleared = { image: null, image_credit: null, credit_anon: false, updated_by: window.currentUser?.id || null };
+  if (row.target_variant_id) {
+    const { error: e } = await sb.from('catalog_variant_covers')
+      .update(cleared).eq('variant_id', row.target_variant_id).eq('image', coverUrl);
+    if (e) throw e;
+  } else if (row.target_handle) {
+    const { error: e } = await sb.from('catalog_overrides')
+      .update(cleared).eq('handle', row.target_handle).eq('image', coverUrl);
+    if (e) throw e;
+  }
 };
 
 // Relabel a slot (e.g. move a shot from numbered '1' to lettered 'B', or
