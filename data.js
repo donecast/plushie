@@ -3447,6 +3447,14 @@ data._hydratePosts = async function (rows) {
   for (const c of (comments || [])) ids.add(c.author_id);
   const profs = await data._resolveProfiles([...ids]);
 
+  // Resolve comment photo urls up front (0090) — buildThread is sync.
+  const commentPhotoUrls = new Map();
+  for (const c of (comments || [])) {
+    if (c.photo_path && !commentPhotoUrls.has(c.photo_path)) {
+      commentPhotoUrls.set(c.photo_path, await data.socialPhotoUrl(c.photo_path));
+    }
+  }
+
   // Build a threaded comment tree (top-level + nested replies), preserving the
   // chronological order the rows already arrived in.
   const buildThread = (list, postAuthorId) => {
@@ -3456,6 +3464,7 @@ data._hydratePosts = async function (rows) {
       authorName: profs.get(c.author_id)?.username ?? 'unknown',
       authorAvatar: profs.get(c.author_id)?.avatarUrl ?? null,
       body: c.body,
+      photoUrl: c.photo_path ? commentPhotoUrls.get(c.photo_path) : null,
       createdAt: c.created_at,
       parentId: c.parent_comment_id || null,
       mine: c.author_id === uid,
@@ -3548,8 +3557,12 @@ data.reactPost = async function (postId, emoji, on) {
   }
 };
 
-data.addComment = async function (postId, body, parentCommentId = null) {
-  const insert = { post_id: postId, author_id: window.currentUser.id, body };
+data.addComment = async function (postId, body, parentCommentId = null, photoBlob = null) {
+  // body may be null for a photo-only comment (0090's check constraint
+  // requires text or a photo). Upload first so a failed upload never
+  // leaves a photo-less "photo comment" row behind.
+  const insert = { post_id: postId, author_id: window.currentUser.id, body: body || null };
+  if (photoBlob instanceof Blob) insert.photo_path = await data.uploadSocialPhoto(photoBlob);
   if (parentCommentId) insert.parent_comment_id = parentCommentId;
   const { data: row, error } = await sb.from('post_comments').insert(insert).select().single();
   if (error) throw error;

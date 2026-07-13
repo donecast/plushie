@@ -4513,8 +4513,25 @@ body.maint-locked { overflow: hidden; }
 /* Pill overhangs the bubble bottom — reserve a little space below it. */
 .soc-comment-bubble-wrap:has(.soc-react-summary) { margin-bottom: 9px; }
 
+/* Comment photo (0090) — thumbnail in the bubble; taps open the lightbox. */
+.soc-comment-photo {
+  display: block; padding: 0; margin: 6px 0 2px;
+  background: none; border: none; cursor: zoom-in;
+}
+.soc-comment-photo img {
+  display: block; max-width: min(220px, 100%); max-height: 220px;
+  width: auto; height: auto; border-radius: 10px; border: 1px solid var(--hairline);
+}
+
 .soc-more-comments { align-self: flex-start; font-size: 0.82rem; }
-.soc-comment-form { display: flex; gap: 8px; margin-top: 6px; }
+.soc-comment-form { display: flex; gap: 8px; margin-top: 6px; align-items: center; }
+/* The 📷 attach control on comment/reply forms (0090). */
+.soc-comment-photo-btn { flex: 0 0 auto; cursor: pointer; line-height: 1; }
+.soc-comment-photo-ico { font-size: 1.15rem; }
+.soc-comment-photo-thumb {
+  display: block; width: 30px; height: 30px; object-fit: cover;
+  border-radius: 7px; border: 1px solid var(--gold);
+}
 .soc-comment-input {
   flex: 1; padding: 8px 12px; border-radius: 999px;
   border: 1px solid var(--border-rose-faint); background: var(--surface-2); font: inherit; color: var(--ink);
