@@ -509,15 +509,34 @@ const SOC_REACTION_LABEL = Object.fromEntries(SOC_REACTIONS.map((r) => [r.emoji,
 // copy mirror _relic_meta() in the migration; an unknown key (older client vs.
 // a newer relic) falls back to the post's plain body text, so nothing breaks.
 const RELIC_META = {
-  'first-soul':         { emoji: '🕯️', title: 'First Soul',         blurb: 'welcomed their first plush into the crypt' },
-  'first-proclamation': { emoji: '📜', title: 'First Proclamation', blurb: 'made their first post to the crypt' },
-  'coven-kin':          { emoji: '🦇', title: 'Coven Kin',          blurb: 'formed their first Coven bond' },
-  'first-pact':         { emoji: '🤝', title: 'First Pact',         blurb: 'completed their first trade' },
-  'seasoned-trader':    { emoji: '🕸️', title: 'Seasoned Trader',    blurb: 'completed five trades' },
-  'honest-quill':       { emoji: '🪶', title: 'Honest Quill',       blurb: 'left honest feedback after a trade' },
-  'crypt-chronicler':   { emoji: '📷', title: 'Crypt Chronicler',   blurb: 'had a photo enshrined in the catalog' },
-  'year-one':           { emoji: '🕰️', title: 'Year One',           blurb: 'has haunted the crypt for a full year' },
+  'first-soul':         { emoji: '🕯️', title: 'First Soul',         blurb: 'welcomed their first plush into the crypt', how: 'Add your first plush to your collection.' },
+  'first-proclamation': { emoji: '📜', title: 'First Proclamation', blurb: 'made their first post to the crypt',        how: 'Make your first post on the Fellowship feed.' },
+  'coven-kin':          { emoji: '🦇', title: 'Coven Kin',          blurb: 'formed their first Coven bond',             how: 'Become friends with another collector — your first accepted friend request.' },
+  'first-pact':         { emoji: '🤝', title: 'First Pact',         blurb: 'completed their first trade',               how: 'Complete your first trade with another collector.' },
+  'seasoned-trader':    { emoji: '🕸️', title: 'Seasoned Trader',    blurb: 'completed five trades',                     how: 'Complete five trades.' },
+  'honest-quill':       { emoji: '🪶', title: 'Honest Quill',       blurb: 'left honest feedback after a trade',        how: 'Leave feedback for your trade partner after a completed trade.' },
+  'crypt-chronicler':   { emoji: '📷', title: 'Crypt Chronicler',   blurb: 'had a photo enshrined in the catalog',      how: 'Have one of your plush photos approved into the public catalog.' },
+  'year-one':           { emoji: '🕰️', title: 'Year One',           blurb: 'has haunted the crypt for a full year',     how: 'Stick around — awarded when your account turns one year old.' },
 };
+
+// Tapping a relic (shelf chip or feed banner) opens it as a big card with a
+// plain-English explanation — the hover tooltip alone was invisible on touch.
+function openRelicCard(key, earnedAt) {
+  const m = RELIC_META[key];
+  if (!m) return;
+  const when = earnedAt
+    ? new Date(earnedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+    : '';
+  openSocialModal(`
+    <button class="modal-close" data-close-social aria-label="Close">×</button>
+    <div class="soc-relic-card">
+      <span class="soc-relic-card-emblem">${m.emoji}</span>
+      <h2>${escapeHtml(m.title)}</h2>
+      <p class="soc-relic-card-how"><strong>How it’s earned:</strong> ${escapeHtml(m.how)}</p>
+      ${when ? `<p class="soc-relic-card-when">Unearthed ${escapeHtml(when)}</p>` : ''}
+      <p class="soc-relic-card-about">Relics are little keepsakes the Crypt leaves you for taking part. No checklists, no pressure — they find <em>you</em>. 🖤</p>
+    </div>`);
+}
 
 // The relic shelf shown on profiles (and the My Crypt footer). Earned relics
 // only — no grey placeholders, no progress bars: the crypt doesn't do FOMO.
@@ -531,10 +550,11 @@ function renderRelicShelf(relics, isMe) {
   return `<div class="soc-relic-shelf">${earned.map((r) => {
     const m = RELIC_META[r.key];
     const when = new Date(r.earnedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-    return `<div class="soc-relic" title="${escapeHtml(m.title)} — ${escapeHtml(m.blurb)} (${escapeHtml(when)})">
+    return `<button type="button" class="soc-relic" data-soc-action="view-relic" data-relic-key="${escapeHtml(r.key)}" data-earned-at="${escapeHtml(r.earnedAt || '')}"
+      title="${escapeHtml(m.title)} — ${escapeHtml(m.blurb)} (${escapeHtml(when)})">
       <span class="soc-relic-emblem">${m.emoji}</span>
       <span class="soc-relic-name">${escapeHtml(m.title)}</span>
-    </div>`;
+    </button>`;
   }).join('')}</div>`;
 }
 
@@ -684,13 +704,13 @@ function postKebabHtml(p) {
 function renderRelicBanner(p) {
   const m = p.relicKey && RELIC_META[p.relicKey];
   if (!m) return '';
-  return `<div class="soc-relic-banner">
+  return `<button type="button" class="soc-relic-banner" data-soc-action="view-relic" data-relic-key="${escapeHtml(p.relicKey)}" title="What’s this relic?">
     <span class="soc-relic-emblem">${m.emoji}</span>
     <div class="soc-relic-text">
       <strong>Relic unearthed: ${escapeHtml(m.title)}</strong>
       <span>${escapeHtml(m.blurb)} 🖤</span>
     </div>
-  </div>`;
+  </button>`;
 }
 
 function renderPostCard(p) {
@@ -1838,6 +1858,7 @@ async function onSocialClick(e) {
     case 'edit-profile': closeSocialModal(); openAccountModal(); break;
     case 'edit-top8': openTop8Picker(); break;
     case 'zoom-top8': openLightbox(target.dataset.src, target.dataset.name); break;
+    case 'view-relic': openRelicCard(target.dataset.relicKey, target.dataset.earnedAt); break;
 
     case 'toggle-menu': {
       const id = target.dataset.menu;
