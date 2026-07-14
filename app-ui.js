@@ -973,7 +973,11 @@ async function loadCatalogEvents() {
 function renderRailStirrings() {
   const el = document.getElementById('rail-stirrings');
   if (!el) return;
-  const events = state._stirrings || [];
+  // The ticker is "what's stirring", not an archive — events age out after
+  // 10 days. (Rows without a timestamp can't be aged, so they stay.)
+  const cutoff = Date.now() - 10 * 24 * 3600 * 1000;
+  const events = (state._stirrings || []).filter((e) =>
+    !e.created_at || +new Date(e.created_at) >= cutoff);
   const sig = events.map((e) => e.id).join(',');
   if (el._sig === sig) return;   // no change — skip repaint
   el._sig = sig;
@@ -986,11 +990,14 @@ function renderRailStirrings() {
         const name = escapeHtml(e.name || e.handle || '');
         const handle = escapeHtml(e.handle || '');
         const q = escapeHtml(cleanCatalogName ? cleanCatalogName(e.name || e.handle || '') : (e.name || e.handle || ''));
+        const when = e.created_at
+          ? new Date(e.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+          : '';
         return `<li class="rail-stir" data-tab="catalog" data-stir-handle="${handle}" data-stir-name="${q}" role="button" title="${m.label}: ${name} — open this item">
           <span class="rail-stir-ico">${m.icon}</span>
           <span class="rail-stir-text">
             <span class="rail-stir-name">${name}</span>
-            <span class="rail-stir-kind">${m.label}</span>
+            <span class="rail-stir-kind">${m.label}${when ? ` · ${escapeHtml(when)}` : ''}</span>
           </span>
         </li>`;
       }).join('')}
