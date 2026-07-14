@@ -3733,6 +3733,15 @@ body.rails-on .rail-right.rail-right--active { display: block; }
   /* Lift page content so the fixed bar never hides the last row. */
   main,
   body.rails-on main { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
+
+  /* iOS auto-zooms the page when a focused control's font-size is under
+     16px — and while zoomed, position:fixed pins to the layout viewport,
+     so this bottom bar drifts up with the scroll instead of staying put.
+     Keep every focusable control at ≥16px on phones so the zoom never
+     fires. !important because per-control rules (.field input,
+     .soc-comment-input, …) would otherwise out-rank a bare element
+     selector. */
+  input, select, textarea { font-size: max(16px, 1em) !important; }
 }
 
 /* ─── Admin ────────────────────────────── */
