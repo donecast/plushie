@@ -1015,6 +1015,14 @@ function renderBlockedManager() {
 // ─── Viewing someone's profile (overlay) ────────────────────────────
 async function openProfile(userId) {
   try {
+    // A fresh open (from the feed or another profile) should land at the TOP
+    // of the profile — without this, the profile swaps in under the reader's
+    // current scroll position and all they see is a list of posts that looks
+    // exactly like the feed, i.e. "the tap did nothing". A refresh of the
+    // already-open profile (after a react/comment/friend action) keeps its
+    // place. The feed's own position is remembered for the ← back trip.
+    const refreshing = state.socProfile?.profile?.id === userId;
+    if (!state.socProfile) state._socFeedScroll = window.scrollY;
     const [profile, posts, top8, friendship, relics] = await Promise.all([
       data.getSocialProfile(userId),
       data.listUserPosts(userId),
@@ -1030,6 +1038,7 @@ async function openProfile(userId) {
     if (!isMe && data.isBlocked(userId) && !data.isMyBlock(userId)) {
       state.socProfile = { profile, posts: [], top8: [], relics: [], friendship: 'none', isMe, unavailable: true };
       renderSocial();
+      if (!refreshing) window.scrollTo({ top: 0, behavior: 'instant' });
       return;
     }
     state.socProfile = {
@@ -1039,7 +1048,16 @@ async function openProfile(userId) {
       relics,
     };
     renderSocial();
+    if (!refreshing) window.scrollTo({ top: 0, behavior: 'instant' });
   } catch (e) { console.error('openProfile', e); toast('Could not open profile.'); }
+}
+
+// ← Back to feed: drop the profile overlay and put the reader back exactly
+// where they were scrolled in the feed before they tapped in.
+function closeProfileToFeed() {
+  state.socProfile = null;
+  renderSocial();
+  window.scrollTo({ top: state._socFeedScroll || 0, behavior: 'instant' });
 }
 
 function renderProfileInto(el, { profile, posts = [], top8 = [], relics = [], friendship, isMe, withBack, unavailable, omitPosts, omitTop8, omitRelics }) {
@@ -1873,7 +1891,7 @@ async function onSocialClick(e) {
     case 'dm-back': closeDm(); break;
     case 'share-app': await shareApp(); break;
     case 'view-profile': await openProfile(uid); break;
-    case 'close-profile': state.socProfile = null; renderSocial(); break;
+    case 'close-profile': closeProfileToFeed(); break;
     case 'edit-profile': closeSocialModal(); openAccountModal(); break;
     case 'edit-top8': openTop8Picker(); break;
     case 'zoom-top8': openLightbox(target.dataset.src, target.dataset.name); break;
@@ -2391,7 +2409,12 @@ async function boot() {
   // Catalog: ship the baked copy immediately, then try to refresh from live
   // Shopify in the background. Falls back silently if CORS or network blocks it.
   loadCatalog().then(() => {
-    if (state.tab === 'catalog') render();
+    // Re-render whatever tab we're on, not just Catalog: category-derived
+    // chrome (the rail identity "N buns in the crypt", crypt sub-tab counts,
+    // vitals) joins collection items to the catalog via itemCategory(), so
+    // everything computed before this point counted 0 buns and would stay
+    // stale until the next unrelated repaint.
+    render();
     refreshCatalogLive();
     scheduleCatalogRefresh();   // keep the live catalog fresh in long-open sessions
 
