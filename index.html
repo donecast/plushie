@@ -42,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=148" />
+  <link rel="stylesheet" href="./styles.css?v=149" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -141,6 +141,10 @@
       <div class="header-actions">
         <button id="coven-btn" class="icon-btn hidden" title="Coven" aria-label="Coven and friend requests">👥<span id="coven-badge" class="tab-badge hidden" aria-live="polite">0</span></button>
         <button id="dm-btn" class="icon-btn hidden" title="Messages" aria-label="Private messages">💬<span id="dm-badge" class="tab-badge hidden" aria-live="polite">0</span></button>
+        <div class="notif-wrap">
+          <button id="notif-btn" class="icon-btn hidden" title="Notifications" aria-haspopup="true" aria-expanded="false" aria-label="Notifications">🔔<span id="notif-badge" class="tab-badge hidden" aria-live="polite">0</span></button>
+          <div id="notif-panel" class="notif-panel hidden" aria-label="Notifications"></div>
+        </div>
         <button id="theme-btn" class="icon-btn" title="Toggle light/dark" aria-label="Toggle light or dark theme">🌙</button>
         <div class="user-badge-wrap">
           <button id="user-badge" class="user-badge hidden" title="Account" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu">
@@ -1141,6 +1145,7 @@
           <div class="changelog-day">
             <h3 class="changelog-date">July 14, 2026</h3>
             <ul>
+              <li><strong>Your notifications now have a home. 🔔</strong> Tap the new bell in the header to see everything that's happened — comments, reactions, mentions, friend requests, trade news — even if the phone buzz came and went (or you never allowed notifications on this device). Unread ones are highlighted, and tapping one takes you to the right place.</li>
               <li><strong>Tapping a name actually takes you to their profile now.</strong> Tapping someone's name or face on a post used to swap the page under you without moving you to the top — so it looked like nothing happened. Now you land right at the top of their profile, and ← Back returns you to the exact spot in the feed you left.</li>
               <li class="changelog-gated"><strong>Sidebar fixes (desktop):</strong> your "buns in the crypt" count no longer shows 0 while the app is still waking up, and each Stirring now shows the date it happened — Stirrings older than 10 days fade away.</li>
               <li class="changelog-fixes">Fixed the bottom navigation bar sometimes drifting up the screen while scrolling on phones — it now stays pinned to the bottom where it belongs.</li>
@@ -1889,20 +1894,20 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./config.js?v=54"></script>
-  <script src="./auth.js?v=65"></script>
+  <script src="./auth.js?v=66"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=107"></script>
+  <script src="./data.js?v=108"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=199"></script>
-  <script src="./app-catalog.js?v=199"></script>
-  <script src="./app-collection.js?v=199"></script>
-  <script src="./app-ui.js?v=199"></script>
-  <script src="./app-trade.js?v=199"></script>
-  <script src="./app-account.js?v=199"></script>
-  <script src="./app-admin.js?v=199"></script>
-  <script src="./app-admin-catalog.js?v=199"></script>
-  <script src="./app-social.js?v=199"></script>
+  <script src="./app-core.js?v=200"></script>
+  <script src="./app-catalog.js?v=200"></script>
+  <script src="./app-collection.js?v=200"></script>
+  <script src="./app-ui.js?v=200"></script>
+  <script src="./app-trade.js?v=200"></script>
+  <script src="./app-account.js?v=200"></script>
+  <script src="./app-admin.js?v=200"></script>
+  <script src="./app-admin-catalog.js?v=200"></script>
+  <script src="./app-social.js?v=200"></script>
 </body>
 </html>
