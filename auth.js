@@ -542,15 +542,18 @@ function updateUserBadge() {
   if (!badge) return;
   const coven = document.getElementById('coven-btn');
   const dm = document.getElementById('dm-btn');
+  const bell = document.getElementById('notif-btn');
   if (window.currentUser?.username) {
     badge.classList.remove('hidden');
     badge.querySelector('.user-name').textContent = '@' + window.currentUser.username;
     if (coven) coven.classList.remove('hidden');
     if (dm) dm.classList.remove('hidden');
+    if (bell) bell.classList.remove('hidden');
   } else {
     badge.classList.add('hidden');
     if (coven) coven.classList.add('hidden');
     if (dm) dm.classList.add('hidden');
+    if (bell) bell.classList.add('hidden');
   }
 }
 

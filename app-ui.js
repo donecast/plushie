@@ -743,6 +743,60 @@ async function maybeFireQueuedNotifications() {
   }
 }
 
+// ─── In-app notification bell (🔔, db/0085 seen_at) ──────────────────
+// OS banners are transient (and desktop browsers often never get permission),
+// so notifications also need a place you can LOOK: the 🔔 header icon lists
+// the recent queue rows, badges the unseen count, and marks everything seen
+// when opened — Facebook-style. Delivery (delivered_at) is a separate axis:
+// a push that buzzed your phone still counts as unseen here until you've
+// actually looked at the inbox.
+
+// Which tab a notification lands on, by tag prefix. Mirror of sw.js
+// tabForTag() — the SW is a separate scope, so keep the two in sync.
+function notifTabForTag(tag) {
+  if (!tag) return null;
+  if (tag.startsWith('dm-') || tag === 'dm-unread') return 'messages';
+  if (tag.startsWith('trade-') || tag.startsWith('feedback-') || tag === 'trade-action') return 'trade';
+  if (tag.startsWith('admin-')) return 'admin';
+  if (tag === 'photo-approved' || tag === 'catalog-approved') return 'catalog';
+  if (tag === 'friend-request' || tag === 'friend-accept' ||
+      tag === 'coffin-buddy' ||
+      tag.startsWith('post-') || tag.startsWith('like-') || tag.startsWith('comment-')) {
+    return 'home';
+  }
+  return null;
+}
+
+// Pull the recent inbox + paint the badge. Piggybacks the same triggers as
+// the other badges (boot, the 5-min social poll, the realtime stream).
+async function refreshNotifBell() {
+  const badge = document.getElementById('notif-badge');
+  if (!badge || !window.currentUser) return;
+  try {
+    state._notifInbox = await data.listRecentNotifications();
+  } catch (e) { console.warn('notif inbox', e); return; }
+  const n = state._notifInbox.filter((r) => !r.seen_at).length;
+  badge.textContent = n;
+  badge.classList.toggle('hidden', n === 0);
+  // Keep an open panel current (a realtime arrival while it's up).
+  const panel = document.getElementById('notif-panel');
+  if (panel && !panel.classList.contains('hidden')) renderNotifPanel();
+}
+
+function renderNotifPanel() {
+  const panel = document.getElementById('notif-panel');
+  if (!panel) return;
+  const rows = state._notifInbox || [];
+  panel.innerHTML = `
+    <div class="notif-panel-head">Notifications</div>
+    ${rows.length ? rows.map((r) => `
+      <button type="button" class="notif-row${r.seen_at ? '' : ' notif-unseen'}" data-notif-tag="${escapeHtml(r.tag || '')}">
+        <span class="notif-row-body">${escapeHtml(r.body)}</span>
+        <span class="notif-row-when">${escapeHtml(socTimeAgo(r.created_at))}</span>
+      </button>`).join('')
+    : `<p class="notif-empty">Nothing yet. Comments, reactions, mentions, friend requests, and trade news land here. 🖤</p>`}`;
+}
+
 let _reminderInFlight = false;
 // Fire a notification ONLY when a wishlist plush actually comes back into
 // stock — the event people care about. This replaced the old daily "N items
@@ -1812,6 +1866,46 @@ function wireEvents() {
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' }));
     saveFilters();
   });
+
+  // Notification bell (🔔) — dropdown inbox, same popover manners as the
+  // account menu: toggle on the button, click-away closes, one open at once.
+  const notifBtn = document.getElementById('notif-btn');
+  const notifPanel = document.getElementById('notif-panel');
+  if (notifBtn && notifPanel) {
+    const closeNotifPanel = () => {
+      notifPanel.classList.add('hidden');
+      notifBtn.setAttribute('aria-expanded', 'false');
+    };
+    notifBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!notifPanel.classList.contains('hidden')) { closeNotifPanel(); return; }
+      notifPanel.classList.remove('hidden');
+      notifBtn.setAttribute('aria-expanded', 'true');
+      if (!state._notifInbox) await refreshNotifBell();
+      renderNotifPanel();
+      // Opening the inbox = you've seen what's in it: clear the badge and
+      // stamp the rows (this open still shows them highlighted; the next
+      // one won't).
+      const unseen = (state._notifInbox || []).filter((r) => !r.seen_at);
+      if (unseen.length) {
+        document.getElementById('notif-badge')?.classList.add('hidden');
+        try { await data.markNotificationsSeen(unseen.map((r) => r.id)); } catch (err) { console.warn('notif seen', err); }
+        const stamp = new Date().toISOString();
+        unseen.forEach((r) => { r.seen_at = stamp; });
+      }
+    });
+    document.addEventListener('click', (e) => {
+      if (notifPanel.classList.contains('hidden')) return;
+      if (!notifPanel.contains(e.target) && !notifBtn.contains(e.target)) closeNotifPanel();
+    });
+    notifPanel.addEventListener('click', (e) => {
+      const row = e.target.closest('[data-notif-tag]');
+      if (!row) return;
+      closeNotifPanel();
+      const tab = notifTabForTag(row.dataset.notifTag || '');
+      if (tab) goToTab(tab);
+    });
+  }
 
   // Catalog item create + suggest photo + admin queue modals.
   document.querySelectorAll('[data-close-catalog-item]').forEach((el) =>

@@ -136,6 +136,8 @@ async function refreshSocialBadge() {
   // anything real push didn't deliver — posts, replies, mentions, feedback,
   // approvals. The uniform fallback; see maybeFireQueuedNotifications.
   maybeFireQueuedNotifications().catch((e) => console.warn(e));
+  // …and keep the 🔔 inbox badge current on the same cadence.
+  refreshNotifBell().catch((e) => console.warn('notif bell', e));
 }
 
 // Poll for new friend requests every few minutes while the app is open
@@ -2396,6 +2398,7 @@ async function boot() {
   });
   scheduleSocialCheck();  // keep polling for new requests while the app is open
   subscribeNotificationStream();  // realtime: hear our notification rows instantly (db/0087)
+  refreshNotifBell().catch((e) => console.warn('notif bell', e));  // 🔔 inbox badge
   data.claimTimeRelics?.();  // time-based relics (year-one) — fire-and-forget (db/0088)
   updateNotifyButton();
   registerSW();

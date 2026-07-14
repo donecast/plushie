@@ -3786,4 +3786,29 @@ data.markNotificationsDelivered = async function (ids) {
   if (error) throw error;
 };
 
+// ─── In-app notification bell (db/0085's reserved seen_at) ──────────
+// The 🔔 inbox: recent rows regardless of delivery — a push that buzzed a
+// phone still shows here, so a desktop session can catch up on what the
+// OS banner (or another device) announced. Newest first.
+data.listRecentNotifications = async function ({ limit = 30 } = {}) {
+  const { data: rows, error } = await sb
+    .from('notifications')
+    .select('id, title, body, url, tag, created_at, seen_at')
+    .eq('user_id', window.currentUser.id)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return rows || [];
+};
+
+// Opening the inbox stamps what it showed (0085 grants UPDATE on seen_at).
+data.markNotificationsSeen = async function (ids) {
+  if (!ids?.length) return;
+  const { error } = await sb
+    .from('notifications')
+    .update({ seen_at: new Date().toISOString() })
+    .in('id', ids);
+  if (error) throw error;
+};
+
 window.data = data;
