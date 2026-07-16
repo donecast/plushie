@@ -611,7 +611,7 @@ function openAdminItemDetail(id, kind) {
     else if (it.hasBag === false) facts.push(['Missing', 'tote bag']);
     if (it.retired) facts.push(['Status', 'Retired']);
   } else {
-    if (it.outOfStock) facts.push(['Status', 'Out of stock']);
+    if (itemOutOfStock(it)) facts.push(['Status', 'Out of stock']);
     if (it.url) facts.push(['Link', `<a href="${escapeHtml(it.url)}" target="_blank" rel="noopener">plushiedreadfuls.com ↗</a>`]);
   }
 

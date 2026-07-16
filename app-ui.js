@@ -1173,7 +1173,7 @@ function renderRailItemDetail(item) {
         </div>
         ${photo}
         <h3 class="rail-detail-name">${escapeHtml(stripOutfitWord(item.name || ''))}</h3>
-        ${item.outOfStock ? '<p class="rail-detail-product">Out of stock</p>' : ''}
+        ${itemOutOfStock(item) ? '<p class="rail-detail-product">Out of stock</p>' : ''}
         ${item.notes ? `<p class="rail-detail-meaning">${escapeHtml(item.notes)}</p>` : ''}
         ${item.url ? `<a class="rail-detail-edit" href="${escapeHtml(item.url)}" target="_blank" rel="noopener">Buy ↗</a>` : ''}
       </section>`;
