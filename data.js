@@ -1461,6 +1461,7 @@ data.adminListUsers = async function () {
     return (rows || []).map((r) => withFlags(r.id, {
       id: r.id,
       username: r.username,
+      email: r.email,
       is_admin: r.is_admin,
       created_at: r.created_at,
       last_seen_at: r.last_seen_at,
@@ -1485,6 +1486,22 @@ data.adminListUsers = async function () {
     const byId = new Map((fb || []).map((f) => [f.user_id, f]));
     return rows.map((r) => withFlags(r.id, { ...r, feedback: byId.get(r.id) || null }));
   }
+};
+
+// People who started an auth account but never finished (no profiles row):
+// either never verified their magic-link email, or signed in once and bailed
+// before choosing a username. Admin-only (db/0092, SECURITY DEFINER + is_admin
+// gate). Returns [] for non-admins — the RPC just yields nothing.
+data.adminListIncompleteSignups = async function () {
+  const { data: rows, error } = await sb.rpc('admin_incomplete_signups');
+  if (error) throw error;
+  return (rows || []).map((r) => ({
+    id: r.id,
+    email: r.email,
+    created_at: r.created_at,
+    last_sign_in_at: r.last_sign_in_at,
+    confirmed: r.confirmed === true,
+  }));
 };
 
 // ─── Real names (db/0045: profile_private + security-definer accessors) ──

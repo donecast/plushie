@@ -3822,6 +3822,10 @@ body.rails-on .rail-right.rail-right--active { display: block; }
 /* Compact, right-aligned count columns; de-emphasised feedback. */
 .admin-table .admin-num { text-align: center; font-variant-numeric: tabular-nums; }
 .admin-table .admin-fb { font-size: 0.8rem; white-space: nowrap; }
+.admin-subnote { margin: -0.25rem 0 0.75rem; max-width: 60ch; }
+.admin-table .admin-email { font-size: 0.82rem; word-break: break-all; }
+.admin-table .admin-email a { color: var(--teal-text); text-decoration: none; }
+.admin-table .admin-email a:hover { text-decoration: underline; }
 .admin-fb .fb-good { color: var(--teal-text); }
 .admin-fb .fb-bad  { color: var(--danger-hi); }
 /* Feedback summary dialled down in the inspect view (less prominent). */
