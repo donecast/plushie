@@ -57,19 +57,30 @@ const result = await page.evaluate(async () => {
       collection_count: 0, wishlist_count: 0, for_trade_count: 0,
       feedback: { good_count: 0, meh_count: 0, bad_count: 0, total_count: 0 } },
   ];
+  state.adminIncompleteSignups = [
+    { id: 'a1', email: 'never@example.com', created_at: '2026-07-08T07:43:37Z', last_sign_in_at: null, confirmed: false },
+    { id: 'a2', email: 'bailed@example.com', created_at: '2026-06-25T00:00:20Z', last_sign_in_at: '2026-06-25T00:01:15Z', confirmed: true },
+  ];
   renderAdminUserList();
   const html = document.getElementById('admin-content').innerHTML;
   const headers = [...document.querySelectorAll('#admin-content thead th')].map((t) => t.textContent);
   const mailto = document.querySelector('#admin-content .admin-email a');
   const csv = buildUsersCsv(state.adminUsers).split('\r\n');
+  const tables = document.querySelectorAll('#admin-content table.admin-table');
+  const incompleteTable = tables[tables.length - 1];
+  const incompleteRows = [...incompleteTable.querySelectorAll('tbody tr')].map((tr) =>
+    [...tr.querySelectorAll('td')].map((td) => td.textContent));
   return {
     headers,
     mailtoHref: mailto?.getAttribute('href') || null,
     mailtoText: mailto?.textContent || null,
-    emailColsPerRow: [...document.querySelectorAll('#admin-content tbody tr')]
+    emailColsPerRow: [...document.querySelectorAll('#admin-content table.admin-table')[0].querySelectorAll('tbody tr')]
       .map((tr) => tr.querySelector('.admin-email')?.textContent),
     csvHeader: csv[0],
     csvRow1: csv[1],
+    hasIncompleteHeading: /Incomplete sign-ups/.test(html),
+    incompleteHeaders: [...incompleteTable.querySelectorAll('thead th')].map((t) => t.textContent),
+    incompleteRows,
   };
 });
 await browser.close();
@@ -82,7 +93,12 @@ if (result.mailtoText !== 'scott@donecast.com') problems.push(`bad mailto text: 
 if (result.emailColsPerRow[1] !== '—') problems.push(`missing-email row should show em dash; got ${JSON.stringify(result.emailColsPerRow)}`);
 if (!/^Username,Email,/.test(result.csvHeader)) problems.push(`csv header: ${result.csvHeader}`);
 if (!result.csvRow1.includes('scott@donecast.com')) problems.push(`csv row missing email: ${result.csvRow1}`);
+if (!result.hasIncompleteHeading) problems.push('missing "Incomplete sign-ups" heading');
+if (result.incompleteHeaders.join(',') !== 'Email,Signed up,Last sign-in,Status') problems.push(`incomplete headers: ${result.incompleteHeaders}`);
+if (result.incompleteRows.length !== 2) problems.push(`expected 2 incomplete rows; got ${result.incompleteRows.length}`);
+if (result.incompleteRows[0]?.[3] !== 'Never verified email') problems.push(`row0 status: ${result.incompleteRows[0]?.[3]}`);
+if (result.incompleteRows[1]?.[3] !== 'Signed in, never chose a username') problems.push(`row1 status: ${result.incompleteRows[1]?.[3]}`);
 
 console.log(JSON.stringify(result, null, 2));
 if (problems.length) { console.error('\nFAIL:\n' + problems.join('\n')); process.exit(1); }
-console.log('\nPASS — Email column renders (mailto + em-dash fallback) and CSV includes it.');
+console.log('\nPASS — Email column + Incomplete sign-ups section render correctly, CSV includes email.');

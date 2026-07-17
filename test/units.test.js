@@ -369,6 +369,14 @@ test('buildUsersCsv emits a header + one RFC-4180 row per user, dates as YYYY-MM
   assert.equal(call('buildUsersCsv', []), 'Username,Email,Name,Joined,Last seen,Collection,Wishlist,For trade,Good,Meh,Bad,Total feedback');
 });
 
+test('signupStatusLabel maps auth state to plain language', () => {
+  assert.equal(call('signupStatusLabel', { confirmed: false, last_sign_in_at: null }), 'Never verified email');
+  assert.equal(call('signupStatusLabel', { confirmed: true, last_sign_in_at: null }), 'Verified, never signed in');
+  assert.equal(call('signupStatusLabel', { confirmed: true, last_sign_in_at: '2026-06-18T06:15:40Z' }), 'Signed in, never chose a username');
+  // Signed in but somehow not flagged confirmed — the sign-in is the stronger signal.
+  assert.equal(call('signupStatusLabel', { confirmed: false, last_sign_in_at: '2026-06-18T06:15:40Z' }), 'Signed in, never chose a username');
+});
+
 test('sortCatalog treats a hand-entered releaseYear as Jan 1, sorting customs among their year-mates', () => {
   // Shopify items have full createdAt timestamps; a custom carries only a
   // releaseYear but a created_at of "just now" (when it was keyed in).

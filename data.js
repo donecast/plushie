@@ -1488,6 +1488,22 @@ data.adminListUsers = async function () {
   }
 };
 
+// People who started an auth account but never finished (no profiles row):
+// either never verified their magic-link email, or signed in once and bailed
+// before choosing a username. Admin-only (db/0092, SECURITY DEFINER + is_admin
+// gate). Returns [] for non-admins — the RPC just yields nothing.
+data.adminListIncompleteSignups = async function () {
+  const { data: rows, error } = await sb.rpc('admin_incomplete_signups');
+  if (error) throw error;
+  return (rows || []).map((r) => ({
+    id: r.id,
+    email: r.email,
+    created_at: r.created_at,
+    last_sign_in_at: r.last_sign_in_at,
+    confirmed: r.confirmed === true,
+  }));
+};
+
 // ─── Real names (db/0045: profile_private + security-definer accessors) ──
 // Self reads/writes its own raw fields directly (RLS gates the row);
 // everyone else reaches a name only through the display/partner RPCs.
