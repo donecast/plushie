@@ -1461,6 +1461,7 @@ data.adminListUsers = async function () {
     return (rows || []).map((r) => withFlags(r.id, {
       id: r.id,
       username: r.username,
+      email: r.email,
       is_admin: r.is_admin,
       created_at: r.created_at,
       last_seen_at: r.last_seen_at,

@@ -92,6 +92,7 @@ function renderAdminUserList() {
     return `
       <tr data-uid="${u.id}" class="admin-row">
         <td><strong>@${escapeHtml(u.username)}</strong>${me ? ' <span class="dim">(you)</span>' : ''}${statusBadges ? ` <span class="admin-status-badges">${statusBadges}</span>` : ''}</td>
+        <td class="admin-email">${u.email ? `<a href="mailto:${escapeHtml(u.email)}">${escapeHtml(u.email)}</a>` : '<span class="dim">—</span>'}</td>
         <td>${u.full_name ? escapeHtml(u.full_name) : '<span class="dim">—</span>'}</td>
         <td class="dim">${dateCell(u.created_at)}</td>
         <td class="admin-num">${u.collection_count ?? 0}</td>
@@ -189,7 +190,7 @@ function renderAdminUserList() {
       <button class="btn-ghost" data-admin-action="download-users-csv">⬇ Download CSV</button>
     </h2>
     <table class="admin-table">
-      <thead><tr><th>Username</th><th>Name</th><th>Joined</th><th class="admin-num">Coll.</th><th class="admin-num">Wish</th><th class="admin-num">Trade</th><th>Last seen</th><th class="dim">Fb (g/m/b)</th><th></th></tr></thead>
+      <thead><tr><th>Username</th><th>Email</th><th>Name</th><th>Joined</th><th class="admin-num">Coll.</th><th class="admin-num">Wish</th><th class="admin-num">Trade</th><th>Last seen</th><th class="dim">Fb (g/m/b)</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
@@ -198,7 +199,7 @@ function renderAdminUserList() {
 // Build a CSV from the admin user rows. Pure (no DOM) so it's unit-tested.
 // One row per user; dates as YYYY-MM-DD; fields quoted/escaped per RFC 4180.
 function buildUsersCsv(users) {
-  const header = ['Username', 'Name', 'Joined', 'Last seen',
+  const header = ['Username', 'Email', 'Name', 'Joined', 'Last seen',
     'Collection', 'Wishlist', 'For trade', 'Good', 'Meh', 'Bad', 'Total feedback'];
   const day = (iso) => {
     if (!iso) return '';
@@ -213,7 +214,7 @@ function buildUsersCsv(users) {
   for (const u of users || []) {
     const f = u.feedback || {};
     lines.push([
-      u.username, u.full_name, day(u.created_at), day(u.last_seen_at),
+      u.username, u.email, u.full_name, day(u.created_at), day(u.last_seen_at),
       u.collection_count ?? 0, u.wishlist_count ?? 0, u.for_trade_count ?? 0,
       f.good_count ?? 0, f.meh_count ?? 0, f.bad_count ?? 0, f.total_count ?? 0,
     ].map(esc).join(','));

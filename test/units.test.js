@@ -355,18 +355,18 @@ test('formatDisplayName honours the visibility choice (mirrors public_display_na
 
 test('buildUsersCsv emits a header + one RFC-4180 row per user, dates as YYYY-MM-DD', () => {
   const csv = call('buildUsersCsv', [
-    { username: 'alex', full_name: 'Alex Morgan', created_at: '2026-01-15T10:00:00Z',
+    { username: 'alex', email: 'alex@example.com', full_name: 'Alex Morgan', created_at: '2026-01-15T10:00:00Z',
       last_seen_at: '2026-06-20T08:30:00Z', collection_count: 12, wishlist_count: 3,
       for_trade_count: 1, feedback: { good_count: 5, meh_count: 0, bad_count: 1, total_count: 6 } },
-    // Name with a comma must be quoted; missing dates/feedback tolerated.
+    // Name with a comma must be quoted; missing email/dates/feedback tolerated.
     { username: 'bee', full_name: 'Bee, Jr.', created_at: null, last_seen_at: null,
       collection_count: 0, wishlist_count: 0, for_trade_count: 0 },
   ]);
   const lines = csv.split('\r\n');
-  assert.equal(lines[0], 'Username,Name,Joined,Last seen,Collection,Wishlist,For trade,Good,Meh,Bad,Total feedback');
-  assert.equal(lines[1], 'alex,Alex Morgan,2026-01-15,2026-06-20,12,3,1,5,0,1,6');
-  assert.equal(lines[2], 'bee,"Bee, Jr.",,,0,0,0,0,0,0,0');
-  assert.equal(call('buildUsersCsv', []), 'Username,Name,Joined,Last seen,Collection,Wishlist,For trade,Good,Meh,Bad,Total feedback');
+  assert.equal(lines[0], 'Username,Email,Name,Joined,Last seen,Collection,Wishlist,For trade,Good,Meh,Bad,Total feedback');
+  assert.equal(lines[1], 'alex,alex@example.com,Alex Morgan,2026-01-15,2026-06-20,12,3,1,5,0,1,6');
+  assert.equal(lines[2], 'bee,,"Bee, Jr.",,,0,0,0,0,0,0,0');
+  assert.equal(call('buildUsersCsv', []), 'Username,Email,Name,Joined,Last seen,Collection,Wishlist,For trade,Good,Meh,Bad,Total feedback');
 });
 
 test('sortCatalog treats a hand-entered releaseYear as Jan 1, sorting customs among their year-mates', () => {
