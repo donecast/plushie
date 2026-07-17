@@ -128,17 +128,18 @@ function renderAdminUserList() {
   const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString() : '—';
   const incomplete = state.adminIncompleteSignups || [];
   const incompleteRows = incomplete.map((u) => `
-      <tr>
+      <tr data-incomplete-uid="${u.id}">
         <td class="admin-email">${u.email ? `<a href="mailto:${escapeHtml(u.email)}">${escapeHtml(u.email)}</a>` : '<span class="dim">—</span>'}</td>
         <td class="dim">${fmtDate(u.created_at)}</td>
         <td class="dim">${fmtDate(u.last_sign_in_at)}</td>
         <td class="dim">${escapeHtml(signupStatusLabel(u))}</td>
+        <td><button class="btn-danger admin-purge-btn" data-admin-action="delete-incomplete-signup" data-uid="${u.id}" data-email="${escapeHtml(u.email || '')}">Delete</button></td>
       </tr>`).join('');
   const incompleteSection = `
     <h2 class="trader-head"><span>Incomplete sign-ups</span>${incomplete.length ? ` <span class="badge badge-form">${incomplete.length}</span>` : ''}</h2>
-    <p class="dim admin-subnote">People who created an account but never became a member — they either never verified their email or signed in once and left before choosing a username. No profile exists for them yet.</p>
+    <p class="dim admin-subnote">People who created an account but never became a member — they either never verified their email or signed in once and left before choosing a username. No profile exists for them yet. Delete removes the leftover auth account for good; a real member is never touched.</p>
     ${incomplete.length ? `<table class="admin-table">
-      <thead><tr><th>Email</th><th>Signed up</th><th>Last sign-in</th><th>Status</th></tr></thead>
+      <thead><tr><th>Email</th><th>Signed up</th><th>Last sign-in</th><th>Status</th><th></th></tr></thead>
       <tbody>${incompleteRows}</tbody>
     </table>` : '<p class="dim">None — everyone who signed up finished setup. 🖤</p>'}`;
   const pendingPhotoBadge = (state.adminPendingPhotos || []).length
@@ -736,6 +737,23 @@ async function onAdminClick(e) {
     } catch (err) {
       console.error(err);
       toast('Purge failed: ' + (err.message || err));
+    }
+  } else if (action === 'delete-incomplete-signup') {
+    const uid = btn.dataset.uid;
+    const email = btn.dataset.email;
+    const who = email || 'this account';
+    if (!confirm(`Delete the leftover sign-up for ${who}? They never became a member — this removes the auth account for good. Can't be undone.`)) return;
+    btn.disabled = true;
+    try {
+      await data.adminDeleteIncompleteSignup(uid);
+      toast(`Deleted ${who}.`);
+      // Drop it locally so the list updates instantly, then re-render.
+      state.adminIncompleteSignups = (state.adminIncompleteSignups || []).filter((u) => u.id !== uid);
+      renderAdmin();
+    } catch (err) {
+      console.error('delete-incomplete-signup', err);
+      toast('Delete failed: ' + (err.message || err));
+      btn.disabled = false;
     }
   } else if (action === 'backfill-photos') {
     await adminBackfillPhotos();

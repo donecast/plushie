@@ -1504,6 +1504,15 @@ data.adminListIncompleteSignups = async function () {
   }));
 };
 
+// Blow away one incomplete sign-up: delete the auth.users row for an account
+// that never became a member. Admin-only (db/0093, SECURITY DEFINER +
+// is_admin gate). The RPC refuses if a profiles row exists, so this can only
+// ever remove a genuinely profile-less sign-up — never a real member.
+data.adminDeleteIncompleteSignup = async function (userId) {
+  const { error } = await sb.rpc('admin_delete_incomplete_signup', { target: userId });
+  if (error) throw error;
+};
+
 // ─── Real names (db/0045: profile_private + security-definer accessors) ──
 // Self reads/writes its own raw fields directly (RLS gates the row);
 // everyone else reaches a name only through the display/partner RPCs.
