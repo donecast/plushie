@@ -287,6 +287,26 @@ test('splitStirrings buckets by current status: real → main, FYC/Coming Soon �
   assert.deepEqual(out.dev.map((e) => [e.id, e.devType]), [['e2', 'fyc'], ['e3', 'coming_soon']]);
 });
 
+test('splitStirrings: a restock/sell-out/retire event keeps a stale-tagged item in the main ticker', () => {
+  const NOW = Date.parse('2026-07-20T00:00:00Z');
+  const day = (n) => new Date(NOW - n * 86400000).toISOString();
+  // Real, released merch (a sticker sheet) that Shopify still carries a stale
+  // 'coming soon' tag on → its CURRENT status reads coming_soon, but the events
+  // are restock/sell-out, which only a real for-sale product can have.
+  const catalog = [
+    { id: 'sticker', handle: 'sticker', name: 'Wonderland 3D Sticker Sheet',
+      available: false, tags: ['coming soon'], photoCount: 0 },
+  ];
+  const events = [
+    { id: 'r1', handle: 'sticker', kind: 'restocked', created_at: day(1) },
+    { id: 's1', handle: 'sticker', kind: 'sold_out',  created_at: day(2) },
+    { id: 'a1', handle: 'sticker', kind: 'added',     created_at: day(3) }, // ambiguous → still dev
+  ];
+  const out = call('splitStirrings', events, catalog, NOW);
+  assert.deepEqual(out.main.map((e) => e.id), ['r1', 's1']);   // restock + sell-out stay in main
+  assert.deepEqual(out.dev.map((e) => e.id), ['a1']);          // only the bare "added" is treated as in-dev
+});
+
 test('splitStirrings In-Development window: all-within-a-week vs latest-5, whichever is larger', () => {
   const NOW = Date.parse('2026-07-20T00:00:00Z');
   const at = (n) => new Date(NOW - n * 86400000).toISOString();

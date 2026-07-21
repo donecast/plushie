@@ -1035,7 +1035,15 @@ function splitStirrings(events, catalog, nowMs) {
   for (const e of (events || [])) {
     const item = e && e.handle ? byHandle.get(e.handle) : null;
     const status = item && typeof itemStatus === 'function' ? itemStatus(item) : null;
-    if (status === 'fyc' || status === 'coming_soon') dev.push({ ...e, devType: status });
+    // Only a plain "added" (a first appearance) is ambiguous enough to be an
+    // unmade concept masquerading as "New". A restock / sold-out / retire /
+    // unretire event is itself proof the item was really on sale — you can't
+    // restock or retire a concept — so it stays in the main ticker even when a
+    // stale Shopify 'coming soon' / 'fyc' tag makes its CURRENT status read as
+    // in-development (common on non-plush merch: stickers, patches, card decks,
+    // where there's no photo/lore graduation signal to clear the stale tag).
+    const ambiguousNew = !e.kind || e.kind === 'added';
+    if (ambiguousNew && (status === 'fyc' || status === 'coming_soon')) dev.push({ ...e, devType: status });
     else main.push(e);
   }
   const cutoff = nowMs - STIR_MAIN_MAX_AGE_MS;
