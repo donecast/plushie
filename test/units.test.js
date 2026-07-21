@@ -264,6 +264,47 @@ test('filteredCatalog: FYC hidden by default, shown under the FYC filter or a di
   setup(['available'], 'concept'); assert.deepEqual(ids(), []);      // search + non-FYC status filter: FYC stays hidden
 });
 
+test('splitStirrings buckets by current status: real → main, FYC/Coming Soon → In Development', () => {
+  const NOW = Date.parse('2026-07-20T00:00:00Z');
+  const day = (n) => new Date(NOW - n * 86400000).toISOString();
+  const catalog = [
+    { id: 'norm',    handle: 'norm',    name: 'Normal',  available: true,  tags: [] },
+    { id: 'old',     handle: 'old',     name: 'Old',     available: false, tags: [], retired: true },
+    { id: 'concept', handle: 'concept', name: 'Concept', available: false, tags: ['fyc'],
+      bodyHtml: 'currently being considered for prototyping, sign up to be notified', photoCount: 1 },
+    // Real photoshoot (6 imgs) + coming-soon tag → NOT FYC, just a pre-release (like Princess Leeloo).
+    { id: 'soon',    handle: 'soon',    name: 'Soon',    available: false, tags: ['coming soon'], photoCount: 6 },
+  ];
+  const events = [
+    { id: 'e1', handle: 'norm',    kind: 'added',     created_at: day(1) },
+    { id: 'e2', handle: 'concept', kind: 'added',     created_at: day(2) },
+    { id: 'e3', handle: 'soon',    kind: 'added',     created_at: day(3) },
+    { id: 'e4', handle: 'old',     kind: 'retired',   created_at: day(40) }, // >10d → aged out of main
+    { id: 'e5', handle: 'norm',    kind: 'restocked', created_at: day(2) },
+  ];
+  const out = call('splitStirrings', events, catalog, NOW);
+  assert.deepEqual(out.main.map((e) => e.id), ['e1', 'e5']);   // e4 aged out; concept/soon not here
+  assert.deepEqual(out.dev.map((e) => [e.id, e.devType]), [['e2', 'fyc'], ['e3', 'coming_soon']]);
+});
+
+test('splitStirrings In-Development window: all-within-a-week vs latest-5, whichever is larger', () => {
+  const NOW = Date.parse('2026-07-20T00:00:00Z');
+  const at = (n) => new Date(NOW - n * 86400000).toISOString();
+  const catalog = [{ id: 'c', handle: 'c', name: 'Concept', available: false, tags: ['fyc'],
+    bodyHtml: 'considered for prototyping, sign up to be notified', photoCount: 1 }];
+  const ev = (id, days) => ({ id, handle: 'c', kind: 'added', created_at: at(days) });
+
+  // 6 within the last week (>5) → show all 6 week rows, drop the 8-day-old one.
+  let out = call('splitStirrings',
+    [ev('w1', 0), ev('w2', 1), ev('w3', 2), ev('w4', 3), ev('w5', 4), ev('w6', 5), ev('old', 8)], catalog, NOW);
+  assert.deepEqual(out.dev.map((e) => e.id), ['w1', 'w2', 'w3', 'w4', 'w5', 'w6']);
+
+  // Only 3 within the week → fall back to the latest 5 overall (incl. older rows).
+  out = call('splitStirrings',
+    [ev('w1', 0), ev('w2', 1), ev('w3', 2), ev('o1', 8), ev('o2', 9), ev('o3', 10)], catalog, NOW);
+  assert.deepEqual(out.dev.map((e) => e.id), ['w1', 'w2', 'w3', 'o1', 'o2']);
+});
+
 test('parseQuery splits positive/negative bare tokens and quoted phrases', () => {
   assert.deepEqual(call('parseQuery', '"big bad" -wolf cat'), [
     { neg: false, text: 'big bad' },
@@ -355,18 +396,26 @@ test('formatDisplayName honours the visibility choice (mirrors public_display_na
 
 test('buildUsersCsv emits a header + one RFC-4180 row per user, dates as YYYY-MM-DD', () => {
   const csv = call('buildUsersCsv', [
-    { username: 'alex', full_name: 'Alex Morgan', created_at: '2026-01-15T10:00:00Z',
+    { username: 'alex', email: 'alex@example.com', full_name: 'Alex Morgan', created_at: '2026-01-15T10:00:00Z',
       last_seen_at: '2026-06-20T08:30:00Z', collection_count: 12, wishlist_count: 3,
       for_trade_count: 1, feedback: { good_count: 5, meh_count: 0, bad_count: 1, total_count: 6 } },
-    // Name with a comma must be quoted; missing dates/feedback tolerated.
+    // Name with a comma must be quoted; missing email/dates/feedback tolerated.
     { username: 'bee', full_name: 'Bee, Jr.', created_at: null, last_seen_at: null,
       collection_count: 0, wishlist_count: 0, for_trade_count: 0 },
   ]);
   const lines = csv.split('\r\n');
-  assert.equal(lines[0], 'Username,Name,Joined,Last seen,Collection,Wishlist,For trade,Good,Meh,Bad,Total feedback');
-  assert.equal(lines[1], 'alex,Alex Morgan,2026-01-15,2026-06-20,12,3,1,5,0,1,6');
-  assert.equal(lines[2], 'bee,"Bee, Jr.",,,0,0,0,0,0,0,0');
-  assert.equal(call('buildUsersCsv', []), 'Username,Name,Joined,Last seen,Collection,Wishlist,For trade,Good,Meh,Bad,Total feedback');
+  assert.equal(lines[0], 'Username,Email,Name,Joined,Last seen,Collection,Wishlist,For trade,Good,Meh,Bad,Total feedback');
+  assert.equal(lines[1], 'alex,alex@example.com,Alex Morgan,2026-01-15,2026-06-20,12,3,1,5,0,1,6');
+  assert.equal(lines[2], 'bee,,"Bee, Jr.",,,0,0,0,0,0,0,0');
+  assert.equal(call('buildUsersCsv', []), 'Username,Email,Name,Joined,Last seen,Collection,Wishlist,For trade,Good,Meh,Bad,Total feedback');
+});
+
+test('signupStatusLabel maps auth state to plain language', () => {
+  assert.equal(call('signupStatusLabel', { confirmed: false, last_sign_in_at: null }), 'Never verified email');
+  assert.equal(call('signupStatusLabel', { confirmed: true, last_sign_in_at: null }), 'Verified, never signed in');
+  assert.equal(call('signupStatusLabel', { confirmed: true, last_sign_in_at: '2026-06-18T06:15:40Z' }), 'Signed in, never chose a username');
+  // Signed in but somehow not flagged confirmed — the sign-in is the stronger signal.
+  assert.equal(call('signupStatusLabel', { confirmed: false, last_sign_in_at: '2026-06-18T06:15:40Z' }), 'Signed in, never chose a username');
 });
 
 test('sortCatalog treats a hand-entered releaseYear as Jan 1, sorting customs among their year-mates', () => {

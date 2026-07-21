@@ -988,6 +988,11 @@ function loadFilters() {
 }
 
 // ─── Catalog change feed ("Stirrings") ───────────────────────────────
+// The main ticker is deliberately "things that already exist and can be — or
+// could once have been — bought": new releases, restocks, sold-outs, retires.
+// Concepts that don't exist yet (FYC) and pre-releases you still can't buy
+// (Coming Soon) are split off into a separate "In Development" list so they
+// never masquerade as a purchasable "New" bun. See splitStirrings().
 const STIR_META = {
   added:     { icon: '✨', label: 'New' },
   restocked: { icon: '🔄', label: 'Restocked' },
@@ -995,6 +1000,53 @@ const STIR_META = {
   retired:   { icon: '🪦', label: 'Retired' },
   unretired: { icon: '↩️', label: 'Back' },
 };
+// "In Development" rows, keyed by the item's current status. Distinct icons so
+// an unmade concept (🧪) reads apart from a real-but-not-yet-buyable pre-release
+// (⏳) at a glance.
+const STIR_DEV_META = {
+  fyc:         { icon: '🧪', label: 'Concept' },
+  coming_soon: { icon: '⏳', label: 'Coming Soon' },
+};
+
+const STIR_FETCH = 80;                              // wide enough to surface In-Development rows past the main churn
+const STIR_MAIN_MAX = 12;                           // main list cap after aging
+const STIR_MAIN_MAX_AGE_MS = 10 * 24 * 3600 * 1000; // main list ages out at 10 days
+const STIR_DEV_LATEST = 5;                          // "5 latest" branch of the In-Development rule
+const STIR_DEV_WEEK_MS = 7 * 24 * 3600 * 1000;      // "all in the last week" branch
+
+// Split the raw change feed into the main ticker and the "In Development" list.
+// Classification is by each item's CURRENT status (looked up in the loaded
+// catalog by handle), so a concept that graduates to a real, buyable plush
+// moves out of In Development on its own — no backfill, no stale tag. Pure and
+// time-injected so it's unit-testable.
+//   main: non-FYC / non-coming-soon events, aged to 10 days, capped.
+//   dev:  FYC + Coming Soon events — all within the last week, or the latest
+//         5, whichever set is larger. Each row carries a `devType` for its icon.
+function splitStirrings(events, catalog, nowMs) {
+  const byHandle = new Map();
+  for (const c of (catalog || [])) {
+    if (!c || !c.handle) continue;
+    // Prefer the canonical (non-variant, non-custom) row for a handle, matching
+    // how openStirringItem resolves a Stirring to its item.
+    if (!byHandle.has(c.handle) || (!c.isVariant && !c.isCustom)) byHandle.set(c.handle, c);
+  }
+  const main = [];
+  const dev = [];
+  for (const e of (events || [])) {
+    const item = e && e.handle ? byHandle.get(e.handle) : null;
+    const status = item && typeof itemStatus === 'function' ? itemStatus(item) : null;
+    if (status === 'fyc' || status === 'coming_soon') dev.push({ ...e, devType: status });
+    else main.push(e);
+  }
+  const cutoff = nowMs - STIR_MAIN_MAX_AGE_MS;
+  const mainShown = main
+    .filter((e) => !e.created_at || +new Date(e.created_at) >= cutoff)
+    .slice(0, STIR_MAIN_MAX);
+  const weekCutoff = nowMs - STIR_DEV_WEEK_MS;
+  const week = dev.filter((e) => e.created_at && +new Date(e.created_at) >= weekCutoff);
+  const devShown = week.length > STIR_DEV_LATEST ? week : dev.slice(0, STIR_DEV_LATEST);
+  return { main: mainShown, dev: devShown };
+}
 
 // Push the current store state so the DB can record changes. Only rails users
 // (admins/allowlist) see the feed, so only their sessions drive the sync —
@@ -1019,43 +1071,51 @@ async function maybeSyncCatalogEvents() {
 
 async function loadCatalogEvents() {
   if (!document.body.classList.contains('rails-on')) return;
-  state._stirrings = await data.listCatalogEvents(12);
+  state._stirrings = await data.listCatalogEvents(STIR_FETCH);
   renderRailStirrings();
 }
 
-// Compact "what changed in the store" ticker in the left rail.
+// One Stirrings row. `meta` is {icon,label} — from STIR_META (main list, keyed
+// by event kind) or STIR_DEV_META (In Development, keyed by the item's status).
+function stirRow(e, meta) {
+  const name = escapeHtml(e.name || e.handle || '');
+  const handle = escapeHtml(e.handle || '');
+  const q = escapeHtml(cleanCatalogName ? cleanCatalogName(e.name || e.handle || '') : (e.name || e.handle || ''));
+  const when = e.created_at
+    ? new Date(e.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    : '';
+  return `<li class="rail-stir" data-tab="catalog" data-stir-handle="${handle}" data-stir-name="${q}" role="button" title="${meta.label}: ${name} — open this item">
+    <span class="rail-stir-ico">${meta.icon}</span>
+    <span class="rail-stir-text">
+      <span class="rail-stir-name">${name}</span>
+      <span class="rail-stir-kind">${meta.label}${when ? ` · ${escapeHtml(when)}` : ''}</span>
+    </span>
+  </li>`;
+}
+
+// Compact "what changed in the store" ticker in the left rail. Two lists: the
+// main Stirrings (real, buyable-or-once-buyable items) and, below it, an "In
+// Development" list of unmade concepts (FYC) and not-yet-buyable pre-releases
+// (Coming Soon). splitStirrings() does the classification + windowing.
 function renderRailStirrings() {
   const el = document.getElementById('rail-stirrings');
   if (!el) return;
-  // The ticker is "what's stirring", not an archive — events age out after
-  // 10 days. (Rows without a timestamp can't be aged, so they stay.)
-  const cutoff = Date.now() - 10 * 24 * 3600 * 1000;
-  const events = (state._stirrings || []).filter((e) =>
-    !e.created_at || +new Date(e.created_at) >= cutoff);
-  const sig = events.map((e) => e.id).join(',');
+  const { main, dev } = splitStirrings(state._stirrings || [], state.catalog || [], Date.now());
+  const sig = main.map((e) => e.id).join(',') + '|' + dev.map((e) => `${e.id}:${e.devType}`).join(',');
   if (el._sig === sig) return;   // no change — skip repaint
   el._sig = sig;
-  if (!events.length) { el.innerHTML = ''; return; }
-  el.innerHTML = `
+  if (!main.length && !dev.length) { el.innerHTML = ''; return; }
+  const mainHtml = main.length ? `
     <div class="rail-stir-head">Stirrings 🕯️</div>
     <ul class="rail-stir-list">
-      ${events.map((e) => {
-        const m = STIR_META[e.kind] || { icon: '•', label: e.kind };
-        const name = escapeHtml(e.name || e.handle || '');
-        const handle = escapeHtml(e.handle || '');
-        const q = escapeHtml(cleanCatalogName ? cleanCatalogName(e.name || e.handle || '') : (e.name || e.handle || ''));
-        const when = e.created_at
-          ? new Date(e.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-          : '';
-        return `<li class="rail-stir" data-tab="catalog" data-stir-handle="${handle}" data-stir-name="${q}" role="button" title="${m.label}: ${name} — open this item">
-          <span class="rail-stir-ico">${m.icon}</span>
-          <span class="rail-stir-text">
-            <span class="rail-stir-name">${name}</span>
-            <span class="rail-stir-kind">${m.label}${when ? ` · ${escapeHtml(when)}` : ''}</span>
-          </span>
-        </li>`;
-      }).join('')}
-    </ul>`;
+      ${main.map((e) => stirRow(e, STIR_META[e.kind] || { icon: '•', label: e.kind })).join('')}
+    </ul>` : '';
+  const devHtml = dev.length ? `
+    <div class="rail-stir-head rail-stir-subhead">In Development 🧪</div>
+    <ul class="rail-stir-list">
+      ${dev.map((e) => stirRow(e, STIR_DEV_META[e.devType] || { icon: '•', label: e.devType })).join('')}
+    </ul>` : '';
+  el.innerHTML = mainHtml + devHtml;
 }
 
 // ─── Experimental "rails" layout (insider feature.side_rails) ────────

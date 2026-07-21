@@ -3589,6 +3589,11 @@ body.rails-on .rail-right.rail-right--active { display: block; }
   font-size: .7rem; text-transform: uppercase; letter-spacing: .08em;
   color: var(--ink-2); opacity: .7; margin-bottom: 8px;
 }
+/* "In Development" divider — sits under the main list, set apart with a rule. */
+.rail-stir-subhead {
+  margin-top: 14px; padding-top: 12px;
+  border-top: 1px dashed var(--border-rose-faint);
+}
 .rail-stir-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
 .rail-stir {
   display: flex; gap: 8px; align-items: center;
@@ -3822,6 +3827,10 @@ body.rails-on .rail-right.rail-right--active { display: block; }
 /* Compact, right-aligned count columns; de-emphasised feedback. */
 .admin-table .admin-num { text-align: center; font-variant-numeric: tabular-nums; }
 .admin-table .admin-fb { font-size: 0.8rem; white-space: nowrap; }
+.admin-subnote { margin: -0.25rem 0 0.75rem; max-width: 60ch; }
+.admin-table .admin-email { font-size: 0.82rem; word-break: break-all; }
+.admin-table .admin-email a { color: var(--teal-text); text-decoration: none; }
+.admin-table .admin-email a:hover { text-decoration: underline; }
 .admin-fb .fb-good { color: var(--teal-text); }
 .admin-fb .fb-bad  { color: var(--danger-hi); }
 /* Feedback summary dialled down in the inspect view (less prominent). */
