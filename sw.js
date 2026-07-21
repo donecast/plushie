@@ -1,5 +1,5 @@
 // Plushie Dreadfuls service worker — offline app shell.
-const CACHE = 'plushie-dreadful-v224';
+const CACHE = 'plushie-dreadful-v247';
 // Only precache the root + static assets that don't carry cache-buster query
 // strings. Versioned files (app.js?v=N, styles.css?v=N, catalog.json?v=N)
 // get fetched and cached on demand by the fetch handler — listing them here
@@ -85,7 +85,10 @@ self.addEventListener('push', (e) => {
 // 'like-<id>'); we only need the prefix to pick a destination. null = root.
 function tabForTag(tag) {
   if (!tag) return null;
-  if (tag.startsWith('trade-') || tag === 'trade-action') return 'trade';
+  if (tag.startsWith('dm-') || tag === 'dm-unread') return 'messages';   // 💬 surface
+  if (tag.startsWith('trade-') || tag.startsWith('feedback-') || tag === 'trade-action') return 'trade';
+  if (tag.startsWith('admin-')) return 'admin';                          // mod/admin queue pings
+  if (tag === 'photo-approved' || tag === 'catalog-approved') return 'catalog';
   if (tag === 'friend-request' || tag === 'friend-accept' ||
       tag === 'coffin-buddy' ||
       tag.startsWith('post-') || tag.startsWith('like-') || tag.startsWith('comment-')) {

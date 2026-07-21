@@ -24,18 +24,20 @@ async function loadAdminUsers() {
     state.adminUsers = await data.adminListUsers();
     // Also surface counts on the Tools strip badges. Non-fatal if any
     // of these fails — the queues still open from their buttons.
-    const [disp, cats, photos, reports, dels] = await Promise.allSettled([
+    const [disp, cats, photos, reports, dels, incomplete] = await Promise.allSettled([
       data.adminListDisputes(),
       data.adminListCatalogPending(),
       data.adminListPhotoSuggestions('pending'),
       data.adminListReports('open'),
       data.adminListDeletionRequests(),
+      data.adminListIncompleteSignups(),
     ]);
     if (disp.status === 'fulfilled') state.adminOpenDisputes = disp.value;
     if (cats.status === 'fulfilled') state.adminPendingCatalog = cats.value;
     if (photos.status === 'fulfilled') state.adminPendingPhotos = photos.value;
     if (reports.status === 'fulfilled') state.adminOpenReports = reports.value;
     if (dels.status === 'fulfilled') state.adminDeletionRequests = dels.value;
+    if (incomplete.status === 'fulfilled') state.adminIncompleteSignups = incomplete.value;
   } catch (err) {
     console.error('adminListUsers', err);
     toast('Could not load users.');
@@ -76,6 +78,15 @@ function renderModeratorConsole() {
     </section>`;
 }
 
+// Plain-language status for an auth account that never became a member.
+// Pure (no DOM) so it's unit-tested. `confirmed` = clicked the magic-link;
+// `last_sign_in_at` = ever actually signed in.
+function signupStatusLabel(u) {
+  if (!u.confirmed && !u.last_sign_in_at) return 'Never verified email';
+  if (!u.last_sign_in_at) return 'Verified, never signed in';
+  return 'Signed in, never chose a username';
+}
+
 function renderAdminUserList() {
   const rows = state.adminUsers.map((u) => {
     const f = u.feedback || { good_count: 0, meh_count: 0, bad_count: 0, total_count: 0 };
@@ -92,6 +103,7 @@ function renderAdminUserList() {
     return `
       <tr data-uid="${u.id}" class="admin-row">
         <td><strong>@${escapeHtml(u.username)}</strong>${me ? ' <span class="dim">(you)</span>' : ''}${statusBadges ? ` <span class="admin-status-badges">${statusBadges}</span>` : ''}</td>
+        <td class="admin-email">${u.email ? `<a href="mailto:${escapeHtml(u.email)}">${escapeHtml(u.email)}</a>` : '<span class="dim">—</span>'}</td>
         <td>${u.full_name ? escapeHtml(u.full_name) : '<span class="dim">—</span>'}</td>
         <td class="dim">${dateCell(u.created_at)}</td>
         <td class="admin-num">${u.collection_count ?? 0}</td>
@@ -111,6 +123,25 @@ function renderAdminUserList() {
     .filter((r) => r.status === 'pending').length;
   const pendingCustomBadge = pendingCustomCount
     ? `<span class="badge badge-form">${pendingCustomCount} pending</span>` : '';
+  // Incomplete sign-ups: auth accounts with no profiles row. dateCell is
+  // scoped to the row map above, so re-derive a local formatter here.
+  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString() : '—';
+  const incomplete = state.adminIncompleteSignups || [];
+  const incompleteRows = incomplete.map((u) => `
+      <tr data-incomplete-uid="${u.id}">
+        <td class="admin-email">${u.email ? `<a href="mailto:${escapeHtml(u.email)}">${escapeHtml(u.email)}</a>` : '<span class="dim">—</span>'}</td>
+        <td class="dim">${fmtDate(u.created_at)}</td>
+        <td class="dim">${fmtDate(u.last_sign_in_at)}</td>
+        <td class="dim">${escapeHtml(signupStatusLabel(u))}</td>
+        <td><button class="btn-danger admin-purge-btn" data-admin-action="delete-incomplete-signup" data-uid="${u.id}" data-email="${escapeHtml(u.email || '')}">Delete</button></td>
+      </tr>`).join('');
+  const incompleteSection = `
+    <h2 class="trader-head"><span>Incomplete sign-ups</span>${incomplete.length ? ` <span class="badge badge-form">${incomplete.length}</span>` : ''}</h2>
+    <p class="dim admin-subnote">People who created an account but never became a member — they either never verified their email or signed in once and left before choosing a username. No profile exists for them yet. Delete removes the leftover auth account for good; a real member is never touched.</p>
+    ${incomplete.length ? `<table class="admin-table">
+      <thead><tr><th>Email</th><th>Signed up</th><th>Last sign-in</th><th>Status</th><th></th></tr></thead>
+      <tbody>${incompleteRows}</tbody>
+    </table>` : '<p class="dim">None — everyone who signed up finished setup. 🖤</p>'}`;
   const pendingPhotoBadge = (state.adminPendingPhotos || []).length
     ? `<span class="badge badge-form">${state.adminPendingPhotos.length} pending</span>` : '';
   document.getElementById('admin-content').innerHTML = `
@@ -189,16 +220,17 @@ function renderAdminUserList() {
       <button class="btn-ghost" data-admin-action="download-users-csv">⬇ Download CSV</button>
     </h2>
     <table class="admin-table">
-      <thead><tr><th>Username</th><th>Name</th><th>Joined</th><th class="admin-num">Coll.</th><th class="admin-num">Wish</th><th class="admin-num">Trade</th><th>Last seen</th><th class="dim">Fb (g/m/b)</th><th></th></tr></thead>
+      <thead><tr><th>Username</th><th>Email</th><th>Name</th><th>Joined</th><th class="admin-num">Coll.</th><th class="admin-num">Wish</th><th class="admin-num">Trade</th><th>Last seen</th><th class="dim">Fb (g/m/b)</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
+    ${incompleteSection}
   `;
 }
 
 // Build a CSV from the admin user rows. Pure (no DOM) so it's unit-tested.
 // One row per user; dates as YYYY-MM-DD; fields quoted/escaped per RFC 4180.
 function buildUsersCsv(users) {
-  const header = ['Username', 'Name', 'Joined', 'Last seen',
+  const header = ['Username', 'Email', 'Name', 'Joined', 'Last seen',
     'Collection', 'Wishlist', 'For trade', 'Good', 'Meh', 'Bad', 'Total feedback'];
   const day = (iso) => {
     if (!iso) return '';
@@ -213,7 +245,7 @@ function buildUsersCsv(users) {
   for (const u of users || []) {
     const f = u.feedback || {};
     lines.push([
-      u.username, u.full_name, day(u.created_at), day(u.last_seen_at),
+      u.username, u.email, u.full_name, day(u.created_at), day(u.last_seen_at),
       u.collection_count ?? 0, u.wishlist_count ?? 0, u.for_trade_count ?? 0,
       f.good_count ?? 0, f.meh_count ?? 0, f.bad_count ?? 0, f.total_count ?? 0,
     ].map(esc).join(','));
@@ -611,7 +643,7 @@ function openAdminItemDetail(id, kind) {
     else if (it.hasBag === false) facts.push(['Missing', 'tote bag']);
     if (it.retired) facts.push(['Status', 'Retired']);
   } else {
-    if (it.outOfStock) facts.push(['Status', 'Out of stock']);
+    if (itemOutOfStock(it)) facts.push(['Status', 'Out of stock']);
     if (it.url) facts.push(['Link', `<a href="${escapeHtml(it.url)}" target="_blank" rel="noopener">plushiedreadfuls.com ↗</a>`]);
   }
 
@@ -705,6 +737,23 @@ async function onAdminClick(e) {
     } catch (err) {
       console.error(err);
       toast('Purge failed: ' + (err.message || err));
+    }
+  } else if (action === 'delete-incomplete-signup') {
+    const uid = btn.dataset.uid;
+    const email = btn.dataset.email;
+    const who = email || 'this account';
+    if (!confirm(`Delete the leftover sign-up for ${who}? They never became a member — this removes the auth account for good. Can't be undone.`)) return;
+    btn.disabled = true;
+    try {
+      await data.adminDeleteIncompleteSignup(uid);
+      toast(`Deleted ${who}.`);
+      // Drop it locally so the list updates instantly, then re-render.
+      state.adminIncompleteSignups = (state.adminIncompleteSignups || []).filter((u) => u.id !== uid);
+      renderAdmin();
+    } catch (err) {
+      console.error('delete-incomplete-signup', err);
+      toast('Delete failed: ' + (err.message || err));
+      btn.disabled = false;
     }
   } else if (action === 'backfill-photos') {
     await adminBackfillPhotos();

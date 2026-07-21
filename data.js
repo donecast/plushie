@@ -312,16 +312,28 @@ const data = {
     return path;
   },
 
-  async _r2Delete(bucket, path) {
+  // strict: throw instead of silently skipping/failing, for callers where a
+  // file left behind is a real problem (admin catalog photo removal) rather
+  // than best-effort tidy-up (user photo replacement).
+  async _r2Delete(bucket, path, { strict = false } = {}) {
     const base = (window.R2_BASE || '').replace(/\/$/, '');
-    if (!base || !path) return;
+    if (!base || !path) {
+      if (strict) throw new Error('R2 not configured — file not deleted');
+      return;
+    }
     const { data: session } = await sb.auth.getSession();
     const jwt = session?.session?.access_token;
-    if (!jwt) return;
-    await fetch(`${base}/${bucket}/${path}`, {
+    if (!jwt) {
+      if (strict) throw new Error('Not signed in — file not deleted');
+      return;
+    }
+    const req = fetch(`${base}/${bucket}/${path}`, {
       method: 'DELETE',
       headers: { 'authorization': `Bearer ${jwt}` },
-    }).catch(() => {});
+    });
+    if (!strict) { await req.catch(() => {}); return; }
+    const resp = await req;
+    if (!resp.ok) throw new Error(`R2 delete failed (${resp.status}) — file not deleted`);
   },
 
   async _urlFor(bucket, path) {
@@ -520,13 +532,15 @@ data.listMyTradeItems = async function () {
   return items;
 };
 
-data.addTradeItem = async function ({ kind, catalogId, catalogHandle, name, photoPath, photoSocialPath, quantity, notes }) {
+data.addTradeItem = async function ({ kind, catalogId, catalogHandle, name, photoPath, photoSocialPath, quantity, notes, extras }) {
   const insert = {
     owner_id: window.currentUser.id,
     kind, catalog_id: catalogId, catalog_handle: catalogHandle,
     name, photo_path: photoPath ?? null,
     photo_social_path: photoSocialPath ?? null,
     quantity, notes: notes ?? null,
+    // [{ name, included }] snapshot of the includes checklist (migration 0086).
+    extras: extras ?? null,
   };
   // photo_social_path arrived in migration 0024 — if it hasn't been run
   // yet, PostgREST rejects the unknown column; strip it and retry so
@@ -555,6 +569,7 @@ data.updateTradeItem = async function (id, patch) {
   const row = {};
   if ('quantity' in patch) row.quantity = patch.quantity;
   if ('notes' in patch) row.notes = patch.notes;
+  if ('extras' in patch) row.extras = patch.extras;
   if ('photoSocialPath' in patch) row.photo_social_path = patch.photoSocialPath;
   row.updated_at = new Date().toISOString();
   const { error } = await sb.from('trade_items').update(row).eq('id', id);
@@ -645,13 +660,21 @@ data.deleteTradeItem = async function (id) {
 // ─── Discovery ─────────────────────────────────────────────────────
 data.browseOfferings = async function () {
   // All offerings except the current user's, where at least one unit is unreserved.
-  const { data: rows, error } = await sb
+  const fetchRows = (cols) => sb
     .from('trade_items')
-    .select('id, owner_id, name, catalog_id, catalog_handle, photo_path, photo_social_path, quantity, reserved, notes, created_at, kind')
+    .select(cols)
     .eq('kind', 'offering')
     .eq('archived', false)
     .neq('owner_id', window.currentUser.id)
     .order('created_at', { ascending: false });
+  const BASE_COLS = 'id, owner_id, name, catalog_id, catalog_handle, photo_path, photo_social_path, quantity, reserved, notes, created_at, kind';
+  let { data: rows, error } = await fetchRows(`${BASE_COLS}, extras`);
+  if (error && /extras/i.test(error.message || '')) {
+    // Migration 0086 not applied yet — retry without the column so Browse
+    // keeps working, but loudly: includes checklists are invisible until then.
+    console.error("[browseOfferings] 'extras' column missing — apply db/0086 (includes checklists won't show until then).");
+    ({ data: rows, error } = await fetchRows(BASE_COLS));
+  }
   if (error) throw error;
   // Refresh the blocked set so we never surface offerings from someone
   // you're blocked-with (either direction).
@@ -1438,6 +1461,7 @@ data.adminListUsers = async function () {
     return (rows || []).map((r) => withFlags(r.id, {
       id: r.id,
       username: r.username,
+      email: r.email,
       is_admin: r.is_admin,
       created_at: r.created_at,
       last_seen_at: r.last_seen_at,
@@ -1462,6 +1486,31 @@ data.adminListUsers = async function () {
     const byId = new Map((fb || []).map((f) => [f.user_id, f]));
     return rows.map((r) => withFlags(r.id, { ...r, feedback: byId.get(r.id) || null }));
   }
+};
+
+// People who started an auth account but never finished (no profiles row):
+// either never verified their magic-link email, or signed in once and bailed
+// before choosing a username. Admin-only (db/0092, SECURITY DEFINER + is_admin
+// gate). Returns [] for non-admins — the RPC just yields nothing.
+data.adminListIncompleteSignups = async function () {
+  const { data: rows, error } = await sb.rpc('admin_incomplete_signups');
+  if (error) throw error;
+  return (rows || []).map((r) => ({
+    id: r.id,
+    email: r.email,
+    created_at: r.created_at,
+    last_sign_in_at: r.last_sign_in_at,
+    confirmed: r.confirmed === true,
+  }));
+};
+
+// Blow away one incomplete sign-up: delete the auth.users row for an account
+// that never became a member. Admin-only (db/0093, SECURITY DEFINER +
+// is_admin gate). The RPC refuses if a profiles row exists, so this can only
+// ever remove a genuinely profile-less sign-up — never a real member.
+data.adminDeleteIncompleteSignup = async function (userId) {
+  const { error } = await sb.rpc('admin_delete_incomplete_signup', { target: userId });
+  if (error) throw error;
 };
 
 // ─── Real names (db/0045: profile_private + security-definer accessors) ──
@@ -1785,9 +1834,66 @@ data.adminAddCatalogPhoto = async function (target, { slot, imageUrl = null, ima
   return saved;
 };
 
+// The R2 objects a catalog_photos row owns. A row can reference its file two
+// ways at once — an `image_path` key and/or an `image_url` that points back
+// at our own R2 worker (the photo pipeline writes both for the same object) —
+// so resolve each and dedupe. A URL on any other host is an external
+// hot-link: nothing of ours to delete.
+data._r2PhotoLocations = function (row) {
+  const out = new Map();
+  if (row.image_path) {
+    const bucket = row.bucket || 'catalog';
+    out.set(`${bucket}/${row.image_path}`, { bucket, path: row.image_path });
+  }
+  const base = (window.R2_BASE || '').replace(/\/$/, '');
+  if (base && row.image_url && row.image_url.startsWith(base + '/')) {
+    const rest = row.image_url.slice(base.length + 1).split(/[?#]/)[0];
+    const slash = rest.indexOf('/');
+    if (slash > 0) {
+      const bucket = rest.slice(0, slash);
+      const path = decodeURIComponent(rest.slice(slash + 1));
+      if (path) out.set(`${bucket}/${path}`, { bucket, path });
+    }
+  }
+  return [...out.values()];
+};
+
+// Deleting a photo removes its FILE too when we host it: an admin rejecting a
+// community shot and reverting to the store photo must not leave the file in
+// the bucket (a store cover means "no usable community photo exists"). Files
+// delete FIRST and loudly — on failure the row survives so the admin can
+// retry, and re-deleting an already-gone R2 key is a no-op, so a
+// half-finished retry converges.
 data.adminDeleteCatalogPhoto = async function (photoId) {
+  const { data: row, error: loadErr } = await sb.from('catalog_photos')
+    .select('id, bucket, image_path, image_url, target_handle, target_variant_id')
+    .eq('id', photoId).maybeSingle();
+  if (loadErr) throw loadErr;
+  if (!row) return; // already gone (double-click, another admin)
+
+  for (const loc of data._r2PhotoLocations(row)) {
+    await data._r2Delete(loc.bucket, loc.path, { strict: true });
+  }
+
   const { error } = await sb.from('catalog_photos').delete().eq('id', photoId);
   if (error) throw error;
+
+  // If this photo was mirrored as the live cover, clear the mirror back to
+  // the store default — the file is gone, so the stale URL would 404. Same
+  // resolved-URL expression adminSetCatalogPhotoPrimary mirrors, so an exact
+  // match identifies "this photo is the cover".
+  const coverUrl = row.image_url || (row.image_path ? await data.catalogImageUrl(row.image_path) : null);
+  if (!coverUrl) return;
+  const cleared = { image: null, image_credit: null, credit_anon: false, updated_by: window.currentUser?.id || null };
+  if (row.target_variant_id) {
+    const { error: e } = await sb.from('catalog_variant_covers')
+      .update(cleared).eq('variant_id', row.target_variant_id).eq('image', coverUrl);
+    if (e) throw e;
+  } else if (row.target_handle) {
+    const { error: e } = await sb.from('catalog_overrides')
+      .update(cleared).eq('handle', row.target_handle).eq('image', coverUrl);
+    if (e) throw e;
+  }
 };
 
 // Relabel a slot (e.g. move a shot from numbered '1' to lettered 'B', or
@@ -2657,6 +2763,7 @@ data._tradeItemFromRow = function (r) {
     reserved: r.reserved,
     available: r.quantity - r.reserved,
     notes: r.notes,
+    extras: Array.isArray(r.extras) ? r.extras : null,
     createdAt: r.created_at ? +new Date(r.created_at) : Date.now(),
   };
 };
@@ -3020,6 +3127,45 @@ data.searchUsers = async function (prefix, limit = 12) {
 };
 
 // ─── Profile ────────────────────────────────────────────────────────
+// ─── Share links (db/0089) ──────────────────────────────────────────
+// Opt-in read-only public pages for a wish list or crypt showcase. The
+// token is the whole secret: minting/revoking is RLS-scoped to the owner;
+// viewing goes through the anon-callable shared_list_page RPC.
+data.getShareLink = async function (kind) {
+  const { data: row, error } = await sb.from('share_links').select('token')
+    .eq('user_id', window.currentUser.id)
+    .eq('collection_id', data.collectionId)
+    .eq('kind', kind)
+    .maybeSingle();
+  if (error) throw error;
+  return row?.token || null;
+};
+
+data.createShareLink = async function (kind) {
+  const existing = await data.getShareLink(kind);
+  if (existing) return existing;
+  const { data: row, error } = await sb.from('share_links')
+    .insert({ user_id: window.currentUser.id, collection_id: data.collectionId, kind })
+    .select('token').single();
+  if (error) throw error;
+  return row.token;
+};
+
+data.revokeShareLink = async function (kind) {
+  const { error } = await sb.from('share_links').delete()
+    .eq('user_id', window.currentUser.id)
+    .eq('collection_id', data.collectionId)
+    .eq('kind', kind);
+  if (error) throw error;
+};
+
+// Anonymous read — runs before (and without) sign-in on the share page.
+data.fetchSharedPage = async function (token) {
+  const { data: page, error } = await sb.rpc('shared_list_page', { p_token: token });
+  if (error) throw error;
+  return page;   // { owner, kind, items } | null (unknown/revoked token)
+};
+
 data.getSocialProfile = async function (userId) {
   // social_links may not exist pre-0035; fall back to the base columns so an
   // un-migrated client still loads profiles.
@@ -3045,6 +3191,28 @@ data.getSocialProfile = async function (userId) {
     // Visibility-aware public name (null when the owner opted out).
     displayName: await data.publicDisplayName(userId),
   };
+};
+
+// ─── Relics (db/0088) ───────────────────────────────────────────────
+// Achievement badges. Earned server-side (triggers + claim_time_relics);
+// the client only ever reads them. Best-effort: a pre-0088 backend just
+// yields an empty shelf rather than a broken profile.
+data.listRelics = async function (userId) {
+  try {
+    const { data: rows, error } = await sb
+      .from('user_relics')
+      .select('relic_key, earned_at')
+      .eq('user_id', userId)
+      .order('earned_at', { ascending: true });
+    if (error) throw error;
+    return (rows || []).map((r) => ({ key: r.relic_key, earnedAt: r.earned_at }));
+  } catch (e) { console.warn('listRelics', e); return []; }
+};
+
+// Boot-time claim for time-based relics (year-one). Fire-and-forget.
+data.claimTimeRelics = async function () {
+  try { await sb.rpc('claim_time_relics'); }
+  catch (e) { console.warn('claimTimeRelics', e); }
 };
 
 data.updateMyProfile = async function ({ bio, avatarBlob, socialLinks }) {
@@ -3316,6 +3484,14 @@ data._hydratePosts = async function (rows) {
   for (const voters of votersByOption.values()) for (const vid of voters) ids.add(vid);
   const profs = await data._resolveProfiles([...ids]);
 
+  // Resolve comment photo urls up front (0090) — buildThread is sync.
+  const commentPhotoUrls = new Map();
+  for (const c of (comments || [])) {
+    if (c.photo_path && !commentPhotoUrls.has(c.photo_path)) {
+      commentPhotoUrls.set(c.photo_path, await data.socialPhotoUrl(c.photo_path));
+    }
+  }
+
   // Build a threaded comment tree (top-level + nested replies), preserving the
   // chronological order the rows already arrived in.
   const buildThread = (list, postAuthorId) => {
@@ -3325,6 +3501,7 @@ data._hydratePosts = async function (rows) {
       authorName: profs.get(c.author_id)?.username ?? 'unknown',
       authorAvatar: profs.get(c.author_id)?.avatarUrl ?? null,
       body: c.body,
+      photoUrl: c.photo_path ? commentPhotoUrls.get(c.photo_path) : null,
       createdAt: c.created_at,
       parentId: c.parent_comment_id || null,
       mine: c.author_id === uid,
@@ -3353,6 +3530,7 @@ data._hydratePosts = async function (rows) {
     catalogId: r.catalog_id,
     plushName: r.plush_name,
     visibility: r.visibility,
+    relicKey: r.relic_key || null,   // db/0088 — renders the ornate relic card
     createdAt: r.created_at,
     // "edited" when updated_at drifts more than a few seconds past
     // created_at (the insert sets them ~equal).
@@ -3416,8 +3594,12 @@ data.reactPost = async function (postId, emoji, on) {
   }
 };
 
-data.addComment = async function (postId, body, parentCommentId = null) {
-  const insert = { post_id: postId, author_id: window.currentUser.id, body };
+data.addComment = async function (postId, body, parentCommentId = null, photoBlob = null) {
+  // body may be null for a photo-only comment (0090's check constraint
+  // requires text or a photo). Upload first so a failed upload never
+  // leaves a photo-less "photo comment" row behind.
+  const insert = { post_id: postId, author_id: window.currentUser.id, body: body || null };
+  if (photoBlob instanceof Blob) insert.photo_path = await data.uploadSocialPhoto(photoBlob);
   if (parentCommentId) insert.parent_comment_id = parentCommentId;
   const { data: row, error } = await sb.from('post_comments').insert(insert).select().single();
   if (error) throw error;
@@ -3540,6 +3722,129 @@ data.setTopPlushes = async function (entries, { keepTom = true } = {}) {
   // owner_id is forced to auth.uid() server-side, so we strip it here.
   const payload = rows.map(({ owner_id, ...r }) => r);
   const { error } = await sb.rpc('set_top_plushes', { p_rows: payload });
+  if (error) throw error;
+};
+
+// ─── Private messages (DMs, db/0083) ─────────────────────────────────
+// Friends-only 1:1 messages. All the rules live in the DB (RLS): friends
+// only, blocks kill the channel, ghosted senders are filtered from the
+// recipient's reads. No isGhosted() client guard here on purpose — a ghost
+// still sees their own conversations and can "send" (the recipient just
+// never receives), which is the same illusion the feed maintains.
+
+// Thread list: latest message + unread count per partner, newest first.
+data.listDmThreads = async function () {
+  const { data: rows, error } = await sb.rpc('dm_threads');
+  if (error) throw error;
+  return await Promise.all((rows || []).map(async (r) => ({
+    partnerId: r.partner_id,
+    username: r.username,
+    avatarUrl: r.avatar_path ? await data.socialPhotoUrl(r.avatar_path) : null,
+    lastBody: r.last_body,
+    lastFromMe: r.last_sender === window.currentUser.id,
+    lastAt: r.last_at,
+    unread: Number(r.unread) || 0,
+  })));
+};
+
+// One conversation, oldest → newest (capped; DMs are short-form).
+data.listDmMessages = async function (partnerId, { limit = 200 } = {}) {
+  const uid = window.currentUser.id;
+  const { data: rows, error } = await sb
+    .from('dm_messages')
+    .select('id, sender_id, recipient_id, body, created_at, read_at')
+    .or(`and(sender_id.eq.${uid},recipient_id.eq.${partnerId}),and(sender_id.eq.${partnerId},recipient_id.eq.${uid})`)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (rows || []).reverse().map((m) => ({
+    id: m.id,
+    mine: m.sender_id === uid,
+    body: m.body,
+    createdAt: m.created_at,
+    readAt: m.read_at,
+  }));
+};
+
+data.sendDm = async function (recipientId, body) {
+  const { data: row, error } = await sb
+    .from('dm_messages')
+    .insert({ sender_id: window.currentUser.id, recipient_id: recipientId, body })
+    .select('id, created_at')
+    .single();
+  if (error) throw error;
+  return row;
+};
+
+// Mark everything they sent me as read (opening the conversation).
+data.markDmRead = async function (partnerId) {
+  const { error } = await sb
+    .from('dm_messages')
+    .update({ read_at: new Date().toISOString() })
+    .eq('recipient_id', window.currentUser.id)
+    .eq('sender_id', partnerId)
+    .is('read_at', null);
+  if (error) throw error;
+};
+
+// Total unread across all conversations — drives the 💬 header badge.
+data.dmUnreadCount = async function () {
+  const { count, error } = await sb
+    .from('dm_messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('recipient_id', window.currentUser.id)
+    .is('read_at', null);
+  if (error) throw error;
+  return count || 0;
+};
+
+// ─── Notification inbox (db/0085) ────────────────────────────────────
+// Every push trigger queues here via _push_send; the app-open poll
+// (maybeFireQueuedNotifications) locally fires whatever real push didn't
+// deliver. Oldest first so a burst reads in order.
+data.listUndeliveredNotifications = async function ({ limit = 20 } = {}) {
+  const { data: rows, error } = await sb
+    .from('notifications')
+    .select('id, title, body, url, tag, created_at')
+    .eq('user_id', window.currentUser.id)
+    .is('delivered_at', null)
+    .order('created_at', { ascending: true })
+    .limit(limit);
+  if (error) throw error;
+  return rows || [];
+};
+
+data.markNotificationsDelivered = async function (ids) {
+  if (!ids?.length) return;
+  const { error } = await sb
+    .from('notifications')
+    .update({ delivered_at: new Date().toISOString() })
+    .in('id', ids);
+  if (error) throw error;
+};
+
+// ─── In-app notification bell (db/0085's reserved seen_at) ──────────
+// The 🔔 inbox: recent rows regardless of delivery — a push that buzzed a
+// phone still shows here, so a desktop session can catch up on what the
+// OS banner (or another device) announced. Newest first.
+data.listRecentNotifications = async function ({ limit = 30 } = {}) {
+  const { data: rows, error } = await sb
+    .from('notifications')
+    .select('id, title, body, url, tag, created_at, seen_at')
+    .eq('user_id', window.currentUser.id)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return rows || [];
+};
+
+// Opening the inbox stamps what it showed (0085 grants UPDATE on seen_at).
+data.markNotificationsSeen = async function (ids) {
+  if (!ids?.length) return;
+  const { error } = await sb
+    .from('notifications')
+    .update({ seen_at: new Date().toISOString() })
+    .in('id', ids);
   if (error) throw error;
 };
 

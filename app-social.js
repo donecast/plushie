@@ -12,9 +12,53 @@
 // ─── Service worker ──────────────────────────────────────────────────
 function registerSW() {
   if (!('serviceWorker' in navigator)) return;
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW failed', e));
+  const go = () => navigator.serviceWorker.register('./sw.js').then((reg) => {
+    // A resumed installed PWA never re-navigates, so it can sit on a stale
+    // bundle across deploys indefinitely — new features silently invisible
+    // until the user happens to fully relaunch. Check for a new SW whenever
+    // the app returns to the foreground; the browser no-ops when sw.js is
+    // unchanged, so this costs nothing between deploys.
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) reg?.update?.().catch(() => {});
+    });
+  }).catch((e) => console.warn('SW failed', e));
+  // registerSW() runs from boot(), which lands AFTER the window 'load' event
+  // on all but the slowest visits — and a 'load' listener added after the
+  // event has fired never runs. That silently skipped SW registration for
+  // whole sessions (and left navigator.serviceWorker.ready hanging forever,
+  // which is how push subscriptions never got stored — the 0-rows mystery).
+  // Register immediately when load already happened; only defer when we
+  // genuinely beat it.
+  if (document.readyState === 'complete') go();
+  else window.addEventListener('load', go, { once: true });
+
+  // The new SW takes control immediately (skipWaiting + clients.claim in
+  // sw.js), so a controller change on an already-controlled page means a
+  // deploy landed while this session was open. Offer a one-tap refresh
+  // instead of letting the old bundle keep running. The first claim on a
+  // previously-uncontrolled page (initial install) is not an update — skip it.
+  let hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener?.('controllerchange', () => {
+    if (!hadController) { hadController = true; return; }
+    showUpdateBanner();
   });
+}
+
+// Fixed "✨ updated — refresh" banner. Deliberately NOT an auto-reload: the
+// user may be mid-post/comment/trade-note and a forced reload would eat it.
+function showUpdateBanner() {
+  if (document.getElementById('update-banner')) return;
+  const el = document.createElement('div');
+  el.id = 'update-banner';
+  el.className = 'update-banner';
+  const label = document.createElement('span');
+  label.textContent = '✨ Update ready';
+  const btn = document.createElement('button');
+  btn.className = 'btn-primary';
+  btn.textContent = 'Refresh';
+  btn.addEventListener('click', () => location.reload());
+  el.append(label, btn);
+  document.body.appendChild(el);
 }
 
 // ─── Boot ────────────────────────────────────────────────────────────
@@ -54,6 +98,9 @@ async function loadSocialData() {
     state.socRequests = requests;
     state.socPendingCount = requests.length;
     maybeFireFriendNotifications().catch((e) => console.warn(e));
+    // DM threads ride along (best-effort — a miss shouldn't sink the feed)
+    // so the 💬 badge is right from first paint.
+    loadDmThreads().catch((e) => console.warn('dm threads', e));
   } catch (e) {
     console.error('loadSocialData', e);
     toast('Could not load the crypt social feed.');
@@ -75,6 +122,22 @@ async function refreshSocialBadge() {
     updateSocialBadge();
     maybeFireFriendNotifications().catch((e) => console.warn(e));
   } catch (e) { console.warn('social badge', e); }
+  try {
+    // 💬 unread pip rides the same poll. Announce genuinely-new arrivals
+    // locally (push covers the closed-app case; this covers app-open).
+    const prevUnread = state.dmUnread || 0;
+    state.dmUnread = await data.dmUnreadCount();
+    updateDmBadge();
+    if (state.dmUnread > prevUnread) {
+      maybeFireDmNotification(state.dmUnread).catch((e) => console.warn(e));
+    }
+  } catch (e) { console.warn('dm badge', e); }
+  // Drain the server-side notification queue (db/0085): locally fire
+  // anything real push didn't deliver — posts, replies, mentions, feedback,
+  // approvals. The uniform fallback; see maybeFireQueuedNotifications.
+  maybeFireQueuedNotifications().catch((e) => console.warn(e));
+  // …and keep the 🔔 inbox badge current on the same cadence.
+  refreshNotifBell().catch((e) => console.warn('notif bell', e));
 }
 
 // Poll for new friend requests every few minutes while the app is open
@@ -86,7 +149,7 @@ function scheduleSocialCheck() {
 
 function updateSocialBadge() {
   const n = state.socPendingCount || 0;
-  for (const id of ['coven-badge', 'soc-friends-badge']) {
+  for (const id of ['coven-badge', 'soc-friends-badge', 'bn-coven-badge']) {
     const b = document.getElementById(id);
     if (!b) continue;
     b.textContent = n;
@@ -174,6 +237,7 @@ function renderSocial() {
   document.getElementById('soc-feed').classList.toggle('hidden', !showFeed);
   document.getElementById('soc-friends').classList.toggle('hidden', onProfile || state.socSubTab !== 'friends');
   document.getElementById('soc-me').classList.toggle('hidden', onProfile || state.socSubTab !== 'me');
+  document.getElementById('soc-messages')?.classList.toggle('hidden', onProfile || state.socSubTab !== 'messages');
   document.querySelectorAll('#social-view .subtab').forEach((s) =>
     s.classList.toggle('active', !onProfile && s.dataset.socSubtab === state.socSubTab));
 
@@ -184,6 +248,224 @@ function renderSocial() {
   if (state.socSubTab === 'feed') renderFeed();
   else if (state.socSubTab === 'friends') renderFriends();
   else if (state.socSubTab === 'me') renderMyProfileTab();
+  else if (state.socSubTab === 'messages') renderMessages();
+}
+
+// ─── Private messages (db/0083) ─────────────────────────────────────
+// Facebook-Messenger shape: the 💬 header icon opens a thread list (one row
+// per conversation partner, latest line + unread pip); tapping a thread —
+// or "💬 Message" on a friend row / profile — opens the conversation with a
+// bubble timeline and a composer. Friends-only; the DB enforces that (plus
+// blocks and the ghost illusion), the client just surfaces the affordances.
+
+function renderMessages() {
+  const el = document.getElementById('soc-messages');
+  if (!el) return;
+  el.innerHTML = state.dmPartner ? dmConversationHtml() : dmThreadListHtml();
+  if (state.dmPartner) {
+    // Land scrolled to the newest message, and keep the composer handy.
+    const list = document.getElementById('dm-msg-list');
+    if (list) requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
+  }
+  ensureDmPoll();
+}
+
+function dmThreadListHtml() {
+  const threads = state.dmThreads;
+  const rows = threads.map((t) => `
+    <button class="dm-thread-row ${t.unread ? 'dm-unread' : ''}" data-soc-action="open-dm"
+            data-uid="${t.partnerId}" data-name="${escapeHtml(t.username)}">
+      ${socAvatar(t.avatarUrl, t.username)}
+      <span class="dm-thread-main">
+        <span class="dm-thread-name">@${escapeHtml(t.username)}</span>
+        <span class="dm-thread-preview">${t.lastFromMe ? 'You: ' : ''}${escapeHtml(t.lastBody)}</span>
+      </span>
+      <span class="dm-thread-meta">
+        <span class="dm-thread-time">${escapeHtml(socTimeAgo(t.lastAt))}</span>
+        ${t.unread ? `<span class="tab-badge dm-thread-badge">${t.unread}</span>` : ''}
+      </span>
+    </button>`).join('');
+  return `
+    <section class="soc-section">
+      <h2 class="soc-section-head">💬 Messages</h2>
+      ${threads.length ? `<div class="dm-thread-list">${rows}</div>`
+        : `<p class="empty-note">No messages yet. Find a friend in your
+             <button class="linklike" data-soc-action="go-friends">Coven</button>
+             and hit 💬 Message to start a conversation.</p>`}
+    </section>`;
+}
+
+function dmConversationHtml() {
+  const p = state.dmPartner;
+  const msgs = state.dmMessages;
+  let lastDay = '';
+  const bubbles = msgs.map((m) => {
+    // A quiet day separator whenever the calendar date changes.
+    const day = new Date(m.createdAt).toDateString();
+    const sep = day !== lastDay ? `<div class="dm-day-sep">${escapeHtml(formatDate(m.createdAt))}</div>` : '';
+    lastDay = day;
+    return `${sep}
+      <div class="dm-bubble-row ${m.mine ? 'dm-mine' : 'dm-theirs'}">
+        <div class="dm-bubble">${linkifyMentions(m.body)}</div>
+        <span class="dm-bubble-time">${escapeHtml(socTimeAgo(m.createdAt))}</span>
+      </div>`;
+  }).join('');
+  return `
+    <section class="soc-section dm-conversation">
+      <header class="dm-convo-head">
+        <button class="linklike soc-back" data-soc-action="dm-back">← Messages</button>
+        <button class="soc-userlink" data-soc-action="view-profile" data-uid="${p.id}">
+          ${socAvatar(p.avatarUrl, p.username)} <span>@${escapeHtml(p.username)}</span>
+        </button>
+      </header>
+      <div id="dm-msg-list" class="dm-msg-list">
+        ${msgs.length ? bubbles : '<p class="empty-note">No messages yet — say hi 🦇</p>'}
+      </div>
+      <form class="soc-comment-form dm-compose" data-soc-action="submit-dm">
+        <input type="text" id="dm-input" class="soc-comment-input" maxlength="2000"
+               placeholder="Message @${escapeHtml(p.username)}…" autocomplete="off" />
+        <button class="btn-primary" type="submit">Send</button>
+      </form>
+    </section>`;
+}
+
+async function loadDmThreads() {
+  state.dmThreads = await data.listDmThreads();
+  state.dmUnread = state.dmThreads.reduce((n, t) => n + t.unread, 0);
+  updateDmBadge();
+}
+
+// Open a conversation (from a thread row, a friend row, or a profile).
+async function openDm(uid, username) {
+  state.tab = 'home';
+  state.socProfile = null;
+  state.socSubTab = 'messages';
+  // Avatar from whatever list we already have; the thread list refresh fills it in.
+  const known = state.dmThreads.find((t) => t.partnerId === uid)
+    || state.socFriends.find((f) => f.userId === uid);
+  state.dmPartner = { id: uid, username, avatarUrl: known?.avatarUrl ?? known?.avatarURL ?? null };
+  try {
+    state.dmMessages = await data.listDmMessages(uid);
+    await data.markDmRead(uid);
+    await loadDmThreads();          // clears this thread's unread from the badge
+  } catch (e) {
+    console.error('openDm', e);
+    toast('Could not load the conversation.');
+  }
+  render();
+}
+
+function closeDm() {
+  state.dmPartner = null;
+  state.dmMessages = [];
+  renderMessages();
+}
+
+async function submitDmForm(form) {
+  const input = form.querySelector('#dm-input');
+  const body = (input?.value || '').trim();
+  const p = state.dmPartner;
+  if (!body || !p) return;
+  const btn = form.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  try {
+    const row = await data.sendDm(p.id, body);
+    state.dmMessages.push({ id: row.id, mine: true, body, createdAt: row.created_at, readAt: null });
+    input.value = '';
+    renderMessages();
+    document.getElementById('dm-input')?.focus();
+    loadDmThreads().catch(() => {});
+  } catch (e) {
+    console.error('sendDm', e);
+    // The DB refuses non-friends and blocked pairs (RLS) — say so plainly.
+    toast(/row-level security|violates/i.test(e?.message || '')
+      ? 'You can only message friends in your Coven.'
+      : 'Could not send — try again.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// While a conversation is open, poll for the other side's replies. The timer
+// self-heals: it clears itself the moment the user is anywhere else, so tab
+// hops can't leak intervals.
+// Refresh whatever messages surface is on screen (open conversation or the
+// thread list). Called by the 8s in-view poll AND by the realtime stream so
+// an incoming message lands on screen the moment it exists.
+async function refreshDmView() {
+  const viewing = state.tab === 'home' && state.socSubTab === 'messages' && !state.socProfile;
+  if (!viewing) return;
+  try {
+    if (state.dmPartner) {
+      const fresh = await data.listDmMessages(state.dmPartner.id);
+      if (fresh.length !== state.dmMessages.length) {
+        const hadNew = fresh.length > state.dmMessages.length && fresh.some((m) => !m.mine);
+        state.dmMessages = fresh;
+        if (hadNew) await data.markDmRead(state.dmPartner.id);
+        renderMessages();
+      }
+    } else {
+      await loadDmThreads();
+      renderMessages();
+    }
+  } catch (e) { console.warn('dm refresh', e); }
+}
+
+function ensureDmPoll() {
+  const viewing = state.tab === 'home' && state.socSubTab === 'messages' && !state.socProfile;
+  if (!viewing) { clearInterval(window._dmTimer); window._dmTimer = null; return; }
+  if (window._dmTimer) return;
+  window._dmTimer = setInterval(async () => {
+    const stillViewing = state.tab === 'home' && state.socSubTab === 'messages' && !state.socProfile;
+    if (!stillViewing) { clearInterval(window._dmTimer); window._dmTimer = null; return; }
+    await refreshDmView();
+  }, 8000);
+}
+
+// ─── Realtime notification stream (db/0087) ──────────────────────────
+// Every notifiable event queues a `notifications` row (db/0085); the table
+// is published on the Supabase Realtime websocket, so we hear about our own
+// rows the instant they're written (RLS scopes the stream to auth.uid()).
+// Each event triggers the same refresh the 5-minute poll does — the poll
+// stays as the safety net for dropped sockets. A DM event also refreshes
+// the open conversation, so chat feels like chat.
+function subscribeNotificationStream() {
+  const uid = window.currentUser?.id;
+  if (!uid || typeof window.sb?.channel !== 'function') return;
+  try { window._notifStream?.unsubscribe?.(); } catch (_) { /* stale channel */ }
+  try {
+    window._notifStream = window.sb
+      .channel('notif-stream-' + uid)
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${uid}` },
+        (payload) => {
+          // Debounce bursts (a popular post) into one refresh sweep. The DM
+          // flag accumulates across the burst so a mixed burst still
+          // refreshes the open conversation.
+          if ((payload?.new?.tag || '').startsWith('dm-')) window._notifStreamHasDm = true;
+          clearTimeout(window._notifStreamDebounce);
+          window._notifStreamDebounce = setTimeout(() => {
+            const hadDm = window._notifStreamHasDm;
+            window._notifStreamHasDm = false;
+            refreshSocialBadge();
+            if (hadDm) refreshDmView();
+          }, 400);
+        })
+      .subscribe();
+  } catch (e) {
+    console.warn('notification stream unavailable — polling covers it', e);
+  }
+}
+
+function updateDmBadge() {
+  const n = state.dmUnread || 0;
+  // Header 💬 (desktop) + bottom-nav Messages tab (mobile).
+  for (const id of ['dm-badge', 'bn-dm-badge']) {
+    const b = document.getElementById(id);
+    if (!b) continue;
+    b.textContent = n;
+    b.classList.toggle('hidden', n === 0);
+  }
 }
 
 // ─── Feed ───────────────────────────────────────────────────────────
@@ -225,6 +507,59 @@ const SOC_REACTIONS = [
 const SOC_REACTION_DEFAULT = '👍';
 const SOC_REACTION_LABEL = Object.fromEntries(SOC_REACTIONS.map((r) => [r.emoji, r.label]));
 
+// Relics (db/0088) — participation achievements, never completionism. Keys and
+// copy mirror _relic_meta() in the migration; an unknown key (older client vs.
+// a newer relic) falls back to the post's plain body text, so nothing breaks.
+const RELIC_META = {
+  'first-soul':         { emoji: '🕯️', title: 'First Soul',         blurb: 'welcomed their first plush into the crypt', how: 'Add your first plush to your collection.' },
+  'first-proclamation': { emoji: '📜', title: 'First Proclamation', blurb: 'made their first post to the crypt',        how: 'Make your first post on the Fellowship feed.' },
+  'coven-kin':          { emoji: '🦇', title: 'Coven Kin',          blurb: 'formed their first Coven bond',             how: 'Become friends with another collector — your first accepted friend request.' },
+  'first-pact':         { emoji: '🤝', title: 'First Pact',         blurb: 'completed their first trade',               how: 'Complete your first trade with another collector.' },
+  'seasoned-trader':    { emoji: '🕸️', title: 'Seasoned Trader',    blurb: 'completed five trades',                     how: 'Complete five trades.' },
+  'honest-quill':       { emoji: '🪶', title: 'Honest Quill',       blurb: 'left honest feedback after a trade',        how: 'Leave feedback for your trade partner after a completed trade.' },
+  'crypt-chronicler':   { emoji: '📷', title: 'Crypt Chronicler',   blurb: 'had a photo enshrined in the catalog',      how: 'Have one of your plush photos approved into the public catalog.' },
+  'year-one':           { emoji: '🕰️', title: 'Year One',           blurb: 'has haunted the crypt for a full year',     how: 'Stick around — awarded when your account turns one year old.' },
+};
+
+// Tapping a relic (shelf chip or feed banner) opens it as a big card with a
+// plain-English explanation — the hover tooltip alone was invisible on touch.
+function openRelicCard(key, earnedAt) {
+  const m = RELIC_META[key];
+  if (!m) return;
+  const when = earnedAt
+    ? new Date(earnedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+    : '';
+  openSocialModal(`
+    <button class="modal-close" data-close-social aria-label="Close">×</button>
+    <div class="soc-relic-card">
+      <span class="soc-relic-card-emblem">${m.emoji}</span>
+      <h2>${escapeHtml(m.title)}</h2>
+      <p class="soc-relic-card-how"><strong>How it’s earned:</strong> ${escapeHtml(m.how)}</p>
+      ${when ? `<p class="soc-relic-card-when">Unearthed ${escapeHtml(when)}</p>` : ''}
+      <p class="soc-relic-card-about">Relics are little keepsakes the Crypt leaves you for taking part. No checklists, no pressure — they find <em>you</em>. 🖤</p>
+    </div>`);
+}
+
+// The relic shelf shown on profiles (and the My Crypt footer). Earned relics
+// only — no grey placeholders, no progress bars: the crypt doesn't do FOMO.
+function renderRelicShelf(relics, isMe) {
+  const earned = (relics || []).filter((r) => RELIC_META[r.key]);
+  if (!earned.length) {
+    return isMe
+      ? `<p class="empty-note">Relics find you as you take part in crypt life — trading, posting, making friends. No checklists, no pressure. 🖤</p>`
+      : '';
+  }
+  return `<div class="soc-relic-shelf">${earned.map((r) => {
+    const m = RELIC_META[r.key];
+    const when = new Date(r.earnedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    return `<button type="button" class="soc-relic" data-soc-action="view-relic" data-relic-key="${escapeHtml(r.key)}" data-earned-at="${escapeHtml(r.earnedAt || '')}"
+      title="${escapeHtml(m.title)} — ${escapeHtml(m.blurb)} (${escapeHtml(when)})">
+      <span class="soc-relic-emblem">${m.emoji}</span>
+      <span class="soc-relic-name">${escapeHtml(m.title)}</span>
+    </button>`;
+  }).join('')}</div>`;
+}
+
 // Escape text, then linkify @username mentions into tappable chips (item 5).
 function linkifyMentions(text) {
   return escapeHtml(text || '').replace(/@([a-zA-Z0-9_-]{3,20})/g,
@@ -265,6 +600,18 @@ function commentKebabHtml(c) {
   ]);
 }
 
+// 📷 attach control for comment/reply forms (0090). The picked blob lives on
+// the form element itself (form._photoBlob, set by the delegated change
+// handler) so it survives typing but is naturally dropped on a re-render —
+// same lifetime as the unsent text next to it. Hidden when uploads are off.
+function commentPhotoPickerHtml() {
+  if (!data.featureEnabled('feature.user_photo_uploads')) return '';
+  return `<label class="soc-comment-photo-btn" title="Attach a photo">
+    <span class="soc-comment-photo-ico">📷</span>
+    <input type="file" class="soc-comment-photo-input" accept="image/*" hidden />
+  </label>`;
+}
+
 function commentBubbleHtml(c, postId) {
   // Editing swaps the bubble for an inline form; otherwise show bubble + actions.
   const editing = state.socEditComment === c.id;
@@ -301,7 +648,8 @@ function commentBubbleHtml(c, postId) {
       <div class="soc-comment-bubble-wrap">
         <div class="soc-comment-bubble">
           <button class="soc-userlink soc-comment-author" data-soc-action="view-profile" data-uid="${c.authorId}"><b>@${escapeHtml(c.authorName)}</b></button>
-          <div class="soc-comment-text">${linkifyMentions(c.body)}</div>
+          ${c.body ? `<div class="soc-comment-text">${linkifyMentions(c.body)}</div>` : ''}
+          ${c.photoUrl ? `<button class="soc-comment-photo" type="button" data-soc-action="zoom-comment-photo" data-src="${escapeHtml(c.photoUrl)}" data-name="@${escapeHtml(c.authorName)}"><img src="${escapeHtml(c.photoUrl)}" loading="lazy" alt="" /></button>` : ''}
         </div>
         ${summaryPill}
       </div>
@@ -329,6 +677,7 @@ function renderComment(c, postId, depth = 0) {
         ${commentBubbleHtml(c, postId)}
         ${replying ? `
           <form class="soc-comment-form soc-reply-form" data-soc-action="submit-comment" data-post-id="${postId}" data-parent-id="${c.id}">
+            ${commentPhotoPickerHtml()}
             <input type="text" class="soc-comment-input" maxlength="500" placeholder="Reply to @${escapeHtml(c.authorName)}…" />
             <button class="btn-primary" type="submit">Reply</button>
           </form>` : ''}
@@ -365,6 +714,21 @@ function postKebabHtml(p) {
   ]);
 }
 
+// A relic-unlock post (db/0088) renders as an ornate banner instead of its
+// plain body; unknown keys fall back to the body text (the server snapshots
+// a readable sentence exactly for that case).
+function renderRelicBanner(p) {
+  const m = p.relicKey && RELIC_META[p.relicKey];
+  if (!m) return '';
+  return `<button type="button" class="soc-relic-banner" data-soc-action="view-relic" data-relic-key="${escapeHtml(p.relicKey)}" title="What’s this relic?">
+    <span class="soc-relic-emblem">${m.emoji}</span>
+    <div class="soc-relic-text">
+      <strong>Relic unearthed: ${escapeHtml(m.title)}</strong>
+      <span>${escapeHtml(m.blurb)} 🖤</span>
+    </div>
+  </button>`;
+}
+
 function renderPostCard(p) {
   const img = p.photoUrl || catalogImageFor(p.catalogId);
   const expanded = state.socExpandedComments.has(p.id);
@@ -389,7 +753,7 @@ function renderPostCard(p) {
       ${postKebabHtml(p)}
     </header>
     ${p.plushName ? `<p class="soc-post-plush">🧸 ${escapeHtml(p.plushName)}</p>` : ''}
-    ${p.body ? `<p class="soc-post-body">${linkifyMentions(p.body)}</p>` : ''}
+    ${renderRelicBanner(p) || (p.body ? `<p class="soc-post-body">${linkifyMentions(p.body)}</p>` : '')}
     ${renderPoll(p)}
     ${img ? `<div class="soc-post-photo"><img src="${escapeHtml(img)}" loading="lazy" alt="" /></div>` : ''}
     <div class="soc-post-actions">
@@ -408,6 +772,7 @@ function renderPostCard(p) {
       ${shownComments.map((c) => renderComment(c, p.id)).join('')}
       ${expanded ? `
         <form class="soc-comment-form" data-soc-action="submit-comment" data-post-id="${p.id}">
+          ${commentPhotoPickerHtml()}
           <input type="text" class="soc-comment-input" maxlength="500" placeholder="Add a comment… (@mention someone)" />
           <button class="btn-primary" type="submit">Post</button>
         </form>` : ''}
@@ -509,6 +874,7 @@ function renderFriends() {
             </button>
           </div>
           <span class="soc-friend-actions">
+            <button class="btn-ghost" data-soc-action="open-dm" data-uid="${f.userId}" data-name="${escapeHtml(f.username)}">💬 Message</button>
             <button class="btn-ghost" data-soc-action="toggle-coffin" data-uid="${f.userId}" data-on="${f.isCoffinBuddy ? '0' : '1'}">
               ${f.isCoffinBuddy ? '🚫 Coffin Buddies' : 'Add to Coffin Buddies'}
             </button>
@@ -575,6 +941,7 @@ function renderMyProfileTab() {
     profile: { id: window.currentUser.id, username: window.currentUser.username, displayName: state._myDisplayName, bio: state._myBio, avatarUrl: state._myAvatarUrl, socialLinks: state._mySocialLinks },
     posts: state._myPosts || [],
     top8: state._myTop8 || [],
+    relics: state._myRelics || [],
     isMe: true,
   });
   el.insertAdjacentHTML('beforeend', renderBlockedManager());
@@ -606,6 +973,7 @@ function renderCryptMasthead() {
     isMe: true,
     omitTop8: true,
     omitPosts: true,
+    omitRelics: true,   // slim header; the relic shelf lives in the crypt footer
   });
 }
 
@@ -621,6 +989,7 @@ function renderCryptFooter() {
     t: (state._myTop8 || []).map((x) => (x && (x.id ?? x.itemId)) ?? x),
     p: posts,
     k: (state.myBlocks || []).map((x) => x.id),
+    r: (state._myRelics || []).map((x) => x.key),
   });
   if (el._footerSig === sig && el.childNodes.length) return;
   el._footerSig = sig;
@@ -628,6 +997,10 @@ function renderCryptFooter() {
     <section class="soc-section">
       <h2 class="soc-section-head">Top 8 Buns 🐰</h2>
       ${renderTop8(state._myTop8 || [], true)}
+    </section>
+    <section class="soc-section">
+      <h2 class="soc-section-head">Relics 🗝️</h2>
+      ${renderRelicShelf(state._myRelics || [], true)}
     </section>
     <section class="soc-section">
       <h2 class="soc-section-head">Your posts</h2>
@@ -657,11 +1030,20 @@ function renderBlockedManager() {
 // ─── Viewing someone's profile (overlay) ────────────────────────────
 async function openProfile(userId) {
   try {
-    const [profile, posts, top8, friendship] = await Promise.all([
+    // A fresh open (from the feed or another profile) should land at the TOP
+    // of the profile — without this, the profile swaps in under the reader's
+    // current scroll position and all they see is a list of posts that looks
+    // exactly like the feed, i.e. "the tap did nothing". A refresh of the
+    // already-open profile (after a react/comment/friend action) keeps its
+    // place. The feed's own position is remembered for the ← back trip.
+    const refreshing = state.socProfile?.profile?.id === userId;
+    if (!state.socProfile) state._socFeedScroll = window.scrollY;
+    const [profile, posts, top8, friendship, relics] = await Promise.all([
       data.getSocialProfile(userId),
       data.listUserPosts(userId),
       data.getTopPlushes(userId),
       data.friendshipWith(userId),
+      data.listRelics(userId),
     ]);
     if (!profile) { toast('Profile not found.'); return; }
     const isMe = userId === window.currentUser.id;
@@ -669,20 +1051,31 @@ async function openProfile(userId) {
     // content isn't yours to see. (If YOU blocked them, we still show the
     // profile so you can Unblock.)
     if (!isMe && data.isBlocked(userId) && !data.isMyBlock(userId)) {
-      state.socProfile = { profile, posts: [], top8: [], friendship: 'none', isMe, unavailable: true };
+      state.socProfile = { profile, posts: [], top8: [], relics: [], friendship: 'none', isMe, unavailable: true };
       renderSocial();
+      if (!refreshing) window.scrollTo({ top: 0, behavior: 'instant' });
       return;
     }
     state.socProfile = {
       profile, friendship, isMe,
       posts: stripBlocked(posts),
       top8,
+      relics,
     };
     renderSocial();
+    if (!refreshing) window.scrollTo({ top: 0, behavior: 'instant' });
   } catch (e) { console.error('openProfile', e); toast('Could not open profile.'); }
 }
 
-function renderProfileInto(el, { profile, posts = [], top8 = [], friendship, isMe, withBack, unavailable, omitPosts, omitTop8 }) {
+// ← Back to feed: drop the profile overlay and put the reader back exactly
+// where they were scrolled in the feed before they tapped in.
+function closeProfileToFeed() {
+  state.socProfile = null;
+  renderSocial();
+  window.scrollTo({ top: state._socFeedScroll || 0, behavior: 'instant' });
+}
+
+function renderProfileInto(el, { profile, posts = [], top8 = [], relics = [], friendship, isMe, withBack, unavailable, omitPosts, omitTop8, omitRelics }) {
   if (unavailable) {
     el.innerHTML = `
       ${withBack ? `<button class="linklike soc-back" data-soc-action="close-profile">← Back to feed</button>` : ''}
@@ -704,6 +1097,7 @@ function renderProfileInto(el, { profile, posts = [], top8 = [], friendship, isM
         ? '<span class="soc-rel-tag">⚰️ Coffin Buddies</span>'
         : (fr.isInner ? '<span class="soc-rel-tag">🏰 Castle Crew</span>' : '<span class="soc-rel-tag">🦇 In your Coven</span>');
       relBtns = `${tierTag}
+               <button class="btn-primary" data-soc-action="open-dm" data-uid="${profile.id}" data-name="${escapeHtml(profile.username || '')}">💬 Message</button>
                <button class="btn-ghost" data-soc-action="toggle-coffin" data-uid="${profile.id}" data-on="${fr.isCoffinBuddy ? '0' : '1'}">${fr.isCoffinBuddy ? '🚫 Coffin Buddies' : 'Add to Coffin Buddies'}</button>
                <button class="btn-ghost" data-soc-action="toggle-inner" data-uid="${profile.id}" data-on="${fr.isInner ? '0' : '1'}">${fr.isInner ? '🚫 Castle Crew' : 'Add to Castle Crew'}</button>
                <button class="btn-ghost" data-soc-action="remove-friend" data-uid="${profile.id}">🚫 Coven</button>`;
@@ -739,6 +1133,10 @@ function renderProfileInto(el, { profile, posts = [], top8 = [], friendship, isM
     ${omitTop8 ? '' : `<section class="soc-section">
       <h2 class="soc-section-head">Top 8 Buns 🐰</h2>
       ${top8Html}
+    </section>`}
+    ${omitRelics || (!isMe && !(relics || []).some((r) => RELIC_META[r.key])) ? '' : `<section class="soc-section">
+      <h2 class="soc-section-head">Relics 🗝️</h2>
+      ${renderRelicShelf(relics, isMe)}
     </section>`}
     ${omitPosts ? '' : `<section class="soc-section">
       <h2 class="soc-section-head">${isMe ? 'Your posts' : 'Posts'}</h2>
@@ -1327,13 +1725,14 @@ function wireSocialEvents() {
       const pf = e.target.closest('[data-soc-action="add-poll-option"]');
       if (pf) { e.preventDefault(); onAddPollOption(pf); }
     });
+    cryptEl.addEventListener('change', onCommentPhotoPick);
     cryptEl.addEventListener('error', (e) => {
       const img = e.target;
       if (img.tagName !== 'IMG' || img.dataset.fellBack) return;
       img.dataset.fellBack = '1';
       const slot = img.closest('.soc-top8-photo');
       if (slot) { slot.innerHTML = '<span class="no-photo">🖤</span>'; return; }
-      const photo = img.closest('.soc-post-photo');
+      const photo = img.closest('.soc-post-photo, .soc-comment-photo');
       if (photo) { photo.remove(); }
     }, true);
   }
@@ -1349,6 +1748,9 @@ function wireSocialEvents() {
     }, 250);
   });
 
+  // Comment/reply 📷 picks anywhere in the social view (0090).
+  document.getElementById('social-view').addEventListener('change', onCommentPhotoPick);
+
   // Comment submit + compose/profile/top8 forms (submit events).
   document.getElementById('social-view').addEventListener('submit', (e) => {
     const f = e.target.closest('[data-soc-action="submit-comment"]');
@@ -1356,7 +1758,9 @@ function wireSocialEvents() {
     const ef = e.target.closest('[data-soc-action="submit-comment-edit"]');
     if (ef) { e.preventDefault(); submitCommentEdit(ef); return; }
     const pf = e.target.closest('[data-soc-action="add-poll-option"]');
-    if (pf) { e.preventDefault(); onAddPollOption(pf); }
+    if (pf) { e.preventDefault(); onAddPollOption(pf); return; }
+    const df = e.target.closest('[data-soc-action="submit-dm"]');
+    if (df) { e.preventDefault(); submitDmForm(df); }
   });
 
   // Graceful image fallback. `error` doesn't bubble, so listen in the
@@ -1368,7 +1772,7 @@ function wireSocialEvents() {
     img.dataset.fellBack = '1';
     const slot = img.closest('.soc-top8-photo');
     if (slot) { slot.innerHTML = '<span class="no-photo">🖤</span>'; return; }
-    const photo = img.closest('.soc-post-photo');
+    const photo = img.closest('.soc-post-photo, .soc-comment-photo');
     if (photo) { photo.remove(); }
   }, true);
   document.getElementById('social-modal').addEventListener('submit', (e) => {
@@ -1412,10 +1816,11 @@ function wireSocialEvents() {
 
 async function loadMyProfileCache() {
   try {
-    const [profile, posts, top8] = await Promise.all([
+    const [profile, posts, top8, relics] = await Promise.all([
       data.getSocialProfile(window.currentUser.id),
       data.listUserPosts(window.currentUser.id),
       data.getTopPlushes(window.currentUser.id),
+      data.listRelics(window.currentUser.id),
     ]);
     state._myBio = profile?.bio || '';
     state._myDisplayName = profile?.displayName || null;
@@ -1423,6 +1828,7 @@ async function loadMyProfileCache() {
     state._mySocialLinks = profile?.socialLinks || {};
     state._myPosts = posts;
     state._myTop8 = top8;
+    state._myRelics = relics;
   } catch (e) { console.warn('loadMyProfileCache', e); }
 }
 
@@ -1496,12 +1902,16 @@ async function onSocialClick(e) {
   switch (a) {
     case 'open-compose': openComposer(); break;
     case 'go-friends': setSocSubTab('friends'); break;
+    case 'open-dm': await openDm(uid, target.dataset.name); break;
+    case 'dm-back': closeDm(); break;
     case 'share-app': await shareApp(); break;
     case 'view-profile': await openProfile(uid); break;
-    case 'close-profile': state.socProfile = null; renderSocial(); break;
+    case 'close-profile': closeProfileToFeed(); break;
     case 'edit-profile': closeSocialModal(); openAccountModal(); break;
     case 'edit-top8': openTop8Picker(); break;
     case 'zoom-top8': openLightbox(target.dataset.src, target.dataset.name); break;
+    case 'zoom-comment-photo': openLightbox(target.dataset.src, target.dataset.name || ''); break;
+    case 'view-relic': openRelicCard(target.dataset.relicKey, target.dataset.earnedAt); break;
 
     case 'toggle-menu': {
       const id = target.dataset.menu;
@@ -1727,17 +2137,44 @@ function onToggleComments(postId) {
   rerenderSocialCurrent();
 }
 
+// A comment form's 📷 pick (0090): compress + stash the blob on the form and
+// swap the icon for a thumbnail so you can see what's about to be attached.
+// Re-tapping opens the picker again; cancelling it clears the pending photo.
+async function onCommentPhotoPick(e) {
+  if (!e.target.classList?.contains('soc-comment-photo-input')) return;
+  const form = e.target.closest('form');
+  const ico = form?.querySelector('.soc-comment-photo-ico');
+  if (!form || !ico) return;
+  const file = e.target.files?.[0];
+  if (!file) {
+    form._photoBlob = null;
+    ico.textContent = '📷';
+    return;
+  }
+  try {
+    form._photoBlob = await compressImage(file);
+    ico.innerHTML = `<img class="soc-comment-photo-thumb" src="${URL.createObjectURL(form._photoBlob)}" alt="Photo attached" />`;
+  } catch (err) {
+    console.warn('compress', err);
+    form._photoBlob = null;
+    ico.textContent = '📷';
+    toast('Could not read that image.');
+  }
+}
+
 async function submitCommentForm(form) {
   const input = form.querySelector('.soc-comment-input');
   const body = input.value.trim();
-  if (!body) return;
+  const photoBlob = form._photoBlob || null;   // set by the 📷 picker (0090)
+  if (!body && !photoBlob) return;
   const postId = form.dataset.postId;
   const parentId = form.dataset.parentId || null;
   try {
-    await data.addComment(postId, body, parentId);
+    await data.addComment(postId, body, parentId, photoBlob);
     // Clear only after the write succeeds — clearing up front lost the user's
     // typed comment when the request failed.
     input.value = '';
+    form._photoBlob = null;
     state.socReplyTo = null;
     await loadSocialData();
     if (state.socProfile) await openProfile(state.socProfile.profile.id);
@@ -1880,6 +2317,7 @@ function showMaintenanceScreen(reason) {
   }
   el.classList.remove('hidden');
   document.body.classList.add('maint-locked');
+  window.removeBootSplash?.();   // takeover replaces the app — splash must not sit on top
 }
 
 // Full-screen takeover for a user an admin has blocked from the entire app
@@ -1890,6 +2328,7 @@ function showBlockedScreen() {
   if (!el) { showMaintenanceScreen(''); return; } // fail closed onto the generic takeover
   el.classList.remove('hidden');
   document.body.classList.add('maint-locked');
+  window.removeBootSplash?.();
 }
 
 // Full-screen "your account has been deleted" takeover for a user who asked to
@@ -1901,6 +2340,7 @@ function showDeletedScreen() {
   if (!el) { showBlockedScreen(); return; } // fail closed onto the block takeover
   el.classList.remove('hidden');
   document.body.classList.add('maint-locked');
+  window.removeBootSplash?.();
 }
 
 let eventsWired = false;
@@ -1946,6 +2386,10 @@ async function boot() {
   // the loads below. The real render() further down replaces it once data
   // lands. Guarded so a render hiccup never aborts boot.
   try { render(); } catch (e) { console.warn('initial loading paint skipped', e); }
+  // The shell + "Summoning…" placeholders are up — drop the boot splash
+  // (index.html). Fires even if that paint failed: whatever the page shows
+  // now beats a stuck splash.
+  window.removeBootSplash?.();
   // These four loads are independent once the active collection is known —
   // run them concurrently instead of a serial await waterfall (~4 round
   // trips → 1). pens-meta keeps its own tolerance so a miss doesn't abort
@@ -1966,6 +2410,9 @@ async function boot() {
     if (state.tab === 'home') renderSocial();
   });
   scheduleSocialCheck();  // keep polling for new requests while the app is open
+  subscribeNotificationStream();  // realtime: hear our notification rows instantly (db/0087)
+  refreshNotifBell().catch((e) => console.warn('notif bell', e));  // 🔔 inbox badge
+  data.claimTimeRelics?.();  // time-based relics (year-one) — fire-and-forget (db/0088)
   updateNotifyButton();
   registerSW();
   // Notifications default to ON: subscribe now if the OS already permits it,
@@ -1978,7 +2425,12 @@ async function boot() {
   // Catalog: ship the baked copy immediately, then try to refresh from live
   // Shopify in the background. Falls back silently if CORS or network blocks it.
   loadCatalog().then(() => {
-    if (state.tab === 'catalog') render();
+    // Re-render whatever tab we're on, not just Catalog: category-derived
+    // chrome (the rail identity "N buns in the crypt", crypt sub-tab counts,
+    // vitals) joins collection items to the catalog via itemCategory(), so
+    // everything computed before this point counted 0 buns and would stay
+    // stale until the next unrelated repaint.
+    render();
     refreshCatalogLive();
     scheduleCatalogRefresh();   // keep the live catalog fresh in long-open sessions
 
@@ -1996,17 +2448,28 @@ async function boot() {
 // immediately rather than waiting for boot() (which is gated behind auth).
 wireLegalModal();
 
-// Gate the app behind sign-in + profile. The auth overlay handles its own UI;
-// once both exist, runAuthGate's callback fires and the app boots normally.
-runAuthGate(() => {
-  // Record this visit for the admin "last seen" column. Fire-and-forget.
-  data.touchLastSeen?.();
-  // Retention instrument (db/0078): one deduped 'app_open' per visit.
-  data.trackSession?.();
-  boot().catch((e) => {
-    console.error(e);
-    toast('Something went wrong loading the app.');
+// ?share=TOKEN (db/0089): a read-only public wish list / crypt page. It
+// replaces the auth gate for this visit — no account needed to look. The
+// page's join CTA links back to ./ which boots the normal gated app.
+const _shareToken = new URLSearchParams(window.location.search).get('share');
+if (_shareToken) {
+  renderSharedListPage(_shareToken).catch((e) => {
+    console.error('share page', e);
+    window.removeBootSplash?.();
   });
-}).catch((e) => {
-  console.error('auth bootstrap', e);
-});
+} else {
+  // Gate the app behind sign-in + profile. The auth overlay handles its own
+  // UI; once both exist, runAuthGate's callback fires and the app boots.
+  runAuthGate(() => {
+    // Record this visit for the admin "last seen" column. Fire-and-forget.
+    data.touchLastSeen?.();
+    // Retention instrument (db/0078): one deduped 'app_open' per visit.
+    data.trackSession?.();
+    boot().catch((e) => {
+      console.error(e);
+      toast('Something went wrong loading the app.');
+    });
+  }).catch((e) => {
+    console.error('auth bootstrap', e);
+  });
+}

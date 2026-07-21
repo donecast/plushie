@@ -99,6 +99,12 @@ const state = {
   socComposeVis: 'public',    // visibility selected in the composer (default: Public)
   socComposePhoto: null,      // pending compressed Blob for a new post
   socPendingCount: 0,         // incoming friend requests — drives the tab badge
+
+  // ─── Private messages (db/0083) ──────────────────────────────────
+  dmThreads: [],              // conversation list [{partnerId, username, avatarUrl, lastBody, lastFromMe, lastAt, unread}]
+  dmMessages: [],             // the open conversation, oldest → newest
+  dmPartner: null,            // { id, username, avatarUrl } of the open conversation, null = thread list
+  dmUnread: 0,                // total unread — drives the 💬 header badge
 };
 
 // ─── Tiny DOM show/hide helpers ────────────────────────────────────────

@@ -182,7 +182,7 @@ function filteredWishlist() {
   const q = state.wishQuery.trim().toLowerCase();
   const arr = state.wishlist.filter((it) => {
     if (state.wishCategory !== 'all' && itemCategory(it) !== state.wishCategory) return false;
-    if (state.wishInStock && it.outOfStock) return false;
+    if (state.wishInStock && itemOutOfStock(it)) return false;
     return matchesQuery(it, q);
   });
   return sortWishlist(arr, state.wishSort);
@@ -596,6 +596,17 @@ function catalogForItem(item) {
   return item.catalogId ? (catalogById(item.catalogId) || null) : null;
 }
 
+// True when a wish-list item is out of stock RIGHT NOW. The row's own
+// `outOfStock` is a snapshot captured when the item was added (app-ui.js) and
+// is never refreshed, so it goes stale the moment the plush restocks. Prefer
+// the live catalog — the same source of truth the restock notification and the
+// Stirrings feed use — and fall back to the snapshot only for off-catalog rows
+// (or before the catalog has loaded) where there's no live signal.
+function itemOutOfStock(item) {
+  const liveCat = catalogForItem(item);
+  return liveCat ? !liveCat.available : !!item.outOfStock;
+}
+
 // Does a catalog entry describe wearable plush clothing? Either it's on one
 // of the named clothing lines, or it's an accessory-typed product whose name
 // carries a clothing keyword.
@@ -738,13 +749,14 @@ function cardBadgesHtml(item, kind) {
   if (kind === 'collection' && item.clothingScale) {
     badges.push(`<span class="badge badge-custom" title="Custom — not a Plushie Dreadfuls item">✨</span>`);
   }
-  // Retired wins over Out of Stock. A wish-list row's own snapshot can be stale,
-  // so read retired from the live catalog item when there is one — a wished
-  // retired plush should read "Retired", not "Out of Stock".
+  // Retired wins over Out of Stock. A wish-list row's own snapshot (retired,
+  // outOfStock) can be stale, so read both from the live catalog when there is
+  // one — a wished retired plush should read "Retired", and a restocked one
+  // should shed its "Out of Stock" pill rather than keep the add-time snapshot.
   const liveCat = item.catalogId ? catalogForItem(item) : null;
   const isRetired = item.retired || (liveCat && liveCat.retired);
   if (isRetired) badges.push(`<span class="badge badge-retired">Retired</span>`);
-  else if (kind === 'wishlist' && item.outOfStock) badges.push(`<span class="badge badge-oos">Out of Stock</span>`);
+  else if (kind === 'wishlist' && itemOutOfStock(item)) badges.push(`<span class="badge badge-oos">Out of Stock</span>`);
   if (kind === 'collection' && (item.quantity || 1) > 1) {
     badges.push(`<span class="badge badge-qty">×${item.quantity}</span>`);
   }
@@ -808,7 +820,7 @@ function cardActionsHtml(item, kind) {
       ${reorder}
       <button class="btn-got" data-action="got" data-id="${item.id}">✓ Got it! — move to collection</button>
       <div class="card-actions-secondary">
-        ${item.url && !item.outOfStock ? `<a class="btn-buy" href="${escapeHtml(item.url)}" target="_blank" rel="noopener" title="Buy on plushiedreadfuls.com">Buy ↗</a>` : ''}
+        ${item.url && !itemOutOfStock(item) ? `<a class="btn-buy" href="${escapeHtml(item.url)}" target="_blank" rel="noopener" title="Buy on plushiedreadfuls.com">Buy ↗</a>` : ''}
         ${isSeeking
           ? `<button class="btn-icon btn-icon-labeled" data-action="seek-trade" data-id="${item.id}" aria-label="Stop seeking" title="Stop telling other collectors you'd accept this in a trade">✕ Stop seeking</button>`
           : `<button class="btn-icon btn-icon-seek btn-icon-labeled" data-action="seek-trade" data-id="${item.id}" aria-label="Seek in trade" title="Tell other collectors you'd accept this in a trade">↺ Seek in trade</button>`}
@@ -985,9 +997,16 @@ function render() {
   document.querySelectorAll('.tab').forEach((t) =>
     t.classList.toggle('active', t.dataset.tab === tab)
   );
-  // Mobile bottom nav mirrors the active tab (same data-tab values).
+  // Mobile bottom nav mirrors the active tab (same data-tab values). The 💬
+  // Messages and 👥 Coven tabs are really Home + a sub-surface, so each lights
+  // up for its combination and steals Home's highlight while it does.
+  const onMessages = tab === 'home' && state.socSubTab === 'messages' && !state.socProfile;
+  const onCoven = tab === 'home' && state.socSubTab === 'friends' && !state.socProfile;
   document.querySelectorAll('.bottom-tab').forEach((t) => {
-    const on = t.dataset.tab === tab;
+    let on;
+    if (t.dataset.tab === 'messages') on = onMessages;
+    else if (t.dataset.tab === 'coven') on = onCoven;
+    else on = t.dataset.tab === tab && !(t.dataset.tab === 'home' && (onMessages || onCoven));
     t.classList.toggle('active', on);
     t.setAttribute('aria-selected', on ? 'true' : 'false');
   });

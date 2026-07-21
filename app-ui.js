@@ -572,7 +572,18 @@ async function ensurePushSubscription() {
   const uid = window.currentUser?.id;
   if (!uid || !window.sb) { dbg('no_user', { hasUid: !!uid, hasSb: !!window.sb }); return false; }
   try {
-    const reg = await navigator.serviceWorker.ready;
+    // Self-sufficient: if this session never registered the SW (the old
+    // load-listener race), register it now rather than depending on boot's
+    // registerSW() having won. And NEVER await .ready bare — it's a promise
+    // that simply never settles when no SW activates, which is exactly how
+    // this function used to hang silently before its first diagnostic.
+    if (!(await navigator.serviceWorker.getRegistration())) {
+      await navigator.serviceWorker.register('./sw.js');
+    }
+    const reg = await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('sw-ready-timeout')), 15000)),
+    ]);
     let sub = await reg.pushManager.getSubscription();
     if (!sub) {
       sub = await reg.pushManager.subscribe({
@@ -674,6 +685,116 @@ async function maybeFireFriendNotifications() {
     ? `@${fresh[0].username} sent you a friend request 🦇`
     : `${fresh.length} new friend requests in the crypt`;
   await fireLocalNotification('🦇 The Plush Crypt', body, 'friend-request');
+}
+
+// New private message(s) landed while the app is open. Same stance as
+// friend requests: real push covers it when confirmed deliverable; local
+// is the fallback so a half-subscribed device still hears about it.
+async function maybeFireDmNotification(unread) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  if (!(await idb.getMeta('notify_enabled'))) return;
+  if (await serverPushDeliverable()) return;
+  // Don't buzz about a conversation the user is literally looking at.
+  if (state.tab === 'home' && state.socSubTab === 'messages') return;
+  const body = unread === 1 ? 'You have a new message 💌' : `${unread} unread messages in the crypt 💌`;
+  await fireLocalNotification('🦇 The Plush Crypt', body, 'dm-unread');
+}
+
+// ─── Notification inbox drain (db/0085) ──────────────────────────────
+// Every server-side push event also queues a `notifications` row, even when
+// the recipient has no push subscription. This poll (piggybacking the 5-min
+// social check) locally fires whatever real push didn't deliver — the
+// uniform fallback that finally covers post events (comments, replies,
+// likes, mentions, feedback, approvals) while the app is open. Tags whose
+// bespoke pollers already announce them (friends, trades, DMs) are marked
+// delivered but not re-shown, so nothing ever doubles up.
+const QUEUE_OWNED_ELSEWHERE = (tag) =>
+  !tag ? false
+  : tag === 'friend-request' || tag === 'friend-accept'   // maybeFireFriendNotifications
+    || tag.startsWith('dm-')                              // maybeFireDmNotification
+    || tag.startsWith('trade-');                          // maybeFireTradeNotifications
+
+let _queueDrainInFlight = false;
+async function maybeFireQueuedNotifications() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  if (!(await idb.getMeta('notify_enabled'))) return;
+  if (_queueDrainInFlight) return;
+  _queueDrainInFlight = true;
+  try {
+    const rows = await data.listUndeliveredNotifications();
+    if (!rows.length) return;
+    // With confirmed server push, the OS banner already showed these —
+    // just clear the queue. Otherwise we ARE the delivery.
+    if (!(await serverPushDeliverable())) {
+      const show = rows.filter((r) => !QUEUE_OWNED_ELSEWHERE(r.tag));
+      if (show.length > 3) {
+        // A pile (first open in a while): one digest instead of a buzz-storm.
+        await fireLocalNotification('🦇 The Plush Crypt',
+          `${show.length} things happened in the crypt while you were away 🦇`, 'crypt-digest');
+      } else {
+        for (const r of show) await fireLocalNotification(r.title, r.body, r.tag);
+      }
+    }
+    await data.markNotificationsDelivered(rows.map((r) => r.id));
+  } catch (e) {
+    console.warn('notification queue drain', e);
+  } finally {
+    _queueDrainInFlight = false;
+  }
+}
+
+// ─── In-app notification bell (🔔, db/0085 seen_at) ──────────────────
+// OS banners are transient (and desktop browsers often never get permission),
+// so notifications also need a place you can LOOK: the 🔔 header icon lists
+// the recent queue rows, badges the unseen count, and marks everything seen
+// when opened — Facebook-style. Delivery (delivered_at) is a separate axis:
+// a push that buzzed your phone still counts as unseen here until you've
+// actually looked at the inbox.
+
+// Which tab a notification lands on, by tag prefix. Mirror of sw.js
+// tabForTag() — the SW is a separate scope, so keep the two in sync.
+function notifTabForTag(tag) {
+  if (!tag) return null;
+  if (tag.startsWith('dm-') || tag === 'dm-unread') return 'messages';
+  if (tag.startsWith('trade-') || tag.startsWith('feedback-') || tag === 'trade-action') return 'trade';
+  if (tag.startsWith('admin-')) return 'admin';
+  if (tag === 'photo-approved' || tag === 'catalog-approved') return 'catalog';
+  if (tag === 'friend-request' || tag === 'friend-accept' ||
+      tag === 'coffin-buddy' ||
+      tag.startsWith('post-') || tag.startsWith('like-') || tag.startsWith('comment-')) {
+    return 'home';
+  }
+  return null;
+}
+
+// Pull the recent inbox + paint the badge. Piggybacks the same triggers as
+// the other badges (boot, the 5-min social poll, the realtime stream).
+async function refreshNotifBell() {
+  const badge = document.getElementById('notif-badge');
+  if (!badge || !window.currentUser) return;
+  try {
+    state._notifInbox = await data.listRecentNotifications();
+  } catch (e) { console.warn('notif inbox', e); return; }
+  const n = state._notifInbox.filter((r) => !r.seen_at).length;
+  badge.textContent = n;
+  badge.classList.toggle('hidden', n === 0);
+  // Keep an open panel current (a realtime arrival while it's up).
+  const panel = document.getElementById('notif-panel');
+  if (panel && !panel.classList.contains('hidden')) renderNotifPanel();
+}
+
+function renderNotifPanel() {
+  const panel = document.getElementById('notif-panel');
+  if (!panel) return;
+  const rows = state._notifInbox || [];
+  panel.innerHTML = `
+    <div class="notif-panel-head">Notifications</div>
+    ${rows.length ? rows.map((r) => `
+      <button type="button" class="notif-row${r.seen_at ? '' : ' notif-unseen'}" data-notif-tag="${escapeHtml(r.tag || '')}">
+        <span class="notif-row-body">${escapeHtml(r.body)}</span>
+        <span class="notif-row-when">${escapeHtml(socTimeAgo(r.created_at))}</span>
+      </button>`).join('')
+    : `<p class="notif-empty">Nothing yet. Comments, reactions, mentions, friend requests, and trade news land here. 🖤</p>`}`;
 }
 
 let _reminderInFlight = false;
@@ -867,6 +988,11 @@ function loadFilters() {
 }
 
 // ─── Catalog change feed ("Stirrings") ───────────────────────────────
+// The main ticker is deliberately "things that already exist and can be — or
+// could once have been — bought": new releases, restocks, sold-outs, retires.
+// Concepts that don't exist yet (FYC) and pre-releases you still can't buy
+// (Coming Soon) are split off into a separate "In Development" list so they
+// never masquerade as a purchasable "New" bun. See splitStirrings().
 const STIR_META = {
   added:     { icon: '✨', label: 'New' },
   restocked: { icon: '🔄', label: 'Restocked' },
@@ -874,6 +1000,53 @@ const STIR_META = {
   retired:   { icon: '🪦', label: 'Retired' },
   unretired: { icon: '↩️', label: 'Back' },
 };
+// "In Development" rows, keyed by the item's current status. Distinct icons so
+// an unmade concept (🧪) reads apart from a real-but-not-yet-buyable pre-release
+// (⏳) at a glance.
+const STIR_DEV_META = {
+  fyc:         { icon: '🧪', label: 'Concept' },
+  coming_soon: { icon: '⏳', label: 'Coming Soon' },
+};
+
+const STIR_FETCH = 80;                              // wide enough to surface In-Development rows past the main churn
+const STIR_MAIN_MAX = 12;                           // main list cap after aging
+const STIR_MAIN_MAX_AGE_MS = 10 * 24 * 3600 * 1000; // main list ages out at 10 days
+const STIR_DEV_LATEST = 5;                          // "5 latest" branch of the In-Development rule
+const STIR_DEV_WEEK_MS = 7 * 24 * 3600 * 1000;      // "all in the last week" branch
+
+// Split the raw change feed into the main ticker and the "In Development" list.
+// Classification is by each item's CURRENT status (looked up in the loaded
+// catalog by handle), so a concept that graduates to a real, buyable plush
+// moves out of In Development on its own — no backfill, no stale tag. Pure and
+// time-injected so it's unit-testable.
+//   main: non-FYC / non-coming-soon events, aged to 10 days, capped.
+//   dev:  FYC + Coming Soon events — all within the last week, or the latest
+//         5, whichever set is larger. Each row carries a `devType` for its icon.
+function splitStirrings(events, catalog, nowMs) {
+  const byHandle = new Map();
+  for (const c of (catalog || [])) {
+    if (!c || !c.handle) continue;
+    // Prefer the canonical (non-variant, non-custom) row for a handle, matching
+    // how openStirringItem resolves a Stirring to its item.
+    if (!byHandle.has(c.handle) || (!c.isVariant && !c.isCustom)) byHandle.set(c.handle, c);
+  }
+  const main = [];
+  const dev = [];
+  for (const e of (events || [])) {
+    const item = e && e.handle ? byHandle.get(e.handle) : null;
+    const status = item && typeof itemStatus === 'function' ? itemStatus(item) : null;
+    if (status === 'fyc' || status === 'coming_soon') dev.push({ ...e, devType: status });
+    else main.push(e);
+  }
+  const cutoff = nowMs - STIR_MAIN_MAX_AGE_MS;
+  const mainShown = main
+    .filter((e) => !e.created_at || +new Date(e.created_at) >= cutoff)
+    .slice(0, STIR_MAIN_MAX);
+  const weekCutoff = nowMs - STIR_DEV_WEEK_MS;
+  const week = dev.filter((e) => e.created_at && +new Date(e.created_at) >= weekCutoff);
+  const devShown = week.length > STIR_DEV_LATEST ? week : dev.slice(0, STIR_DEV_LATEST);
+  return { main: mainShown, dev: devShown };
+}
 
 // Push the current store state so the DB can record changes. Only rails users
 // (admins/allowlist) see the feed, so only their sessions drive the sync —
@@ -898,36 +1071,51 @@ async function maybeSyncCatalogEvents() {
 
 async function loadCatalogEvents() {
   if (!document.body.classList.contains('rails-on')) return;
-  state._stirrings = await data.listCatalogEvents(12);
+  state._stirrings = await data.listCatalogEvents(STIR_FETCH);
   renderRailStirrings();
 }
 
-// Compact "what changed in the store" ticker in the left rail.
+// One Stirrings row. `meta` is {icon,label} — from STIR_META (main list, keyed
+// by event kind) or STIR_DEV_META (In Development, keyed by the item's status).
+function stirRow(e, meta) {
+  const name = escapeHtml(e.name || e.handle || '');
+  const handle = escapeHtml(e.handle || '');
+  const q = escapeHtml(cleanCatalogName ? cleanCatalogName(e.name || e.handle || '') : (e.name || e.handle || ''));
+  const when = e.created_at
+    ? new Date(e.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    : '';
+  return `<li class="rail-stir" data-tab="catalog" data-stir-handle="${handle}" data-stir-name="${q}" role="button" title="${meta.label}: ${name} — open this item">
+    <span class="rail-stir-ico">${meta.icon}</span>
+    <span class="rail-stir-text">
+      <span class="rail-stir-name">${name}</span>
+      <span class="rail-stir-kind">${meta.label}${when ? ` · ${escapeHtml(when)}` : ''}</span>
+    </span>
+  </li>`;
+}
+
+// Compact "what changed in the store" ticker in the left rail. Two lists: the
+// main Stirrings (real, buyable-or-once-buyable items) and, below it, an "In
+// Development" list of unmade concepts (FYC) and not-yet-buyable pre-releases
+// (Coming Soon). splitStirrings() does the classification + windowing.
 function renderRailStirrings() {
   const el = document.getElementById('rail-stirrings');
   if (!el) return;
-  const events = state._stirrings || [];
-  const sig = events.map((e) => e.id).join(',');
+  const { main, dev } = splitStirrings(state._stirrings || [], state.catalog || [], Date.now());
+  const sig = main.map((e) => e.id).join(',') + '|' + dev.map((e) => `${e.id}:${e.devType}`).join(',');
   if (el._sig === sig) return;   // no change — skip repaint
   el._sig = sig;
-  if (!events.length) { el.innerHTML = ''; return; }
-  el.innerHTML = `
+  if (!main.length && !dev.length) { el.innerHTML = ''; return; }
+  const mainHtml = main.length ? `
     <div class="rail-stir-head">Stirrings 🕯️</div>
     <ul class="rail-stir-list">
-      ${events.map((e) => {
-        const m = STIR_META[e.kind] || { icon: '•', label: e.kind };
-        const name = escapeHtml(e.name || e.handle || '');
-        const handle = escapeHtml(e.handle || '');
-        const q = escapeHtml(cleanCatalogName ? cleanCatalogName(e.name || e.handle || '') : (e.name || e.handle || ''));
-        return `<li class="rail-stir" data-tab="catalog" data-stir-handle="${handle}" data-stir-name="${q}" role="button" title="${m.label}: ${name} — open this item">
-          <span class="rail-stir-ico">${m.icon}</span>
-          <span class="rail-stir-text">
-            <span class="rail-stir-name">${name}</span>
-            <span class="rail-stir-kind">${m.label}</span>
-          </span>
-        </li>`;
-      }).join('')}
-    </ul>`;
+      ${main.map((e) => stirRow(e, STIR_META[e.kind] || { icon: '•', label: e.kind })).join('')}
+    </ul>` : '';
+  const devHtml = dev.length ? `
+    <div class="rail-stir-head rail-stir-subhead">In Development 🧪</div>
+    <ul class="rail-stir-list">
+      ${dev.map((e) => stirRow(e, STIR_DEV_META[e.devType] || { icon: '•', label: e.devType })).join('')}
+    </ul>` : '';
+  el.innerHTML = mainHtml + devHtml;
 }
 
 // ─── Experimental "rails" layout (insider feature.side_rails) ────────
@@ -1045,7 +1233,7 @@ function renderRailItemDetail(item) {
         </div>
         ${photo}
         <h3 class="rail-detail-name">${escapeHtml(stripOutfitWord(item.name || ''))}</h3>
-        ${item.outOfStock ? '<p class="rail-detail-product">Out of stock</p>' : ''}
+        ${itemOutOfStock(item) ? '<p class="rail-detail-product">Out of stock</p>' : ''}
         ${item.notes ? `<p class="rail-detail-meaning">${escapeHtml(item.notes)}</p>` : ''}
         ${item.url ? `<a class="rail-detail-edit" href="${escapeHtml(item.url)}" target="_blank" rel="noopener">Buy ↗</a>` : ''}
       </section>`;
@@ -1150,10 +1338,27 @@ function activeQueryKey() {
   return null;
 }
 
-// Switch to a top-level tab by name (home/catalog/crypt/trade). Clicks the
-// header tab so it reuses that tab's full enter logic. Returns false if the
-// tab isn't present (e.g. signed-out shell).
+// Switch to a top-level tab by name (home/catalog/crypt/trade), or one of the
+// surfaces that live outside the header tab strip: 'messages' (the 💬 icon)
+// and 'admin' (the user-menu entry). Clicks the owning control so each reuses
+// its full enter logic. Returns false if the target isn't present (e.g.
+// signed-out shell). Used by notification taps (hash + notification-nav).
 function goToTab(tab) {
+  if (tab === 'messages') {
+    const dm = document.getElementById('dm-btn');
+    if (dm) { dm.click(); return true; }
+    return false;
+  }
+  if (tab === 'coven') {
+    const cv = document.getElementById('coven-btn');
+    if (cv) { cv.click(); return true; }
+    return false;
+  }
+  if (tab === 'admin') {
+    const item = document.querySelector('#user-menu [data-go="admin"]');
+    if (item) { item.click(); return true; }
+    return false;
+  }
   const top = document.querySelector(`header .tabs .tab[data-tab="${tab}"]`);
   if (top) { top.click(); return true; }
   return false;
@@ -1233,6 +1438,11 @@ function wireEvents() {
     shell.addEventListener('click', (e) => {
       const t = e.target.closest('[data-tab]');
       if (!t) return;
+      // Messages and Coven are Home sub-surfaces, not top-level tabs — route
+      // the bottom-nav 💬/👥 through their header icons so each pair shares
+      // one enter logic.
+      if (t.dataset.tab === 'messages') { document.getElementById('dm-btn')?.click(); return; }
+      if (t.dataset.tab === 'coven') { document.getElementById('coven-btn')?.click(); return; }
       // A data-subtab (e.g. the wishlist thumbnails) lands on that crypt sub-tab.
       if (t.dataset.subtab) state.colSubTab = t.dataset.subtab;
       // Stirrings feed entries open the exact item they refer to (detail rail or
@@ -1465,6 +1675,9 @@ function wireEvents() {
   });
 
   document.getElementById('check-restocks').addEventListener('click', checkAllRestocks);
+  // Share links (db/0089): read-only public pages for the wish list / crypt.
+  document.getElementById('wish-share')?.addEventListener('click', () => openShareListModal('wishlist'));
+  document.getElementById('col-share')?.addEventListener('click', () => openShareListModal('collection'));
   const notifyChk = document.getElementById('acct-notify');
   if (notifyChk) notifyChk.addEventListener('change', async () => {
     await toggleNotifications();
@@ -1616,6 +1829,10 @@ function wireEvents() {
   document.getElementById('tl-suggestion').addEventListener('click', (e) => {
     if (e.target.closest('#tl-use-collection')) useCollectionPhoto();
   });
+  document.getElementById('tl-extras').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-tl-extra]');
+    if (btn) setTradeListExtra(parseInt(btn.dataset.tlExtra, 10), btn.dataset.tlExtraVal === 'yes');
+  });
   document.getElementById('tl-save').addEventListener('click', saveTradeList);
 
   // Feedback modal — three structured thumbs.
@@ -1695,6 +1912,60 @@ function wireEvents() {
     requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' }));
     saveFilters();
   });
+
+  // Messages (💬) — same ambient pattern as the Coven icon: land on Home,
+  // open the thread list (or straight back into the conversation that was
+  // open before, if any — matches Messenger's "resume where you were").
+  document.getElementById('dm-btn')?.addEventListener('click', async () => {
+    tabScroll.set(state.tab, window.scrollY);
+    state.tab = 'home';
+    state.socProfile = null;
+    state.socSubTab = 'messages';
+    try { await loadDmThreads(); } catch (e) { console.warn('dm threads', e); }
+    render();
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    saveFilters();
+  });
+
+  // Notification bell (🔔) — dropdown inbox, same popover manners as the
+  // account menu: toggle on the button, click-away closes, one open at once.
+  const notifBtn = document.getElementById('notif-btn');
+  const notifPanel = document.getElementById('notif-panel');
+  if (notifBtn && notifPanel) {
+    const closeNotifPanel = () => {
+      notifPanel.classList.add('hidden');
+      notifBtn.setAttribute('aria-expanded', 'false');
+    };
+    notifBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!notifPanel.classList.contains('hidden')) { closeNotifPanel(); return; }
+      notifPanel.classList.remove('hidden');
+      notifBtn.setAttribute('aria-expanded', 'true');
+      if (!state._notifInbox) await refreshNotifBell();
+      renderNotifPanel();
+      // Opening the inbox = you've seen what's in it: clear the badge and
+      // stamp the rows (this open still shows them highlighted; the next
+      // one won't).
+      const unseen = (state._notifInbox || []).filter((r) => !r.seen_at);
+      if (unseen.length) {
+        document.getElementById('notif-badge')?.classList.add('hidden');
+        try { await data.markNotificationsSeen(unseen.map((r) => r.id)); } catch (err) { console.warn('notif seen', err); }
+        const stamp = new Date().toISOString();
+        unseen.forEach((r) => { r.seen_at = stamp; });
+      }
+    });
+    document.addEventListener('click', (e) => {
+      if (notifPanel.classList.contains('hidden')) return;
+      if (!notifPanel.contains(e.target) && !notifBtn.contains(e.target)) closeNotifPanel();
+    });
+    notifPanel.addEventListener('click', (e) => {
+      const row = e.target.closest('[data-notif-tag]');
+      if (!row) return;
+      closeNotifPanel();
+      const tab = notifTabForTag(row.dataset.notifTag || '');
+      if (tab) goToTab(tab);
+    });
+  }
 
   // Catalog item create + suggest photo + admin queue modals.
   document.querySelectorAll('[data-close-catalog-item]').forEach((el) =>

@@ -1977,6 +1977,30 @@ body.cl-insider .changelog-gated strong { color: #2f6fed; }
 }
 
 /* ─── Toast ────────────────────────────── */
+/* "✨ updated — refresh" banner (showUpdateBanner): parked above the bottom
+   nav / toast area, persistent until tapped. */
+.update-banner {
+  position: fixed;
+  bottom: calc(70px + env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  background: var(--ink-2);
+  color: #fff;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 0.85rem;
+  z-index: 210;
+  box-shadow: var(--shadow-popover);
+  animation: toastIn 0.25s ease;
+}
+.update-banner .btn-primary { white-space: nowrap; }
+
 .toast {
   position: fixed;
   bottom: 24px;
@@ -2186,6 +2210,13 @@ body.cl-insider .changelog-gated strong { color: #2f6fed; }
   border: 1px dashed var(--gold-edge); border-radius: 7px;
   background: var(--blush);
 }
+/* Owner-facing nudge on a photo-less offering (not tradeable until fixed). */
+.trade-proof-warning {
+  margin: 6px 0 0; font-family: var(--sans); font-size: 0.72rem;
+  font-weight: 600; line-height: 1.35; color: var(--negative-text);
+}
+/* Offer-builder row for an untradeable (photo-less) offering. */
+.picker-row-disabled { opacity: 0.55; }
 
 /* ─── Trade-list modal photo picker ──────────────────────────────── */
 .tl-photo-grid {
@@ -2226,6 +2257,31 @@ body.cl-insider .changelog-gated strong { color: #2f6fed; }
 .tl-suggestion-text strong { font-size: 0.85rem; color: var(--ink); }
 .tl-suggestion-text span { font-size: 0.75rem; color: var(--muted-1); line-height: 1.3; }
 .tl-suggestion button { flex: 0 0 auto; white-space: nowrap; }
+/* Includes checklist ("what's included?") in the trade-list modal. */
+.tl-extras { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 10px; }
+.tl-extra-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.tl-extra-name {
+  font-family: var(--sans); font-size: 0.85rem; color: var(--ink);
+  min-width: 0; overflow-wrap: anywhere;
+}
+.tl-extra-choice { display: flex; gap: 6px; flex: 0 0 auto; }
+.tl-extra-btn {
+  font-family: var(--sans); font-size: 0.78rem; font-weight: 700;
+  padding: 4px 14px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--gold-edge); background: var(--blush); color: var(--muted-1);
+}
+.tl-extra-btn.tl-extra-yes {
+  background: var(--positive-fill); color: var(--positive-text);
+  border-color: var(--positive-edge);
+}
+.tl-extra-btn.tl-extra-no {
+  background: var(--negative-fill); color: var(--negative-text);
+  border-color: var(--rose-seam);
+}
+/* Missing-extras line on a Browse offering card. */
+.trade-offer-missing { color: var(--negative-text); font-weight: 600; }
 .trader-head {
   display: flex;
   justify-content: space-between;
@@ -3367,13 +3423,67 @@ body.locked { overflow: hidden; }
 /* The round .icon-btn anchors a corner count badge (the count that used to
    sit on the old Social tab). */
 .icon-btn { position: relative; }
-#coven-btn .tab-badge {
+#coven-btn .tab-badge,
+#notif-btn .tab-badge {
   position: absolute;
   top: -4px;
   right: -4px;
   min-width: 18px;
   padding: 0 4px;
   border: 2px solid var(--canvas);
+}
+
+/* ─── Notification bell (🔔) dropdown inbox ────────────────── */
+.notif-wrap { position: relative; }
+.notif-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 950;
+  width: 340px;
+  max-width: min(92vw, 340px);
+  max-height: 65vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--hairline-2);
+  border-radius: 12px;
+  box-shadow: var(--shadow-popover);
+  padding: 6px;
+}
+.notif-panel-head {
+  font-weight: 800;
+  font-size: 0.95rem;
+  padding: 8px 12px 6px;
+  color: var(--ink);
+}
+.notif-row {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.88rem;
+  text-align: left;
+  padding: 9px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.notif-row:hover { background: var(--canvas); }
+.notif-row.notif-unseen { background: var(--blush); }
+.notif-row.notif-unseen:hover { background: var(--canvas); }
+.notif-row-body { display: block; }
+.notif-row-when {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.76rem;
+  color: var(--ink-mute);
+}
+.notif-empty {
+  padding: 10px 12px 12px;
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--ink-mute);
 }
 
 /* ─── My Crypt masthead + footer ────────────────────────────── */
@@ -3478,6 +3588,11 @@ body.rails-on .rail-right.rail-right--active { display: block; }
 .rail-stir-head {
   font-size: .7rem; text-transform: uppercase; letter-spacing: .08em;
   color: var(--ink-2); opacity: .7; margin-bottom: 8px;
+}
+/* "In Development" divider — sits under the main list, set apart with a rule. */
+.rail-stir-subhead {
+  margin-top: 14px; padding-top: 12px;
+  border-top: 1px dashed var(--border-rose-faint);
 }
 .rail-stir-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
 .rail-stir {
@@ -3677,6 +3792,15 @@ body.rails-on .rail-right.rail-right--active { display: block; }
   /* Lift page content so the fixed bar never hides the last row. */
   main,
   body.rails-on main { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
+
+  /* iOS auto-zooms the page when a focused control's font-size is under
+     16px — and while zoomed, position:fixed pins to the layout viewport,
+     so this bottom bar drifts up with the scroll instead of staying put.
+     Keep every focusable control at ≥16px on phones so the zoom never
+     fires. !important because per-control rules (.field input,
+     .soc-comment-input, …) would otherwise out-rank a bare element
+     selector. */
+  input, select, textarea { font-size: max(16px, 1em) !important; }
 }
 
 /* ─── Admin ────────────────────────────── */
@@ -3703,6 +3827,10 @@ body.rails-on .rail-right.rail-right--active { display: block; }
 /* Compact, right-aligned count columns; de-emphasised feedback. */
 .admin-table .admin-num { text-align: center; font-variant-numeric: tabular-nums; }
 .admin-table .admin-fb { font-size: 0.8rem; white-space: nowrap; }
+.admin-subnote { margin: -0.25rem 0 0.75rem; max-width: 60ch; }
+.admin-table .admin-email { font-size: 0.82rem; word-break: break-all; }
+.admin-table .admin-email a { color: var(--teal-text); text-decoration: none; }
+.admin-table .admin-email a:hover { text-decoration: underline; }
 .admin-fb .fb-good { color: var(--teal-text); }
 .admin-fb .fb-bad  { color: var(--danger-hi); }
 /* Feedback summary dialled down in the inspect view (less prominent). */
@@ -4355,6 +4483,40 @@ body.maint-locked { overflow: hidden; }
   display: block; margin: 0 auto;
   max-width: 100%; max-height: 70vh; width: auto; height: auto;
 }
+/* ─── Relics (0088) — unlock banner on feed posts + profile shelf ─── */
+.soc-relic-banner {
+  display: flex; align-items: center; gap: 12px;
+  margin: 10px 0; padding: 12px 14px;
+  border: 1px solid var(--gold); border-radius: 12px;
+  background: linear-gradient(135deg, rgba(199,161,74,.12), rgba(199,161,74,.03));
+  /* Tappable (opens the relic card) — reset the button chrome. */
+  width: 100%; font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.soc-relic-emblem { font-size: 1.9rem; line-height: 1; flex: 0 0 auto; }
+.soc-relic-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.soc-relic-text strong { color: var(--gold); }
+.soc-relic-text span { color: var(--ink-dim); font-size: .92rem; }
+.soc-relic-shelf { display: flex; flex-wrap: wrap; gap: 8px; }
+.soc-relic {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 12px; border: 1px solid var(--hairline); border-radius: 999px;
+  background: linear-gradient(135deg, rgba(199,161,74,.10), transparent);
+  /* Tappable (opens the relic card) — reset the button chrome. */
+  font: inherit; color: inherit; cursor: pointer;
+}
+.soc-relic-name { font-weight: 600; font-size: .92rem; white-space: nowrap; }
+
+/* The tapped-open relic card: the relic writ large, with a plain explanation. */
+.soc-relic-card { text-align: center; padding: 8px 4px 4px; }
+.soc-relic-card-emblem { display: block; font-size: 4rem; line-height: 1.15; }
+.soc-relic-card h2 { color: var(--gold); margin: 10px 0 4px; }
+.soc-relic-card-how { margin: 12px 0 0; }
+.soc-relic-card-when { margin: 8px 0 0; color: var(--ink-dim); font-size: .92rem; }
+.soc-relic-card-about {
+  margin: 16px 0 0; padding-top: 12px; border-top: 1px solid var(--hairline);
+  color: var(--ink-dim); font-size: .92rem;
+}
+
 /* ─── Poll (0079) — Facebook-style result bars ─── */
 .soc-poll { margin: 10px 0; display: flex; flex-direction: column; gap: 6px; }
 .soc-poll-list { display: flex; flex-direction: column; gap: 6px; }
@@ -4441,8 +4603,25 @@ body.maint-locked { overflow: hidden; }
 /* Pill overhangs the bubble bottom — reserve a little space below it. */
 .soc-comment-bubble-wrap:has(.soc-react-summary) { margin-bottom: 9px; }
 
+/* Comment photo (0090) — thumbnail in the bubble; taps open the lightbox. */
+.soc-comment-photo {
+  display: block; padding: 0; margin: 6px 0 2px;
+  background: none; border: none; cursor: zoom-in;
+}
+.soc-comment-photo img {
+  display: block; max-width: min(220px, 100%); max-height: 220px;
+  width: auto; height: auto; border-radius: 10px; border: 1px solid var(--hairline);
+}
+
 .soc-more-comments { align-self: flex-start; font-size: 0.82rem; }
-.soc-comment-form { display: flex; gap: 8px; margin-top: 6px; }
+.soc-comment-form { display: flex; gap: 8px; margin-top: 6px; align-items: center; }
+/* The 📷 attach control on comment/reply forms (0090). */
+.soc-comment-photo-btn { flex: 0 0 auto; cursor: pointer; line-height: 1; }
+.soc-comment-photo-ico { font-size: 1.15rem; }
+.soc-comment-photo-thumb {
+  display: block; width: 30px; height: 30px; object-fit: cover;
+  border-radius: 7px; border: 1px solid var(--gold);
+}
 .soc-comment-input {
   flex: 1; padding: 8px 12px; border-radius: 999px;
   border: 1px solid var(--border-rose-faint); background: var(--surface-2); font: inherit; color: var(--ink);
@@ -4574,6 +4753,55 @@ body.maint-locked { overflow: hidden; }
 .soc-friend-row .soc-userlink span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .soc-friend-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .soc-friend-actions button { font-size: 0.78rem; padding: 5px 9px; }
+
+/* ─── Private messages (💬) ─────────────────────────────────────────── */
+.dm-thread-list { display: flex; flex-direction: column; }
+.dm-thread-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 10px 4px; border: 0; border-bottom: 1px solid var(--hairline);
+  background: none; text-align: left; cursor: pointer; color: inherit;
+  font: inherit;
+}
+.dm-thread-row:hover { background: var(--surface-2); }
+.dm-thread-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dm-thread-name { font-weight: 700; }
+.dm-thread-preview {
+  font-size: 0.82rem; color: var(--muted-1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dm-unread .dm-thread-preview { color: var(--ink-1); font-weight: 700; }
+.dm-thread-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.dm-thread-time { font-size: 0.72rem; color: var(--muted-2); }
+.dm-thread-badge { position: static; }
+
+.dm-convo-head {
+  display: flex; align-items: center; gap: 12px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--hairline);
+}
+.dm-msg-list {
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: 60vh; overflow-y: auto; padding: 12px 2px;
+}
+.dm-day-sep {
+  align-self: center; margin: 8px 0 2px;
+  font-size: 0.72rem; color: var(--muted-2);
+}
+.dm-bubble-row { display: flex; flex-direction: column; max-width: 78%; }
+.dm-bubble-row.dm-mine   { align-self: flex-end; align-items: flex-end; }
+.dm-bubble-row.dm-theirs { align-self: flex-start; align-items: flex-start; }
+.dm-bubble {
+  padding: 8px 12px; border-radius: 16px;
+  background: var(--surface-2); color: var(--ink-1);
+  overflow-wrap: anywhere;
+}
+.dm-mine .dm-bubble {
+  background: var(--rose-1); color: #fff;
+  border-bottom-right-radius: 5px;
+}
+.dm-mine .dm-bubble .soc-mention { color: inherit; text-decoration: underline; }
+.dm-theirs .dm-bubble { border-bottom-left-radius: 5px; }
+.dm-bubble-time { font-size: 0.66rem; color: var(--muted-2); margin: 2px 4px 0; }
+.dm-compose { margin-top: 10px; }
 .soc-inner-tag, .soc-rel-tag {
   font-size: 0.72rem; color: var(--gold); white-space: nowrap; flex: none;
   background: var(--gold-soft-bg, var(--blush)); border-radius: 999px; padding: 2px 8px;
@@ -4906,3 +5134,51 @@ body.maint-locked { overflow: hidden; }
   .modal-card-split .account-section { padding: 10px 0; }
   .modal-card-split .field { margin-bottom: 10px; }
 }
+
+/* ─── Share links (0089) — public wish list / crypt page + manage modal ─── */
+.share-page {
+  position: fixed; inset: 0; z-index: 400; overflow-y: auto;
+  background: var(--bg); color: var(--ink);
+}
+.share-head {
+  padding: 14px 18px; font-weight: 800; font-size: 1.05rem;
+  color: var(--ink-2); border-bottom: 1px solid var(--hairline);
+}
+.share-body { max-width: 860px; margin: 0 auto; padding: 22px 16px 48px; }
+.share-body h1 { margin: 4px 0 6px; overflow-wrap: anywhere; }
+.share-sub { margin: 0 0 18px; color: var(--ink-dim); }
+.share-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+.share-card {
+  display: flex; flex-direction: column; gap: 6px; padding: 10px;
+  border: 1px solid var(--hairline); border-radius: 14px;
+  background: var(--bg-2); color: inherit; text-decoration: none;
+}
+a.share-card:hover { border-color: var(--rose-1); }
+.share-card-media {
+  aspect-ratio: 1; border-radius: 10px; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.share-card-media img { width: 100%; height: 100%; object-fit: cover; }
+.share-noimg { font-size: 2rem; }
+.share-card-name { font-weight: 700; line-height: 1.25; overflow-wrap: anywhere; }
+.share-badge {
+  align-self: flex-start; padding: 2px 8px; border-radius: 999px;
+  font-size: .78rem; border: 1px solid var(--hairline); color: var(--ink-dim);
+}
+.share-card-go { margin-top: auto; font-size: .85rem; color: var(--rose-1); }
+.share-empty { color: var(--ink-dim); margin: 24px 0; }
+.share-footer {
+  margin-top: 32px; padding-top: 18px; border-top: 1px solid var(--hairline);
+  display: flex; flex-direction: column; gap: 12px; align-items: flex-start;
+}
+.share-join { display: inline-block; text-decoration: none; }
+
+.share-list-modal { display: flex; flex-direction: column; gap: 12px; }
+.share-list-modal h2 { margin: 0; }
+.share-list-explain { margin: 0; line-height: 1.5; }
+.share-list-modal #sl-link { width: 100%; }
+.share-list-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.share-list-footer { display: flex; justify-content: flex-end; }
