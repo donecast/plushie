@@ -4546,8 +4546,26 @@ body.maint-locked { overflow: hidden; }
   flex: 1 1 auto; padding: 7px 10px; border: 1px solid var(--hairline);
   border-radius: 8px; background: none; color: var(--ink); font: inherit;
 }
+/* Non-anonymous voter list: each result expands to show who voted (FB-style). */
+.soc-poll-opt-wrap { display: flex; flex-direction: column; gap: 4px; }
+.soc-poll-voters { margin: 0 2px; }
+.soc-poll-voters > summary {
+  cursor: pointer; list-style: none; width: fit-content;
+  color: var(--ink-mute); font-size: .8em; padding: 2px 0;
+}
+.soc-poll-voters > summary::-webkit-details-marker { display: none; }
+.soc-poll-voters[open] > summary { color: var(--rose-1); }
+.soc-poll-voter-list { list-style: none; margin: 2px 0 4px; padding: 0 0 0 2px; display: flex; flex-direction: column; gap: 4px; }
+.soc-poll-voter-list li { display: flex; align-items: center; gap: 8px; font-size: .88em; }
+.soc-poll-voter-av { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex: 0 0 auto; }
+.soc-poll-voter-av-blank { display: inline-flex; align-items: center; justify-content: center; font-size: .8em; background: var(--rose-2, rgba(0,0,0,.05)); }
 /* Composer poll fieldset */
 .soc-poll-fields { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+/* The `hidden` attr must actually hide — the class above sets display:flex,
+   which would otherwise win over the UA `[hidden]` rule and leave the poll
+   options always visible (so they looked live but only published after the
+   "Add a poll" toggle flipped `hidden`). */
+.soc-poll-fields[hidden] { display: none; }
 .soc-poll-opts { display: flex; flex-direction: column; gap: 6px; }
 .soc-poll-opt-row { display: flex; gap: 6px; align-items: center; }
 .soc-poll-opt-del { flex: 0 0 auto; background: none; border: none; color: var(--ink-mute); font-size: 1.2em; line-height: 1; cursor: pointer; padding: 4px 8px; }

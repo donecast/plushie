@@ -42,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=152" />
+  <link rel="stylesheet" href="./styles.css?v=153" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -1192,7 +1192,8 @@
               <li><strong>Private messages are here! 💬</strong> Tap the new 💬 icon in the header — or “💬 Message” on any friend — to chat one-on-one. Messages are friends-only, you'll see an unread badge when something's waiting, and a notification when a new message arrives.</li>
               <li><strong>Real photos required to trade.</strong> An offering with no real photos of the actual item can no longer go into a trade — you'll see “📷 Awaiting photos” instead of a trade button until the owner adds one. If that's your listing, tap Manage on it and add a shot so folks can see its condition.</li>
               <li><strong>A proper welcome.</strong> Opening the Crypt now greets you with a little bat splash screen while everything wakes up, instead of a bare half-loaded page.</li>
-              <li class="changelog-fixes">Misc bug fixes.</li>
+              <li>Polls now show who voted — once results are in, tap the number of votes under any option to see the list of people who picked it.</li>
+              <li class="changelog-fixes">Fixed the poll composer so the option boxes only appear after you tap <em>Add a poll</em> — no more filling in choices that quietly didn't get attached to your post; misc bug fixes.</li>
             </ul>
           </div>
           <div class="changelog-day">
@@ -1908,18 +1909,18 @@
   <script src="./config.js?v=54"></script>
   <script src="./auth.js?v=66"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=111"></script>
+  <script src="./data.js?v=112"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=205"></script>
-  <script src="./app-catalog.js?v=205"></script>
-  <script src="./app-collection.js?v=205"></script>
-  <script src="./app-ui.js?v=205"></script>
-  <script src="./app-trade.js?v=205"></script>
-  <script src="./app-account.js?v=205"></script>
-  <script src="./app-admin.js?v=205"></script>
-  <script src="./app-admin-catalog.js?v=205"></script>
-  <script src="./app-social.js?v=205"></script>
+  <script src="./app-core.js?v=206"></script>
+  <script src="./app-catalog.js?v=206"></script>
+  <script src="./app-collection.js?v=206"></script>
+  <script src="./app-ui.js?v=206"></script>
+  <script src="./app-trade.js?v=206"></script>
+  <script src="./app-account.js?v=206"></script>
+  <script src="./app-admin.js?v=206"></script>
+  <script src="./app-admin-catalog.js?v=206"></script>
+  <script src="./app-social.js?v=206"></script>
 </body>
 </html>

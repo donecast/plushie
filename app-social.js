@@ -783,8 +783,9 @@ function renderPostCard(p) {
 // Render a post's attached poll (0079), or '' if there is none. Facebook-style:
 // the post body is the question; each option is a clickable result bar. Results
 // (counts + %) reveal once I've voted or the poll has closed. Percentages are of
-// voters, so a multi-select option can reach 100%. Votes are anonymous here — we
-// deliberately don't show who voted (a departure from Facebook, by design).
+// voters, so a multi-select option can reach 100%. Polls are non-anonymous
+// (Facebook standard): once results show, each option expands to reveal who
+// voted for it.
 function renderPoll(p) {
   const poll = p.poll;
   if (!poll) return '';
@@ -795,12 +796,24 @@ function renderPoll(p) {
     const mark = poll.multi ? (o.mine ? '☑' : '☐') : (o.mine ? '◉' : '○');
     const bar = showResults ? `<span class="soc-poll-bar" style="width:${o.pct}%"></span>` : '';
     const tally = showResults ? `<span class="soc-poll-tally">${o.pct}% · ${o.count}</span>` : '';
-    return `<button class="soc-poll-opt-btn${o.mine ? ' chosen' : ''}" data-soc-action="vote-poll"
-      data-post-id="${p.id}" data-option-id="${o.id}" data-multi="${poll.multi ? 1 : 0}" data-on="${o.mine ? 0 : 1}"${closed ? ' disabled' : ''}>
-      ${bar}
-      <span class="soc-poll-opt-face"><span class="soc-poll-mark">${mark}</span><span class="soc-poll-label">${escapeHtml(o.label)}</span></span>
-      ${tally}
-    </button>`;
+    const voters = (showResults && o.voters && o.voters.length) ? `
+      <details class="soc-poll-voters">
+        <summary>👥 ${o.voters.length === 1 ? '1 voter' : `${o.voters.length} voters`}</summary>
+        <ul class="soc-poll-voter-list">
+          ${o.voters.map((v) => `<li>${v.avatarUrl
+            ? `<img class="soc-poll-voter-av" src="${escapeHtml(v.avatarUrl)}" alt="" loading="lazy" />`
+            : '<span class="soc-poll-voter-av soc-poll-voter-av-blank">🖤</span>'}<span>${escapeHtml(v.name)}</span></li>`).join('')}
+        </ul>
+      </details>` : '';
+    return `<div class="soc-poll-opt-wrap">
+      <button class="soc-poll-opt-btn${o.mine ? ' chosen' : ''}" data-soc-action="vote-poll"
+        data-post-id="${p.id}" data-option-id="${o.id}" data-multi="${poll.multi ? 1 : 0}" data-on="${o.mine ? 0 : 1}"${closed ? ' disabled' : ''}>
+        ${bar}
+        <span class="soc-poll-opt-face"><span class="soc-poll-mark">${mark}</span><span class="soc-poll-label">${escapeHtml(o.label)}</span></span>
+        ${tally}
+      </button>
+      ${voters}
+    </div>`;
   }).join('');
   const addOption = (poll.allowAdd && !closed) ? `
     <form class="soc-poll-addform" data-soc-action="add-poll-option" data-post-id="${p.id}">
