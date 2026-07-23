@@ -619,29 +619,53 @@ function stripTagsKeepNewlines(html) {
   return html.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n').replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+// Per-item stock/retirement fingerprint of a catalog build. Compared across a
+// live refresh to decide whether the visible tab needs a repaint: stock badges,
+// Buy buttons, and crypt chrome all derive from the live catalog, so any tab
+// can be showing stale availability — not just Catalog.
+function catalogStockSignature(cat) {
+  return (cat || []).map((c) => `${c.id}:${c.available ? 1 : 0}:${c.retired ? 1 : 0}`).join('|');
+}
+
 async function refreshCatalogLive() {
-  const all = [];
+  // Interval tick + resume nudge can land together; one fetch is plenty.
+  if (window._catalogRefreshing) return false;
+  window._catalogRefreshing = true;
   try {
-    for (let page = 1; page <= 10; page++) {
-      const r = await fetch(`${LIVE_CATALOG_BASE}&page=${page}`, { mode: 'cors' });
-      if (!r.ok) throw new Error(`page ${page} ${r.status}`);
-      const data = await r.json();
-      const products = data.products || [];
-      if (products.length === 0) break;
-      all.push(...products.map(normalizeShopifyProduct));
-      if (products.length < 250) break;
+    const all = [];
+    try {
+      for (let page = 1; page <= 10; page++) {
+        const r = await fetch(`${LIVE_CATALOG_BASE}&page=${page}`, { mode: 'cors' });
+        if (!r.ok) throw new Error(`page ${page} ${r.status}`);
+        const data = await r.json();
+        const products = data.products || [];
+        if (products.length === 0) break;
+        all.push(...products.map(normalizeShopifyProduct));
+        if (products.length < 250) break;
+      }
+    } catch (e) {
+      console.info('Live catalog refresh skipped:', e.message);
+      return false;
     }
-  } catch (e) {
-    console.info('Live catalog refresh skipped:', e.message);
-    return false;
+    if (all.length === 0) return false;
+    const prevSig = catalogStockSignature(state.catalog);
+    const shopify = expandVariants(all.filter(isPlushieCollectible));
+    state.catalog = await mergeCustomCatalog(shopify);
+    window._lastLiveCatalogAt = Date.now();
+    await idb.setMeta('last_live_refresh', Date.now());
+    // Repaint whatever tab is showing when stock/retirement moved — a refresh
+    // that only repainted Catalog left a restocked wishlist plush badged
+    // "Out of Stock" until the next manual tab flip (the boot render paints
+    // from the baked catalog.json snapshot, which can be months stale on
+    // stock). Catalog still repaints unconditionally, same as before; other
+    // tabs only on a real change so the 30-minute background tick doesn't
+    // churn the DOM for nothing.
+    if (state.tab === 'catalog' || catalogStockSignature(state.catalog) !== prevSig) render();
+    maybeSyncCatalogEvents();   // change feed (Stirrings) — gated + throttled inside
+    return true;
+  } finally {
+    window._catalogRefreshing = false;
   }
-  if (all.length === 0) return false;
-  const shopify = expandVariants(all.filter(isPlushieCollectible));
-  state.catalog = await mergeCustomCatalog(shopify);
-  await idb.setMeta('last_live_refresh', Date.now());
-  if (state.tab === 'catalog') render();
-  maybeSyncCatalogEvents();   // change feed (Stirrings) — gated + throttled inside
-  return true;
 }
 
 // refreshCatalogLive() otherwise only runs at boot, so a long-open session
@@ -651,9 +675,22 @@ async function refreshCatalogLive() {
 // Re-boot safe: clears any prior timer before arming a new one, same as
 // scheduleSocialCheck().
 const CATALOG_REFRESH_MS = 30 * 60 * 1000;   // 30 min
+// On returning to the foreground, refresh right away if the catalog is older
+// than this. A resumed installed PWA doesn't re-boot, and its interval timer
+// was frozen while suspended — so someone opening their phone straight onto
+// the Wish List was reading stock badges from whenever the app last ran.
+const CATALOG_RESUME_MS = 5 * 60 * 1000;     // 5 min
 function scheduleCatalogRefresh() {
   if (window._catalogTimer) clearInterval(window._catalogTimer);
   window._catalogTimer = setInterval(() => { refreshCatalogLive(); }, CATALOG_REFRESH_MS);
+  // Wire the resume nudge once per page (boot can re-run this fn).
+  if (!window._catalogResumeWired) {
+    window._catalogResumeWired = true;
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) return;
+      if (Date.now() - (window._lastLiveCatalogAt || 0) >= CATALOG_RESUME_MS) refreshCatalogLive();
+    });
+  }
 }
 
 function byNewest(a, b) {

@@ -793,7 +793,7 @@ async function loadAll() {
 
 async function loadCatalog() {
   try {
-    const r = await fetch('./catalog.json?v=69', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=70', { cache: 'no-cache' });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const json = await r.json();
     const shopify = expandVariants((json.products || []).filter(isPlushieCollectible));

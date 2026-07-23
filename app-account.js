@@ -167,7 +167,7 @@ async function renderSharedListPage(token) {
   // isn't a public URL (storage paths need auth to sign). Best-effort.
   let imageById = new Map();
   try {
-    const r = await fetch('./catalog.json?v=69', { cache: 'no-cache' });
+    const r = await fetch('./catalog.json?v=70', { cache: 'no-cache' });
     if (r.ok) {
       const json = await r.json();
       const items = expandVariants((json.products || []).filter(isPlushieCollectible));
