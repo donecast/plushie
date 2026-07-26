@@ -760,7 +760,36 @@ function cardBadgesHtml(item, kind) {
   if (kind === 'collection' && (item.quantity || 1) > 1) {
     badges.push(`<span class="badge badge-qty">×${item.quantity}</span>`);
   }
+  // Present (set aside to give — forced to Only-me) and received-gift (db/0096).
+  if (kind === 'collection' && item.isPresent) {
+    badges.push(`<span class="badge badge-present" title="A present — hidden, only you can see it">🎁</span>`);
+  }
+  if (kind === 'collection' && item.isGift) {
+    badges.push(`<span class="badge badge-gift" title="A gift you received">💝</span>`);
+  }
+  // A plush with a pending outgoing gift is on its way out — mark it so it
+  // doesn't look like a normal keepsake while it waits to be accepted.
+  const outGift = kind === 'collection' && giftPendingOutFor(item.id);
+  if (outGift) {
+    badges.push(`<span class="badge badge-gift-pending" title="Waiting for @${escapeHtml(outGift.otherUsername)} to accept">🎁→</span>`);
+  }
   return badges.length ? `<div class="badge-stack">${badges.join('')}</div>` : '';
+}
+
+// The pending OUTGOING gift for a plush, if any — used to badge/annotate a
+// plush that's been offered but not yet accepted. Reads the loaded gift list.
+function giftPendingOutFor(plushId) {
+  return (state.gifts || []).find((g) => g.direction === 'out' && g.status === 'pending' && g.plushId === plushId) || null;
+}
+
+// A present is Only-me by definition — when the present box is checked, pin the
+// visibility select to "private" and lock it; unchecking frees it again.
+function syncPresentVisibility() {
+  const chk = document.getElementById('f-present');
+  const vis = document.getElementById('f-visibility');
+  if (!chk || !vis) return;
+  if (chk.checked) { vis.value = 'private'; vis.disabled = true; }
+  else { vis.disabled = false; }
 }
 
 // Manual reorder controls (item 20) — only while actively arranging (the ↕
@@ -1310,6 +1339,22 @@ function openModal(kind, item, { fresh = false } = {}) {
   const curVis = item.visibility || 'friends';
   visSel.innerHTML = Object.entries(ITEM_VIS_META).map(([k, m]) =>
     `<option value="${k}" ${k === curVis ? 'selected' : ''}>${m.glyph} ${m.label} — ${m.hint}</option>`).join('');
+
+  // Present toggle + gift metadata (db/0096). A present is Only-me, so reflect
+  // and lock the visibility select while it's checked.
+  const presentChk = document.getElementById('f-present');
+  if (presentChk) { presentChk.checked = !!item.isPresent; syncPresentVisibility(); }
+  // Received-gift note (recipient can keep or clear it).
+  const noteBlock = document.getElementById('field-gift-note');
+  if (noteBlock) {
+    const show = !!(item.isGift && item.giftMessage);
+    noteBlock.classList.toggle('hidden', !show);
+    if (show) document.getElementById('gift-note-text').textContent = `“${item.giftMessage}”`;
+  }
+  // "Send as a gift" makes sense only when it's not already mid-gift.
+  const sendGiftBtn = document.getElementById('modal-send-gift');
+  if (sendGiftBtn) sendGiftBtn.classList.toggle('hidden', !!giftPendingOutFor(item.id));
+
   document.getElementById('f-date').value = item.dateCollected ?? '';
   document.getElementById('f-acquired').value = item.acquiredHow ?? '';
 
@@ -1617,6 +1662,14 @@ async function submitForm(e) {
     if (record.visibility && record.visibility !== existing.visibility) {
       try { await data.setItemVisibility(record.id, record.visibility); }
       catch (err) { console.warn('setItemVisibility', err); }
+    }
+
+    // Present flag (db/0096) — dedicated column, like visibility. setPresent
+    // also forces Only-me server-side, matching the locked select above.
+    const present = !!document.getElementById('f-present')?.checked;
+    if (present !== !!existing.isPresent) {
+      try { await data.setPresent(record.id, present); }
+      catch (err) { console.warn('setPresent', err); }
     }
 
     // Persist the "worn by" assignment when the field is shown (clothing

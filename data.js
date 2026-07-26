@@ -408,6 +408,12 @@ const data = {
         wornBy: r.worn_by || null,
         sortOrder: r.sort_order ?? null,
         visibility: r.visibility || 'friends',
+        // Present / gift metadata (db/0096). Columns may be absent on a
+        // pre-0096 backend; select('*') just omits them → these read false/null.
+        isPresent: !!r.is_present,
+        isGift: !!r.is_gift,
+        giftedBy: r.gifted_by || null,
+        giftMessage: r.gift_message || null,
         // Set only on user-added off-catalog clothing ('full' | 'mini').
         // null for everything sourced from the catalog.
         clothingScale: r.clothing_scale || null,
@@ -3217,6 +3223,80 @@ data.getUserVault = async function (userId) {
     if (it.photoPath) { try { it.photo = await data.photoUrl(it.photoPath); } catch { /* leave unresolved */ } }
   }));
   return items;
+};
+
+// ─── Gifts + presents (db/0096) ─────────────────────────────────────
+// Mark / unmark one of my own plushes as a "present": marking forces Only-me
+// visibility (a present is a surprise) and sets the is_present flag for the
+// badge. Un-marking clears the flag but leaves visibility as the user set it.
+data.setPresent = async function (plushId, isPresent) {
+  const patch = isPresent
+    ? { is_present: true, visibility: 'private', updated_at: new Date().toISOString() }
+    : { is_present: false, updated_at: new Date().toISOString() };
+  const { error } = await sb.from('plushies').update(patch).eq('id', plushId);
+  if (error) throw error;
+};
+
+// Offer a plush to a Coven+ friend. Server enforces ownership + tier + block +
+// one-pending-per-plush. Returns the gift id.
+data.sendGift = async function (plushId, recipientId, message) {
+  const { data: id, error } = await sb.rpc('send_gift', {
+    p_plush: plushId, p_recipient: recipientId, p_message: message || null,
+  });
+  if (error) throw error;
+  return id;
+};
+
+// Recipient accepts (moves the plush into their crypt) or declines.
+data.respondGift = async function (giftId, accept) {
+  const { error } = await sb.rpc('respond_gift', { p_gift: giftId, p_accept: !!accept });
+  if (error) throw error;
+};
+
+// Sender withdraws a still-pending gift.
+data.cancelGift = async function (giftId) {
+  const { error } = await sb.rpc('cancel_gift', { p_gift: giftId });
+  if (error) throw error;
+};
+
+// Pending gifts in both directions, with resolved photos. Empty on a pre-0096
+// backend so the UI degrades rather than throwing.
+data.listMyGifts = async function () {
+  const { data: rows, error } = await sb.rpc('list_my_gifts');
+  if (error) {
+    if (/list_my_gifts|does not exist|schema cache|function/i.test(error.message || '')) {
+      console.warn('listMyGifts (RPC absent?)', error.message);
+      return [];
+    }
+    throw error;
+  }
+  const gifts = (rows || []).map((r) => ({
+    id: r.id,
+    direction: r.direction,          // 'in' | 'out'
+    status: r.status,
+    message: r.message || null,
+    plushId: r.plush_id,
+    plushName: r.plush_name,
+    photoPath: r.photo_path || null,
+    photo: null,
+    catalogId: r.catalog_id || null,
+    otherId: r.other_id,
+    otherUsername: r.other_username,
+    createdAt: r.created_at,
+  }));
+  await Promise.all(gifts.map(async (g) => {
+    if (g.photoPath) { try { g.photo = await data.photoUrl(g.photoPath); } catch { /* leave */ } }
+  }));
+  return gifts;
+};
+
+// Clear the note that came with a received gift — the recipient's to keep or
+// remove. Leaves is_gift / gifted_by intact.
+data.clearGiftMessage = async function (plushId) {
+  const { error } = await sb.from('plushies')
+    .update({ gift_message: null, updated_at: new Date().toISOString() })
+    .eq('id', plushId);
+  if (error) throw error;
 };
 
 // ─── Relics (db/0088) ───────────────────────────────────────────────
