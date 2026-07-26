@@ -116,6 +116,19 @@ const state = {
 function showEl(id) { document.getElementById(id)?.classList.remove('hidden'); }
 function hideEl(id) { document.getElementById(id)?.classList.add('hidden'); }
 
+// Today's calendar day as a 'YYYY-MM-DD' string, in the USER'S LOCAL timezone.
+// `date_collected` is a date-only field, but `new Date().toISOString()` returns
+// UTC — so a user in a negative-offset zone (e.g. the Americas) adding a plush
+// in the evening would get TOMORROW's date as the default. Building the string
+// from the local Y/M/D components keeps the default on the day the user is
+// actually living in. (Display still renders in UTC via formatDate, which is
+// correct for a stable date-only value.)
+function todayLocalDate() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 // Compact list view is a desktop-only density option. On phones it's too
 // cramped to be worthwhile, so we ignore a saved 'compact' preference there and
 // always fall back to roomy cards (the #col-view / #wish-view toggle is hidden
