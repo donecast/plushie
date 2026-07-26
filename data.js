@@ -3197,6 +3197,28 @@ data.getSocialProfile = async function (userId) {
   };
 };
 
+// Another collector's crypt for the vault browser, filtered SERVER-SIDE to the
+// plushes your friend tier is allowed to see (get_user_vault, db/0095). Returns
+// collection view-items with resolved photo URLs, newest/sorted first. Viewing
+// your own id returns your whole crypt (the RPC's owner branch).
+data.getUserVault = async function (userId) {
+  const { data: rows, error } = await sb.rpc('get_user_vault', { target: userId });
+  if (error) {
+    // Pre-0095 backend: the RPC doesn't exist yet. Degrade to an empty vault so
+    // the rest of the profile still loads rather than throwing.
+    if (/get_user_vault|does not exist|schema cache|function/i.test(error.message || '')) {
+      console.warn('getUserVault (RPC absent?)', error.message);
+      return [];
+    }
+    throw error;
+  }
+  const items = (rows || []).map((r) => data._rowToItem(r, 'collection'));
+  await Promise.all(items.map(async (it) => {
+    if (it.photoPath) { try { it.photo = await data.photoUrl(it.photoPath); } catch { /* leave unresolved */ } }
+  }));
+  return items;
+};
+
 // ─── Relics (db/0088) ───────────────────────────────────────────────
 // Achievement badges. Earned server-side (triggers + claim_time_relics);
 // the client only ever reads them. Best-effort: a pre-0088 backend just

@@ -1038,12 +1038,13 @@ async function openProfile(userId) {
     // place. The feed's own position is remembered for the ← back trip.
     const refreshing = state.socProfile?.profile?.id === userId;
     if (!state.socProfile) state._socFeedScroll = window.scrollY;
-    const [profile, posts, top8, friendship, relics] = await Promise.all([
+    const [profile, posts, top8, friendship, relics, vault] = await Promise.all([
       data.getSocialProfile(userId),
       data.listUserPosts(userId),
       data.getTopPlushes(userId),
       data.friendshipWith(userId),
       data.listRelics(userId),
+      data.getUserVault(userId),
     ]);
     if (!profile) { toast('Profile not found.'); return; }
     const isMe = userId === window.currentUser.id;
@@ -1061,6 +1062,7 @@ async function openProfile(userId) {
       posts: stripBlocked(posts),
       top8,
       relics,
+      vault,
     };
     renderSocial();
     if (!refreshing) window.scrollTo({ top: 0, behavior: 'instant' });
@@ -1075,7 +1077,7 @@ function closeProfileToFeed() {
   window.scrollTo({ top: state._socFeedScroll || 0, behavior: 'instant' });
 }
 
-function renderProfileInto(el, { profile, posts = [], top8 = [], relics = [], friendship, isMe, withBack, unavailable, omitPosts, omitTop8, omitRelics }) {
+function renderProfileInto(el, { profile, posts = [], top8 = [], relics = [], vault = [], friendship, isMe, withBack, unavailable, omitPosts, omitTop8, omitRelics, omitVault }) {
   if (unavailable) {
     el.innerHTML = `
       ${withBack ? `<button class="linklike soc-back" data-soc-action="close-profile">← Back to feed</button>` : ''}
@@ -1134,6 +1136,10 @@ function renderProfileInto(el, { profile, posts = [], top8 = [], relics = [], fr
       <h2 class="soc-section-head">Top 8 Buns 🐰</h2>
       ${top8Html}
     </section>`}
+    ${isMe || omitVault ? '' : `<section class="soc-section">
+      <h2 class="soc-section-head">Crypt 🦇${vault.length ? ` <span class="soc-vault-count">${vault.length}</span>` : ''}</h2>
+      ${renderVault(vault)}
+    </section>`}
     ${omitRelics || (!isMe && !(relics || []).some((r) => RELIC_META[r.key])) ? '' : `<section class="soc-section">
       <h2 class="soc-section-head">Relics 🗝️</h2>
       ${renderRelicShelf(relics, isMe)}
@@ -1142,6 +1148,29 @@ function renderProfileInto(el, { profile, posts = [], top8 = [], relics = [], fr
       <h2 class="soc-section-head">${isMe ? 'Your posts' : 'Posts'}</h2>
       ${posts.length ? (posts.filter((p) => !isHiddenPost(p.id)).map(renderPostCard).join('') || `<p class="empty-note">No posts to show.</p>`) : `<p class="empty-note">No posts yet.</p>`}
     </section>`}`;
+}
+
+// The vault browser grid — another collector's plushes, already filtered
+// server-side (get_user_vault) to what your tier may see. Read-only: photo +
+// its name (nickname wins), catalog image as the photo fallback. Tap a photo
+// to zoom, reusing the Top 8 lightbox action.
+function renderVault(vault) {
+  if (!vault || !vault.length) {
+    return `<p class="empty-note">Nothing to show here — either their crypt is empty, or none of it is shared at your tier.</p>`;
+  }
+  const tiles = vault.map((it) => {
+    const name = it.nickname || it.name || 'Plush';
+    const img = it.photo || catalogImageFor(it.catalogId);
+    const zoomAttr = img
+      ? ` data-soc-action="zoom-top8" data-src="${escapeHtml(img)}" data-name="${escapeHtml(name)}" role="button" tabindex="0" title="Tap to see it bigger"`
+      : '';
+    return `
+      <div class="soc-vault-tile">
+        <div class="soc-vault-photo"${zoomAttr}>${img ? `<img src="${escapeHtml(img)}" loading="lazy" alt="" />` : '<span class="no-photo">🖤</span>'}</div>
+        <span class="soc-vault-name">${escapeHtml(name)}</span>
+      </div>`;
+  }).join('');
+  return `<div class="soc-vault-grid">${tiles}</div>`;
 }
 
 function renderTop8(top8, isMe) {
