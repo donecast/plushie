@@ -100,6 +100,10 @@ const state = {
   socComposePhoto: null,      // pending compressed Blob for a new post
   socPendingCount: 0,         // incoming friend requests — drives the tab badge
 
+  // ─── Gifts (db/0096) ──────────────────────────────────────────────
+  gifts: [],                  // pending gifts BOTH directions [{id, direction:'in'|'out', status, message, plushId, plushName, photo, otherId, otherUsername, ...}]
+  giftDraft: null,            // { item, recipientId } while the send-gift modal is open
+
   // ─── Private messages (db/0083) ──────────────────────────────────
   dmThreads: [],              // conversation list [{partnerId, username, avatarUrl, lastBody, lastFromMe, lastAt, unread}]
   dmMessages: [],             // the open conversation, oldest → newest

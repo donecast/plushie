@@ -42,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=154" />
+  <link rel="stylesheet" href="./styles.css?v=155" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -490,6 +490,17 @@
           <select id="f-visibility"></select>
         </label>
 
+        <label class="field field-present" id="field-present">
+          <span class="present-check"><input type="checkbox" id="f-present" /> 🎁 Set aside as a present</span>
+          <span class="account-hint">Hides it from everyone but you (Only me). Handy for a plush you plan to give — then use “Send as a gift.”</span>
+        </label>
+
+        <!-- Shown by openModal only for a plush received as a gift. -->
+        <div class="gift-note-block hidden" id="field-gift-note">
+          <p class="gift-note" id="gift-note-text"></p>
+          <button type="button" class="btn-link" id="gift-note-clear">Remove this note</button>
+        </div>
+
         <label class="field" id="field-date">
           <span>Date collected</span>
           <input type="date" id="f-date" />
@@ -541,8 +552,22 @@
           <button type="button" class="btn-ghost" data-close>Cancel</button>
           <button type="submit" class="btn-primary">Save</button>
         </div>
+        <button type="button" class="btn-link" id="modal-send-gift">🎁 Send as a gift…</button>
         <button type="button" class="btn-link btn-remove-collection" id="modal-remove">Remove from collection</button>
       </form>
+    </div>
+  </div>
+
+  <!-- Send-a-gift modal. Body (recipient picker + note) rendered by
+       openGiftModal() into #gift-modal-body. -->
+  <div id="gift-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-gift></div>
+    <div class="modal-card">
+      <header class="modal-head">
+        <h2 id="gift-modal-title">Send a gift</h2>
+        <button class="modal-close-inline" data-close-gift aria-label="Close">×</button>
+      </header>
+      <div class="modal-body" id="gift-modal-body"></div>
     </div>
   </div>
 
@@ -1145,6 +1170,7 @@
           <div class="changelog-day">
             <h3 class="changelog-date">July 26, 2026</h3>
             <ul>
+              <li>Give a plush to a friend. 🎁 Open any plush in your crypt and choose “Send as a gift” to hand it to someone in your Coven, with a note if you like. It lands in their <strong>Gifts</strong> tray to accept or decline — and if they accept, it moves into their crypt (so it leaves yours). You can also mark a plush as a <strong>present</strong> to tuck it away as Only-me until you're ready to give it.</li>
               <li>You can now peek inside another collector's crypt. 🦇 Open someone's profile to see the plushes they've chosen to share with you — filtered to your friendship tier, so each person only sees what you've set them up to see. Pair it with the Sharing default in Settings to decide who sees yours.</li>
             </ul>
           </div>
@@ -1947,18 +1973,18 @@
   <script src="./config.js?v=54"></script>
   <script src="./auth.js?v=66"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=114"></script>
+  <script src="./data.js?v=115"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=212"></script>
-  <script src="./app-catalog.js?v=212"></script>
-  <script src="./app-collection.js?v=212"></script>
-  <script src="./app-ui.js?v=212"></script>
-  <script src="./app-trade.js?v=212"></script>
-  <script src="./app-account.js?v=212"></script>
-  <script src="./app-admin.js?v=212"></script>
-  <script src="./app-admin-catalog.js?v=212"></script>
-  <script src="./app-social.js?v=212"></script>
+  <script src="./app-core.js?v=213"></script>
+  <script src="./app-catalog.js?v=213"></script>
+  <script src="./app-collection.js?v=213"></script>
+  <script src="./app-ui.js?v=213"></script>
+  <script src="./app-trade.js?v=213"></script>
+  <script src="./app-account.js?v=213"></script>
+  <script src="./app-admin.js?v=213"></script>
+  <script src="./app-admin-catalog.js?v=213"></script>
+  <script src="./app-social.js?v=213"></script>
 </body>
 </html>

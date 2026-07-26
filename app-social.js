@@ -85,18 +85,20 @@ function stripBlocked(feed) {
 
 async function loadSocialData() {
   try {
-    const [feed, friends, requests, , myBlocks] = await Promise.all([
+    const [feed, friends, requests, , myBlocks, gifts] = await Promise.all([
       data.listFeed(),
       data.listFriends(),
       data.listIncomingRequests(),
       data.loadBlockedIds().catch(() => null),   // who I'm blocked-with (union)
       data.listMyBlocks().catch(() => []),         // who I blocked (for the manager)
+      data.listMyGifts().catch(() => []),          // pending gifts, both directions (db/0096)
     ]);
     state.socFeed = stripBlocked(feed);
     state.socFriends = friends;
     state.myBlocks = myBlocks || [];
     state.socRequests = requests;
     state.socPendingCount = requests.length;
+    state.gifts = gifts || [];
     maybeFireFriendNotifications().catch((e) => console.warn(e));
     // DM threads ride along (best-effort — a miss shouldn't sink the feed)
     // so the 💬 badge is right from first paint.
@@ -981,6 +983,72 @@ function renderCryptMasthead() {
 // Top 8 Buns, your posts, and the blocked-collectors manager. Reuses the same
 // delegated click/submit/error handlers as the masthead (wired in wireEvents).
 // Guarded by a content signature so it only repaints on a real change.
+// Re-fetch pending gifts (both directions) into state. Called at load and
+// after any gift action so the tray + card badges stay honest.
+async function refreshGifts() {
+  try { state.gifts = await data.listMyGifts(); }
+  catch (e) { console.warn('refreshGifts', e); state.gifts = []; }
+}
+
+function giftThumb(g) {
+  const img = g.photo || (g.catalogId ? catalogImageFor(g.catalogId) : null);
+  return `<span class="gift-thumb">${img ? `<img src="${escapeHtml(img)}" alt="" loading="lazy" />` : '🎁'}</span>`;
+}
+
+// The pending-gifts tray for My Crypt: incoming gifts to accept/decline, and
+// your own outgoing gifts still waiting. Mirrors the friend-requests callout.
+function renderGiftsTray() {
+  const gifts = state.gifts || [];
+  const incoming = gifts.filter((g) => g.direction === 'in' && g.status === 'pending');
+  const outgoing = gifts.filter((g) => g.direction === 'out' && g.status === 'pending');
+  if (!incoming.length && !outgoing.length) return '';
+  const inRows = incoming.map((g) => `
+    <div class="soc-friend-row gift-row">
+      <span class="gift-row-main">${giftThumb(g)}
+        <span><strong>@${escapeHtml(g.otherUsername)}</strong> wants to give you <strong>${escapeHtml(g.plushName || 'a plush')}</strong>${g.message ? `<span class="gift-row-msg">“${escapeHtml(g.message)}”</span>` : ''}</span>
+      </span>
+      <span class="soc-friend-actions">
+        <button class="btn-primary" data-soc-action="gift-accept" data-gift-id="${g.id}">Accept</button>
+        <button class="btn-ghost" data-soc-action="gift-decline" data-gift-id="${g.id}">Decline</button>
+      </span>
+    </div>`).join('');
+  const outRows = outgoing.map((g) => `
+    <div class="soc-friend-row gift-row">
+      <span class="gift-row-main">${giftThumb(g)}
+        <span>Gifting <strong>${escapeHtml(g.plushName || 'a plush')}</strong> → <strong>@${escapeHtml(g.otherUsername)}</strong> <span class="gift-row-msg">waiting for them to accept</span></span>
+      </span>
+      <span class="soc-friend-actions">
+        <button class="btn-ghost" data-soc-action="gift-cancel" data-gift-id="${g.id}">Cancel</button>
+      </span>
+    </div>`).join('');
+  return `
+    <section class="soc-section soc-requests-callout">
+      <h2 class="soc-section-head">🎁 Gifts${incoming.length ? ` · ${incoming.length}` : ''}</h2>
+      ${inRows}${outRows}
+    </section>`;
+}
+
+async function respondToGift(giftId, accept) {
+  if (!giftId) return;
+  try {
+    await data.respondGift(giftId, accept);
+    toast(accept ? 'Gift accepted — it’s in your crypt. 🎁' : 'Gift declined.');
+    await refreshGifts();
+    if (accept) await loadAll();   // the plush now lives in my collection
+    render();
+  } catch (err) { console.error('respondGift', err); toast('Could not do that.'); }
+}
+
+async function cancelPendingGift(giftId) {
+  if (!giftId) return;
+  try {
+    await data.cancelGift(giftId);
+    toast('Gift cancelled — it stayed in your crypt.');
+    await refreshGifts();
+    render();
+  } catch (err) { console.error('cancelGift', err); toast('Could not cancel.'); }
+}
+
 function renderCryptFooter() {
   const el = document.getElementById('crypt-footer');
   if (!el || !window.currentUser) return;
@@ -990,10 +1058,12 @@ function renderCryptFooter() {
     p: posts,
     k: (state.myBlocks || []).map((x) => x.id),
     r: (state._myRelics || []).map((x) => x.key),
+    g: (state.gifts || []).map((x) => `${x.id}:${x.status}`),
   });
   if (el._footerSig === sig && el.childNodes.length) return;
   el._footerSig = sig;
   el.innerHTML = `
+    ${renderGiftsTray()}
     <section class="soc-section">
       <h2 class="soc-section-head">Top 8 Buns 🐰</h2>
       ${renderTop8(state._myTop8 || [], true)}
@@ -1932,6 +2002,9 @@ async function onSocialClick(e) {
   switch (a) {
     case 'open-compose': openComposer(); break;
     case 'go-friends': setSocSubTab('friends'); break;
+    case 'gift-accept': await respondToGift(target.dataset.giftId, true); break;
+    case 'gift-decline': await respondToGift(target.dataset.giftId, false); break;
+    case 'gift-cancel': await cancelPendingGift(target.dataset.giftId); break;
     case 'open-dm': await openDm(uid, target.dataset.name); break;
     case 'dm-back': closeDm(); break;
     case 'share-app': await shareApp(); break;

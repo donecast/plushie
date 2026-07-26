@@ -311,6 +311,66 @@ async function addFromCatalog(catalogId, kind, { customize = false } = {}) {
   }
 }
 
+// ─── Gifts (db/0096) ───────────────────────────────────────────────────
+// The send-a-gift flow: pick a Coven+ friend, add an optional note, and hand
+// the plush off. It's a MOVE with a pending accept/decline holding state, so
+// the warning copy is blunt on purpose.
+function openGiftModal(item) {
+  if (!item) return;
+  state.giftDraft = { item };
+  const friends = state.socFriends || [];
+  const name = cleanCatalogName(item.nickname || item.name || 'this plush');
+  const titleEl = document.getElementById('gift-modal-title');
+  if (titleEl) titleEl.textContent = `Send “${name}” as a gift`;
+  const picker = friends.length
+    ? friends.map((f) => `
+        <label class="gift-friend-row">
+          <input type="radio" name="gift-recipient" value="${f.userId}" />
+          ${socAvatar(f.avatarUrl, f.username)}
+          <span class="gift-friend-name">@${escapeHtml(f.username)}</span>
+          ${f.isCoffinBuddy ? '<span class="soc-rel-tag">⚰️</span>' : (f.isInner ? '<span class="soc-rel-tag">🏰</span>' : '')}
+        </label>`).join('')
+    : `<p class="empty-note">You need a friend in your Coven to gift to — add one first.</p>`;
+  document.getElementById('gift-modal-body').innerHTML = `
+    <p class="gift-warn">Gifting <strong>moves</strong> this plush out of your crypt into theirs once they accept — you won't have it any more, and it can't be undone.</p>
+    <div class="gift-friend-list">${picker}</div>
+    ${friends.length ? `
+      <label class="field">
+        <span>Add a note (optional)</span>
+        <textarea id="gift-message" rows="3" maxlength="300" placeholder="Say something… they can remove it later."></textarea>
+      </label>
+      <div class="form-actions">
+        <button type="button" class="btn-ghost" data-close-gift>Cancel</button>
+        <button type="button" class="btn-primary" id="gift-send">Send gift 🎁</button>
+      </div>` : `
+      <div class="form-actions">
+        <button type="button" class="btn-ghost" data-close-gift>Close</button>
+      </div>`}`;
+  showEl('gift-modal');
+}
+
+async function sendGiftFromModal() {
+  const picked = document.querySelector('input[name="gift-recipient"]:checked');
+  const item = state.giftDraft?.item;
+  if (!item) return;
+  if (!picked) { toast('Pick who it’s for.'); return; }
+  const msg = document.getElementById('gift-message')?.value.trim() || null;
+  const btn = document.getElementById('gift-send');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  try {
+    await data.sendGift(item.id, picked.value, msg);
+    hideEl('gift-modal');
+    state.giftDraft = null;
+    toast('Gift sent — waiting for them to accept. 🎁');
+    await refreshGifts();
+    render();
+  } catch (err) {
+    console.error('sendGift', err);
+    toast(/Coven/.test(err?.message || '') ? 'You can only gift to friends in your Coven.' : 'Could not send the gift.');
+    if (btn) { btn.disabled = false; btn.textContent = 'Send gift 🎁'; }
+  }
+}
+
 // ─── Restocks ────────────────────────────────────────────────────────
 function checkAllRestocks() {
   const urls = state.wishlist.map((w) => w.url).filter(Boolean);
@@ -768,6 +828,7 @@ async function maybeFireQueuedNotifications() {
 function notifTabForTag(tag) {
   if (!tag) return null;
   if (tag.startsWith('dm-') || tag === 'dm-unread') return 'messages';
+  if (tag.startsWith('gift-')) return 'crypt';   // pending-gifts tray lives in My Crypt
   if (tag.startsWith('trade-') || tag.startsWith('feedback-') || tag === 'trade-action') return 'trade';
   if (tag.startsWith('admin-')) return 'admin';
   if (tag === 'photo-approved' || tag === 'catalog-approved') return 'catalog';
@@ -1713,6 +1774,32 @@ function wireEvents() {
     if (!state.editingId) return;
     const ok = await removeCollectionItem(state.editingId);
     if (ok) closeModal();
+  });
+
+  // Gifts (db/0096). The present checkbox pins visibility; "Send as a gift"
+  // hands off to the gift modal; the note-clear button drops a received note.
+  document.getElementById('f-present')?.addEventListener('change', syncPresentVisibility);
+  document.getElementById('modal-send-gift')?.addEventListener('click', () => {
+    const item = state.collection.find((x) => x.id === state.editingId);
+    if (!item) return;
+    closeModal();
+    openGiftModal(item);
+  });
+  document.getElementById('gift-note-clear')?.addEventListener('click', async () => {
+    const id = state.editingId;
+    if (!id) return;
+    try {
+      await data.clearGiftMessage(id);
+      document.getElementById('field-gift-note')?.classList.add('hidden');
+      await loadAll();
+      toast('Note removed.');
+    } catch (err) { console.error('clearGiftMessage', err); toast('Could not remove the note.'); }
+  });
+  // Send-gift modal: close affordances + the send button.
+  document.querySelectorAll('[data-close-gift]').forEach((el) =>
+    el.addEventListener('click', () => { hideEl('gift-modal'); state.giftDraft = null; }));
+  document.getElementById('gift-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'gift-send') sendGiftFromModal();
   });
 
   // Reflect the chosen photo filename next to the picker.
