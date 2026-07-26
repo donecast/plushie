@@ -75,7 +75,7 @@ async function onCardClickInner(btn) {
       photo: item.photo || null,
       catalogId: item.catalogId || null,
       meaning: null,
-      dateCollected: new Date().toISOString().slice(0, 10),
+      dateCollected: todayLocalDate(),
       acquiredHow: null,
       hasBag: true,
       missingAccessories: [],
@@ -272,7 +272,7 @@ async function addFromCatalog(catalogId, kind, { customize = false } = {}) {
     record = {
       ...base,
       meaning: null,
-      dateCollected: new Date().toISOString().slice(0, 10),
+      dateCollected: todayLocalDate(),
       acquiredHow: null,
       hasBag: true,
       missingAccessories: [],
