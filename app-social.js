@@ -1747,7 +1747,7 @@ async function onMentionInput(field) {
   const token = ++mentionState.token;
   mentionState = { field, start: pos - prefix.length, end: pos, token };
   let users = [];
-  try { users = await data.searchUsers(prefix, 6); } catch { users = []; }
+  try { users = await data.searchUsers(prefix, 8, { rankByFriends: true }); } catch { users = []; }
   // Bail if the user kept typing / moved on while we were awaiting.
   if (mentionState.token !== token || mentionState.field !== field) return;
   const el = getMentionDropdown();
@@ -2059,17 +2059,21 @@ async function onSocialClick(e) {
       if (postId) state.socExpandedComments.add(postId);
       rerenderSocialCurrent();
       // Expanding the thread + rebuilding the whole feed leaves the freshly
-      // opened reply box off-screen, so the user had to hunt for it. Bring it
-      // to them and focus it after the DOM settles. preventScroll keeps focus
-      // from fighting our own scrollIntoView.
+      // opened reply box off-screen, so the user had to hunt for it. A single
+      // rAF fired too early — it centered the box before the expanded thread
+      // (and its async-loading avatars) finished laying out, so the box drifted
+      // back off-screen. Focus first (preventScroll so it doesn't fight us),
+      // center after two frames once layout settles, then re-center on a short
+      // delay to catch the mobile keyboard resizing the viewport.
       if (opening) {
-        requestAnimationFrame(() => {
+        const bringIntoView = () => {
           const input = document.querySelector(`.soc-reply-form[data-parent-id="${cid}"] .soc-comment-input`);
-          if (input) {
-            input.scrollIntoView({ block: 'center' });
-            input.focus({ preventScroll: true });
-          }
-        });
+          if (!input) return;
+          input.focus({ preventScroll: true });
+          input.scrollIntoView({ block: 'center' });
+        };
+        requestAnimationFrame(() => requestAnimationFrame(bringIntoView));
+        setTimeout(bringIntoView, 250);
       }
       break;
     }
