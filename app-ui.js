@@ -191,15 +191,27 @@ async function addFromCatalog(catalogId, kind, { customize = false } = {}) {
   if (!cat) return;
 
   if (kind === 'collection') {
-    const existing = state.collection.find((x) => x.catalogId === cat.id);
-    if (existing) {
-      const next = (existing.quantity || 1) + 1;
-      await data.put('collection', { ...existing, quantity: next, updatedAt: Date.now() });
-      await loadAll();
-      // Stay on whatever tab the user is on — don't jump to Collection.
-      render();
-      toast(`Now you have ${next} of “${cleanCatalogName(cat.name)}”. 🖤`);
-      return;
+    const owned = state.collection.filter((x) => x.catalogId === cat.id);
+    if (owned.length) {
+      // If any owned copy has been individually NAMED (given a nickname), the
+      // user is tracking copies as separate records rather than a quantity
+      // tally — e.g. two of the same plush they've named differently. In that
+      // case an interactive "Have" tap should add a fresh, separately-nameable
+      // record (falls through below, and `customize` pops the naming modal so
+      // the new copy can be named too). Otherwise — and always for bulk /
+      // non-interactive callers (bundle picker, admin) — keep the frictionless
+      // quantity bump. Duplicates are still how trades happen.
+      const named = owned.some((x) => x.nickname && x.nickname.trim());
+      if (!(named && customize)) {
+        const existing = owned[0];
+        const next = (existing.quantity || 1) + 1;
+        await data.put('collection', { ...existing, quantity: next, updatedAt: Date.now() });
+        await loadAll();
+        // Stay on whatever tab the user is on — don't jump to Collection.
+        render();
+        toast(`Now you have ${next} of “${cleanCatalogName(cat.name)}”. 🖤`);
+        return;
+      }
     }
   } else {
     // Same idea on wishlist — don't duplicate, and don't jump tabs.
