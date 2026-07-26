@@ -1729,12 +1729,32 @@ function hideMentionDropdown() {
   mentionState.field = null;
 }
 
+// Caller must un-hide the dropdown before calling this — we measure its height
+// to decide above/below, and display:none makes that 0.
 function positionMentionDropdown(field) {
   const el = getMentionDropdown();
   const r = field.getBoundingClientRect();
-  el.style.left = `${Math.round(r.left)}px`;
-  el.style.top = `${Math.round(r.bottom + 4)}px`;
-  el.style.minWidth = `${Math.round(Math.min(Math.max(r.width, 160), 280))}px`;
+  const vv = window.visualViewport;
+  // iOS positions `position: fixed` elements against the LAYOUT viewport, but
+  // getBoundingClientRect() reports VISUAL-viewport coords. With the on-screen
+  // keyboard up (which scrolls/shrinks the visual viewport) the two diverge, so
+  // the old top:r.bottom flew the dropdown far from the input. Compute the
+  // desired on-screen (visual) position, then add the visual-viewport offset to
+  // convert into the fixed-position coordinate space.
+  const offX = vv ? vv.offsetLeft : 0;
+  const offY = vv ? vv.offsetTop : 0;
+  const vh = vv ? vv.height : window.innerHeight;
+  const vw = vv ? vv.width : window.innerWidth;
+  const width = Math.round(Math.min(Math.max(r.width, 160), 280));
+  el.style.minWidth = `${width}px`;
+  const h = el.offsetHeight || 0;
+  const visLeft = Math.max(6, Math.min(r.left, vw - width - 6));
+  // Below the field by default; flip above when it would collide with the
+  // keyboard / bottom of the visible viewport and there's room up top.
+  const fitsBelow = r.bottom + 4 + h <= vh - 6;
+  const visTop = (fitsBelow || r.top - h - 4 < 6) ? r.bottom + 4 : r.top - h - 4;
+  el.style.left = `${Math.round(visLeft + offX)}px`;
+  el.style.top = `${Math.round(visTop + offY)}px`;
 }
 
 async function onMentionInput(field) {
@@ -1756,8 +1776,8 @@ async function onMentionInput(field) {
     `<button type="button" class="mention-row" data-mention-username="${escapeHtml(u.username)}">
        ${socAvatar(u.avatarUrl, u.username, 'mention-avatar')}<span>@${escapeHtml(u.username)}</span>
      </button>`).join('');
+  el.classList.remove('hidden');   // un-hide first so positioning can measure height
   positionMentionDropdown(field);
-  el.classList.remove('hidden');
 }
 
 function insertMention(username) {
@@ -1786,8 +1806,21 @@ function wireMentionAutocomplete() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') hideMentionDropdown();
   });
-  // Reposition isn't worth tracking on scroll — just hide so it can't drift.
+  // Page scroll (a different gesture than typing) — just hide so it can't drift.
   window.addEventListener('scroll', hideMentionDropdown, true);
+  // The mobile keyboard opening/closing resizes & scrolls the visual viewport;
+  // keep the open dropdown pinned to its field through that instead of stranding
+  // it where it first rendered.
+  if (window.visualViewport) {
+    const reflow = () => {
+      const el = document.getElementById('mention-suggest');
+      if (mentionState.field && el && !el.classList.contains('hidden')) {
+        positionMentionDropdown(mentionState.field);
+      }
+    };
+    window.visualViewport.addEventListener('resize', reflow);
+    window.visualViewport.addEventListener('scroll', reflow);
+  }
 }
 
 function wireSocialEvents() {
