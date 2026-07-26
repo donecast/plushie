@@ -1826,6 +1826,7 @@ async function loadMyProfileCache() {
     state._myDisplayName = profile?.displayName || null;
     state._myAvatarUrl = profile?.avatarUrl || null;
     state._mySocialLinks = profile?.socialLinks || {};
+    state._myDefaultItemVisibility = profile?.defaultItemVisibility || 'inner';
     state._myPosts = posts;
     state._myTop8 = top8;
     state._myRelics = relics;

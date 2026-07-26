@@ -311,6 +311,8 @@ async function populateAccountFields() {
   state._acctAvatarBlob = null;
   document.getElementById('acct-bio').value = state._myBio || '';
   renderSocialLinkFields(state._mySocialLinks || {});
+  const defVisSel = document.getElementById('acct-default-visibility');
+  if (defVisSel) defVisSel.value = state._myDefaultItemVisibility || 'inner';
 
   // Name + public-name visibility. Loaded from profile_private (self-only).
   try {

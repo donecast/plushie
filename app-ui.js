@@ -2069,6 +2069,14 @@ function wireEvents() {
   });
 
   document.getElementById('acct-theme').addEventListener('change', (e) => setTheme(e.target.value));
+  document.getElementById('acct-default-visibility')?.addEventListener('change', async (e) => {
+    const v = e.target.value;
+    try {
+      await data.updateMyProfile({ defaultItemVisibility: v });
+      state._myDefaultItemVisibility = v;
+      toast('Default visibility saved. 🖤');
+    } catch (err) { console.error('save default visibility', err); toast('Could not save that setting.'); }
+  });
   document.getElementById('theme-btn').addEventListener('click', () => {
     // Debounce: this is a *relative* toggle, so if the handler ever fires
     // twice for one tap (stacked listeners from a re-run, a synthesized
