@@ -134,6 +134,15 @@ async function refreshSocialBadge() {
       maybeFireDmNotification(state.dmUnread).catch((e) => console.warn(e));
     }
   } catch (e) { console.warn('dm badge', e); }
+  try {
+    // Pending gifts ride the same poll so an incoming gift's Accept/Decline
+    // tray (top of My Crypt) appears while the app is open, not just on a cold
+    // open. Only repaint when something actually changed, to avoid fighting scroll.
+    const prevSig = (state.gifts || []).map((g) => `${g.id}:${g.status}`).join(',');
+    await refreshGifts();
+    const nextSig = (state.gifts || []).map((g) => `${g.id}:${g.status}`).join(',');
+    if (nextSig !== prevSig) render();
+  } catch (e) { console.warn('gift poll', e); }
   // Drain the server-side notification queue (db/0085): locally fire
   // anything real push didn't deliver — posts, replies, mentions, feedback,
   // approvals. The uniform fallback; see maybeFireQueuedNotifications.
@@ -964,6 +973,9 @@ function renderCryptMasthead() {
     b: state._myBio || '',
     a: state._myAvatarUrl || '',
     s: state._mySocialLinks || null,
+    // Pending gifts ride at the top of the crypt (see below), so a new one must
+    // repaint the masthead — include them in the signature.
+    g: (state.gifts || []).map((x) => `${x.id}:${x.status}`),
   });
   if (el._mastheadSig === sig && el.childNodes.length) return;
   el._mastheadSig = sig;
@@ -977,6 +989,12 @@ function renderCryptMasthead() {
     omitPosts: true,
     omitRelics: true,   // slim header; the relic shelf lives in the crypt footer
   });
+  // Pending gifts belong ABOVE everything — an incoming gift is time-sensitive
+  // and a recipient shouldn't have to scroll past their whole collection to
+  // find the Accept button (which is what the footer placement did). Prepend it
+  // so it's the first thing on My Crypt.
+  const tray = renderGiftsTray();
+  if (tray) el.insertAdjacentHTML('afterbegin', tray);
 }
 
 // My Crypt footer — the social/identity extras shown BELOW the collection grid:
@@ -1058,12 +1076,11 @@ function renderCryptFooter() {
     p: posts,
     k: (state.myBlocks || []).map((x) => x.id),
     r: (state._myRelics || []).map((x) => x.key),
-    g: (state.gifts || []).map((x) => `${x.id}:${x.status}`),
   });
   if (el._footerSig === sig && el.childNodes.length) return;
   el._footerSig = sig;
+  // (Pending-gifts tray moved to the masthead — top of My Crypt — for visibility.)
   el.innerHTML = `
-    ${renderGiftsTray()}
     <section class="soc-section">
       <h2 class="soc-section-head">Top 8 Buns 🐰</h2>
       ${renderTop8(state._myTop8 || [], true)}
@@ -2510,6 +2527,11 @@ async function boot() {
   // repaint when ready (also fires friend-request notifications + badge).
   loadSocialData().then(() => {
     updateSocialBadge();
+    // Repaint whatever tab we're on — social data includes pending gifts, whose
+    // tray lives at the top of My Crypt. Without this, a recipient who taps a
+    // gift notification lands on the crypt tab, which was painted before gifts
+    // loaded, so the Accept/Decline tray never showed until some other repaint.
+    render();
     if (state.tab === 'home') renderSocial();
   });
   scheduleSocialCheck();  // keep polling for new requests while the app is open
