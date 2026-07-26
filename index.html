@@ -1145,6 +1145,7 @@
           <div class="changelog-day">
             <h3 class="changelog-date">July 25, 2026</h3>
             <ul>
+              <li>New in Settings → Sharing: pick a <strong>default visibility for plushes you add from now on</strong> — Public, Coven, Castle Crew, Coffin Buddies, or Only me. You can still change the visibility of any single plush from its own card, and plushes you already have keep their current setting.</li>
               <li>Own two of the same plush and want to track them as separate keepsakes? Once you've given one a nickname, tapping "Have" on that plush again now adds a fresh, separately-nameable copy instead of just bumping the count — so your "Sir Fluffs" and your "Backup Bun" can each be their own record. (If you haven't nicknamed it, tapping "Have" still just adds to the quantity, same as before.)</li>
               <li class="changelog-fixes">Fixed the "date collected" on a newly added plush defaulting to the wrong day for anyone in a timezone behind GMT — adding one in the evening could stamp it with tomorrow's date. New plushes now default to your own local date.</li>
             </ul>
@@ -1730,6 +1731,23 @@
       </section>
 
       <section class="account-section">
+        <h3>Sharing</h3>
+        <div class="account-row">
+          <label class="field">
+            <span>Default visibility for new plushes</span>
+            <select id="acct-default-visibility">
+              <option value="public">🌍 Public — Anyone with an account</option>
+              <option value="friends">🦇 Coven — Your accepted friends</option>
+              <option value="inner">🏰 Castle Crew — Friends in your Castle Crew</option>
+              <option value="coffin_buddies">⚰️ Coffin Buddies — Your innermost circle</option>
+              <option value="private">🔒 Only me — Just you</option>
+            </select>
+          </label>
+        </div>
+        <p class="account-hint">When you add a plush to your crypt, this sets who can see it by default. You can still change any single plush from its own card. Existing plushes keep their current setting.</p>
+      </section>
+
+      <section class="account-section">
         <h3>Notifications</h3>
         <label class="account-row demo-mode-row" for="acct-notify">
           <input type="checkbox" id="acct-notify" />
@@ -1923,18 +1941,18 @@
   <script src="./config.js?v=54"></script>
   <script src="./auth.js?v=66"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=112"></script>
+  <script src="./data.js?v=113"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=210"></script>
-  <script src="./app-catalog.js?v=210"></script>
-  <script src="./app-collection.js?v=210"></script>
-  <script src="./app-ui.js?v=210"></script>
-  <script src="./app-trade.js?v=210"></script>
-  <script src="./app-account.js?v=210"></script>
-  <script src="./app-admin.js?v=210"></script>
-  <script src="./app-admin-catalog.js?v=210"></script>
-  <script src="./app-social.js?v=210"></script>
+  <script src="./app-core.js?v=211"></script>
+  <script src="./app-catalog.js?v=211"></script>
+  <script src="./app-collection.js?v=211"></script>
+  <script src="./app-ui.js?v=211"></script>
+  <script src="./app-trade.js?v=211"></script>
+  <script src="./app-account.js?v=211"></script>
+  <script src="./app-admin.js?v=211"></script>
+  <script src="./app-admin-catalog.js?v=211"></script>
+  <script src="./app-social.js?v=211"></script>
 </body>
 </html>

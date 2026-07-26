@@ -3172,10 +3172,12 @@ data.getSocialProfile = async function (userId) {
   let row, error;
   ({ data: row, error } = await sb
     .from('profiles')
-    .select('id, username, bio, avatar_path, social_links')
+    .select('id, username, bio, avatar_path, social_links, default_item_visibility')
     .eq('id', userId)
     .maybeSingle());
-  if (error && /social_links/.test(error.message || '')) {
+  // social_links (pre-0035) / default_item_visibility (pre-0094) may not exist
+  // yet; fall back to the base columns so an un-migrated client still loads.
+  if (error && /social_links|default_item_visibility/.test(error.message || '')) {
     ({ data: row, error } = await sb
       .from('profiles')
       .select('id, username, bio, avatar_path')
@@ -3187,6 +3189,8 @@ data.getSocialProfile = async function (userId) {
   return {
     ...row,
     socialLinks: row.social_links || {},
+    // Castle Crew is the product default when the column is absent/unset.
+    defaultItemVisibility: row.default_item_visibility || 'inner',
     avatarUrl: row.avatar_path ? await data.socialPhotoUrl(row.avatar_path) : null,
     // Visibility-aware public name (null when the owner opted out).
     displayName: await data.publicDisplayName(userId),
@@ -3215,19 +3219,23 @@ data.claimTimeRelics = async function () {
   catch (e) { console.warn('claimTimeRelics', e); }
 };
 
-data.updateMyProfile = async function ({ bio, avatarBlob, socialLinks }) {
+data.updateMyProfile = async function ({ bio, avatarBlob, socialLinks, defaultItemVisibility }) {
   const patch = {};
   if (bio !== undefined) patch.bio = bio;
   if (socialLinks !== undefined) patch.social_links = socialLinks;
+  if (defaultItemVisibility !== undefined) patch.default_item_visibility = defaultItemVisibility;
   if (avatarBlob instanceof Blob) patch.avatar_path = await data.uploadSocialPhoto(avatarBlob);
   if (Object.keys(patch).length === 0) return;
   let { error } = await sb.from('profiles').update(patch).eq('id', window.currentUser.id);
-  // social_links may not exist pre-0035 — retry without it so bio/avatar still
-  // save, rather than failing the whole update.
-  if (error && /social_links/.test(error.message || '') && 'social_links' in patch) {
-    delete patch.social_links;
-    if (Object.keys(patch).length === 0) return;
-    ({ error } = await sb.from('profiles').update(patch).eq('id', window.currentUser.id));
+  // Newer columns may not exist on an un-migrated backend (social_links pre-0035,
+  // default_item_visibility pre-0094) — strip the offending one and retry so the
+  // rest of the update still lands rather than failing the whole thing.
+  for (const col of ['social_links', 'default_item_visibility']) {
+    if (error && new RegExp(col).test(error.message || '') && col in patch) {
+      delete patch[col];
+      if (Object.keys(patch).length === 0) return;
+      ({ error } = await sb.from('profiles').update(patch).eq('id', window.currentUser.id));
+    }
   }
   if (error) throw error;
 };
