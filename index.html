@@ -1143,6 +1143,12 @@
 
         <div class="changelog">
           <div class="changelog-day">
+            <h3 class="changelog-date">July 25, 2026</h3>
+            <ul>
+              <li class="changelog-fixes">Fixed the "date collected" on a newly added plush defaulting to the wrong day for anyone in a timezone behind GMT — adding one in the evening could stamp it with tomorrow's date. New plushes now default to your own local date.</li>
+            </ul>
+          </div>
+          <div class="changelog-day">
             <h3 class="changelog-date">July 22, 2026</h3>
             <ul>
               <li class="changelog-fixes">Fixed wish-list plushes that were stuck showing "Out of Stock" even after they came back in stock. The app now re-checks the shop the moment you come back to it (not just every half hour) and repaints whatever page you're on when stock changes — so a restock shows up right away, wherever you're looking.</li>
@@ -1920,14 +1926,14 @@
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=208"></script>
-  <script src="./app-catalog.js?v=208"></script>
-  <script src="./app-collection.js?v=208"></script>
-  <script src="./app-ui.js?v=208"></script>
-  <script src="./app-trade.js?v=208"></script>
-  <script src="./app-account.js?v=208"></script>
-  <script src="./app-admin.js?v=208"></script>
-  <script src="./app-admin-catalog.js?v=208"></script>
-  <script src="./app-social.js?v=208"></script>
+  <script src="./app-core.js?v=209"></script>
+  <script src="./app-catalog.js?v=209"></script>
+  <script src="./app-collection.js?v=209"></script>
+  <script src="./app-ui.js?v=209"></script>
+  <script src="./app-trade.js?v=209"></script>
+  <script src="./app-account.js?v=209"></script>
+  <script src="./app-admin.js?v=209"></script>
+  <script src="./app-admin-catalog.js?v=209"></script>
+  <script src="./app-social.js?v=209"></script>
 </body>
 </html>

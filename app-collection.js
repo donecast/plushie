@@ -1531,7 +1531,7 @@ async function submitCustomClothing(e) {
     catalogHandle: null,
     clothingScale: scale,
     meaning: null,
-    dateCollected: new Date().toISOString().slice(0, 10),
+    dateCollected: todayLocalDate(),
     acquiredHow: null,
     hasBag: true,
     missingAccessories: [],
