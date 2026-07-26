@@ -4907,6 +4907,27 @@ body.maint-locked { overflow: hidden; }
 }
 .soc-top8-empty { grid-column: 1 / -1; }
 
+/* Vault browser — read-only grid of another collector's visible plushes.
+   auto-fill so it scales from a few keepsakes to a big crypt; tiles mirror the
+   Top 8 photo look without the rank badge. */
+.soc-vault-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 10px;
+  align-items: start;
+}
+.soc-vault-tile { text-align: center; min-width: 0; }
+.soc-vault-photo {
+  aspect-ratio: 1; border-radius: 10px; overflow: hidden;
+  background: var(--blush); border: 1px solid var(--border-rose-mild);
+  display: flex; align-items: center; justify-content: center;
+}
+.soc-vault-photo img { width: 100%; height: 100%; object-fit: cover; }
+.soc-vault-photo[role="button"] { cursor: zoom-in; }
+.soc-vault-name {
+  display: block; font-size: 0.76rem; margin-top: 4px; line-height: 1.2;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.soc-vault-count { font-size: 0.8rem; font-weight: 700; color: var(--ink-mute); }
+
 /* Top 8 picker (modal) */
 .soc-help { color: var(--ink-mute); font-size: 0.86rem; margin: 0 0 12px; }
 .soc-pick-grid {
