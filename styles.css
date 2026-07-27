@@ -1853,7 +1853,22 @@ img[src*="cdn.shopify.com"][src*="psoriasis-rabbit-plush-stuffed-animal"] {
 }
 .accessory-fieldset.hidden { display: none; }
 #accessory-checklist { display: flex; flex-direction: column; gap: 4px; }
-.accessory-row { margin-bottom: 0; padding: 4px 0; }
+/* Tri-state accessory row: name on the left, Have/Missing/Damaged select right. */
+.accessory-row {
+  margin-bottom: 0; padding: 4px 0;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.accessory-row .accessory-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.accessory-row .accessory-state { flex: 0 0 auto; }
+
+/* Oddful reason field + bag quick-picks. */
+.oddful-quickpicks { display: flex; gap: 8px; margin: 6px 0; }
+.btn-chip {
+  padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border-rose-mild); background: var(--blush);
+  font: inherit; font-size: 0.85rem;
+}
+.btn-chip:hover { filter: brightness(0.97); }
 
 .checkbox input[type="checkbox"] {
   width: 18px;

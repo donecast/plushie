@@ -1779,6 +1779,17 @@ function wireEvents() {
   // Gifts (db/0096). The present checkbox pins visibility; "Send as a gift"
   // hands off to the gift modal; the note-clear button drops a received note.
   document.getElementById('f-present')?.addEventListener('change', syncPresentVisibility);
+  // Oddful reason: show/hide on acquired-how change; the bag quick-picks set the
+  // bag's state in the accessories checklist (no bag → Missing, damaged → Damaged).
+  document.getElementById('f-acquired')?.addEventListener('change', syncOddfulField);
+  document.querySelectorAll('[data-oddful-bag]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const stateVal = btn.dataset.oddfulBag;
+      const bagSel = [...document.querySelectorAll('#accessory-checklist select[data-accessory-key]')]
+        .find((s) => /\bbag\b/i.test(s.dataset.accessoryKey));
+      if (bagSel) { bagSel.value = stateVal; toast(stateVal === 'damaged' ? 'Bag marked damaged.' : 'Bag marked missing.'); }
+      else toast('No bag on this one to mark.');
+    }));
   document.getElementById('modal-send-gift')?.addEventListener('click', () => {
     const item = state.collection.find((x) => x.id === state.editingId);
     if (!item) return;

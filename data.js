@@ -403,16 +403,19 @@ const data = {
         acquiredHow: r.acquired_how,
         hasBag: r.has_bag,
         missingAccessories: Array.isArray(r.missing_accessories) ? r.missing_accessories : [],
+        damagedAccessories: Array.isArray(r.damaged_accessories) ? r.damaged_accessories : [],
+        oddfulReason: r.oddful_reason || null,
         retired: r.retired,
         quantity: r.quantity ?? 1,
         wornBy: r.worn_by || null,
         sortOrder: r.sort_order ?? null,
         visibility: r.visibility || 'friends',
-        // Present / gift metadata (db/0096). Columns may be absent on a
-        // pre-0096 backend; select('*') just omits them → these read false/null.
+        // Present / gift metadata (db/0096, db/0099). Columns may be absent on
+        // an older backend; select('*') just omits them → these read false/null.
         isPresent: !!r.is_present,
         isGift: !!r.is_gift,
         giftedBy: r.gifted_by || null,
+        giftedByUsername: r.gifted_by_username || null,
         giftMessage: r.gift_message || null,
         // Set only on user-added off-catalog clothing ('full' | 'mini').
         // null for everything sourced from the catalog.
@@ -441,6 +444,9 @@ const data = {
       // for older clients that still read it — flip to false whenever
       // the new array contains any tote/bag entry.
       const missing = Array.isArray(item.missingAccessories) ? item.missingAccessories : [];
+      const damaged = Array.isArray(item.damagedAccessories) ? item.damagedAccessories : [];
+      // Legacy has_bag: only a MISSING bag means "no bag" — a damaged bag is
+      // still a bag you have (just damaged), so it stays true.
       const stillHasBag = !missing.some((a) => /\bbag\b/i.test(a));
       return {
         ...base,
@@ -450,6 +456,8 @@ const data = {
         acquired_how: item.acquiredHow ?? null,
         has_bag: stillHasBag,
         missing_accessories: missing,
+        damaged_accessories: damaged,
+        oddful_reason: item.oddfulReason ?? null,
         retired: !!item.retired,
         quantity: Math.max(1, parseInt(item.quantity, 10) || 1),
         clothing_scale: item.clothingScale ?? null,
