@@ -3955,7 +3955,7 @@ data.dmUnreadCount = async function () {
 data.listUndeliveredNotifications = async function ({ limit = 20 } = {}) {
   const { data: rows, error } = await sb
     .from('notifications')
-    .select('id, title, body, url, tag, created_at')
+    .select('id, title, body, url, tag, created_at, actor_id, kind, post_id, comment_id, excerpt')
     .eq('user_id', window.currentUser.id)
     .is('delivered_at', null)
     .order('created_at', { ascending: true })
@@ -3980,7 +3980,7 @@ data.markNotificationsDelivered = async function (ids) {
 data.listRecentNotifications = async function ({ limit = 30 } = {}) {
   const { data: rows, error } = await sb
     .from('notifications')
-    .select('id, title, body, url, tag, created_at, seen_at')
+    .select('id, title, body, url, tag, created_at, seen_at, actor_id, kind, post_id, comment_id, excerpt')
     .eq('user_id', window.currentUser.id)
     .order('created_at', { ascending: false })
     .limit(limit);

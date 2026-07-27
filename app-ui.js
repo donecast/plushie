@@ -847,6 +847,12 @@ async function refreshNotifBell() {
   if (!badge || !window.currentUser) return;
   try {
     state._notifInbox = await data.listRecentNotifications();
+    // Resolve the distinct actors once so rows can show a Facebook-style
+    // avatar. Best-effort: a failed lookup just falls back to an initial.
+    try {
+      const ids = [...new Set((state._notifInbox || []).map((r) => r.actor_id).filter(Boolean))];
+      state._notifActors = ids.length ? await data._resolveProfiles(ids) : new Map();
+    } catch (_) { state._notifActors = state._notifActors || new Map(); }
   } catch (e) { console.warn('notif inbox', e); return; }
   const n = state._notifInbox.filter((r) => !r.seen_at).length;
   badge.textContent = n;
@@ -860,14 +866,51 @@ function renderNotifPanel() {
   const panel = document.getElementById('notif-panel');
   if (!panel) return;
   const rows = state._notifInbox || [];
+  const actors = state._notifActors || new Map();
   panel.innerHTML = `
     <div class="notif-panel-head">Notifications</div>
-    ${rows.length ? rows.map((r) => `
-      <button type="button" class="notif-row${r.seen_at ? '' : ' notif-unseen'}" data-notif-tag="${escapeHtml(r.tag || '')}">
-        <span class="notif-row-body">${escapeHtml(r.body)}</span>
-        <span class="notif-row-when">${escapeHtml(socTimeAgo(r.created_at))}</span>
-      </button>`).join('')
+    ${rows.length ? rows.map((r) => {
+      const actor = r.actor_id ? actors.get(r.actor_id) : null;
+      const avatar = actor
+        ? socAvatar(actor.avatarUrl, actor.username, 'notif-avatar')
+        : '<span class="soc-avatar soc-avatar-fallback notif-avatar">🦇</span>';
+      // The excerpt is the whole point of the redesign: show WHAT happened.
+      const excerpt = r.excerpt
+        ? `<span class="notif-row-excerpt">“${escapeHtml(r.excerpt)}”</span>` : '';
+      return `
+      <button type="button" class="notif-row${r.seen_at ? '' : ' notif-unseen'}" data-notif-id="${escapeHtml(r.id)}">
+        ${avatar}
+        <span class="notif-row-main">
+          <span class="notif-row-body">${escapeHtml(r.body)}</span>
+          ${excerpt}
+          <span class="notif-row-when">${escapeHtml(socTimeAgo(r.created_at))}</span>
+        </span>
+      </button>`; }).join('')
     : `<p class="notif-empty">Nothing yet. Comments, reactions, mentions, friend requests, and trade news land here. 🖤</p>`}`;
+}
+
+// Dispatch a tapped in-app notification to its target. Content events with a
+// post carry a deep-link (scroll to + highlight the exact post/comment);
+// everything else falls back to the tab its tag routes to.
+function openNotification(row) {
+  if (!row) return;
+  if (row.post_id && typeof openPostDeepLink === 'function') {
+    openPostDeepLink(row.post_id, row.comment_id || null);
+    return;
+  }
+  const tab = notifTabForTag(row.tag || '');
+  if (tab) goToTab(tab);
+}
+
+// Parse a notification deep-link hash ('#post-<uuid>[_c_<uuid>]', authored by
+// _push_send) into its target ids. Returns null for a plain tab hash.
+function parseNotifDeepLink(hash) {
+  const h = (hash || '').replace(/^#/, '');
+  if (!h.startsWith('post-')) return null;
+  const rest = h.slice('post-'.length);
+  const [postId, commentId] = rest.split('_c_');
+  if (!postId) return null;
+  return { postId, commentId: commentId || null };
 }
 
 let _reminderInFlight = false;
@@ -1494,9 +1537,18 @@ function openStirringItem(handle, fallbackName) {
 // tab in the hash (./#trade). Land there, then strip the hash so a later
 // manual refresh doesn't keep forcing that tab.
 function handleNotificationHash() {
-  const tab = (location.hash || '').replace(/^#/, '');
-  if (!tab) return;
-  if (goToTab(tab)) {
+  const raw = location.hash || '';
+  if (!raw || raw === '#') return;
+  // A post deep-link ('#post-<id>[_c_<id>]') lands on the exact post; a plain
+  // hash is a top-level tab. Either way, strip it after so a later manual
+  // refresh doesn't keep forcing the same destination.
+  const deep = parseNotifDeepLink(raw);
+  if (deep) {
+    if (typeof openPostDeepLink === 'function') openPostDeepLink(deep.postId, deep.commentId);
+    history.replaceState(null, '', location.pathname + location.search);
+    return;
+  }
+  if (goToTab(raw.replace(/^#/, ''))) {
     history.replaceState(null, '', location.pathname + location.search);
   }
 }
@@ -1507,7 +1559,11 @@ function wireEvents() {
   // show (the SW can't navigate an existing client itself).
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', (e) => {
-      if (e.data && e.data.type === 'notification-nav' && e.data.tab) goToTab(e.data.tab);
+      if (!e.data || e.data.type !== 'notification-nav') return;
+      // A post deep-link (from the tapped push banner) wins over the tab.
+      const deep = e.data.url ? parseNotifDeepLink((e.data.url.split('#')[1] || '')) : null;
+      if (deep && typeof openPostDeepLink === 'function') { openPostDeepLink(deep.postId, deep.commentId); return; }
+      if (e.data.tab) goToTab(e.data.tab);
     });
   }
   // Rails navigation is delegated: rail buttons (nav, identity card, vitals
@@ -2077,11 +2133,11 @@ function wireEvents() {
       if (!notifPanel.contains(e.target) && !notifBtn.contains(e.target)) closeNotifPanel();
     });
     notifPanel.addEventListener('click', (e) => {
-      const row = e.target.closest('[data-notif-tag]');
-      if (!row) return;
+      const el = e.target.closest('[data-notif-id]');
+      if (!el) return;
       closeNotifPanel();
-      const tab = notifTabForTag(row.dataset.notifTag || '');
-      if (tab) goToTab(tab);
+      const row = (state._notifInbox || []).find((r) => r.id === el.dataset.notifId);
+      openNotification(row);
     });
   }
 

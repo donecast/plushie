@@ -1,5 +1,5 @@
 // Plushie Dreadfuls service worker — offline app shell.
-const CACHE = 'plushie-dreadful-v257';
+const CACHE = 'plushie-dreadful-v258';
 // Only precache the root + static assets that don't carry cache-buster query
 // strings. Versioned files (app.js?v=N, styles.css?v=N, catalog.json?v=N)
 // get fetched and cached on demand by the fetch handler — listing them here
@@ -101,17 +101,22 @@ function tabForTag(tag) {
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
   const tab = tabForTag(e.notification.tag);
-  const target = tab ? `./#${tab}` : ((e.notification.data && e.notification.data.url) || './');
+  // A post deep-link ('./#post-<id>[_c_<id>]', set by _push_send) wins over the
+  // coarse tab: the client parses it to scroll to + highlight the exact post.
+  const url = (e.notification.data && e.notification.data.url) || '';
+  const isDeepLink = /#post-/.test(url);
+  const target = isDeepLink ? url : (tab ? `./#${tab}` : (url || './'));
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((cs) => {
       for (const c of cs) {
         if ('focus' in c) {
-          // App is already open — tell it which tab to show, then focus it.
-          if (tab) c.postMessage({ type: 'notification-nav', tab });
+          // App is already open — hand it the deep-link url (or the tab), then focus.
+          if (isDeepLink) c.postMessage({ type: 'notification-nav', url });
+          else if (tab) c.postMessage({ type: 'notification-nav', tab });
           return c.focus();
         }
       }
-      // Nothing open — launch with the tab in the hash so boot lands there.
+      // Nothing open — launch with the target in the hash so boot lands there.
       if (self.clients.openWindow) return self.clients.openWindow(target);
     })
   );
