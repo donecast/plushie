@@ -3122,18 +3122,50 @@ data.setCoffinBuddy = async function (otherId, on) {
   }
 };
 
-data.searchUsers = async function (prefix, limit = 12) {
+// Lower rank = closer friend, used to float best friends to the top of the
+// @mention typeahead (Coffin Buddy < Inner Circle < friend). Cached briefly so
+// typing a handle doesn't re-query the whole friends list on every keystroke.
+data._friendRankCache = null;   // { at: ms, map: Map<userId, rank> }
+data.friendRankMap = async function () {
+  const now = Date.now();
+  if (data._friendRankCache && now - data._friendRankCache.at < 120000) {
+    return data._friendRankCache.map;
+  }
+  const map = new Map();
+  try {
+    for (const f of await data.listFriends()) {
+      map.set(f.userId, f.isCoffinBuddy ? 0 : f.isInner ? 1 : 2);
+    }
+  } catch (e) { console.warn('friendRankMap', e); }
+  data._friendRankCache = { at: now, map };
+  return map;
+};
+
+data.searchUsers = async function (prefix, limit = 12, opts = {}) {
   if (data.isGhosted()) return [];
   const q = (prefix || '').trim();
   if (!q) return [];
+  // When ranking friends first, over-fetch candidates so a close friend whose
+  // handle sorts late alphabetically still surfaces before we trim to `limit`.
+  const fetchLimit = opts.rankByFriends ? Math.max(limit * 4, 24) : limit;
   const { data: rows, error } = await sb
     .from('profiles')
     .select('id, username, avatar_path')
     .ilike('username', q + '%')
     .neq('id', window.currentUser.id)
-    .limit(limit);
+    .limit(fetchLimit);
   if (error) throw error;
-  return await Promise.all((rows || []).map(async (r) => ({
+  let list = rows || [];
+  if (opts.rankByFriends) {
+    const ranks = await data.friendRankMap();
+    const rankOf = (r) => (ranks.has(r.id) ? ranks.get(r.id) : 3);
+    list = list.slice().sort((a, b) => {
+      const dr = rankOf(a) - rankOf(b);
+      return dr || a.username.localeCompare(b.username);
+    });
+  }
+  list = list.slice(0, limit);
+  return await Promise.all(list.map(async (r) => ({
     userId: r.id,
     username: r.username,
     avatarUrl: r.avatar_path ? await data.socialPhotoUrl(r.avatar_path) : null,
