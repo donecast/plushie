@@ -731,6 +731,19 @@ function cardMetaHtml(item, kind) {
         meta.push(`<span class="meta-warn" title="${escapeHtml(effective.join(', '))}">${escapeHtml(label)}</span>`);
       }
     }
+    // Damaged-accessory pill (tri-state; db/0099), parallel to "Missing".
+    const damagedAcc = Array.isArray(item.damagedAccessories) ? item.damagedAccessories : [];
+    if (damagedAcc.length > 0) {
+      const label = damagedAcc.length === 1 && /\bbag\b/i.test(damagedAcc[0])
+        ? 'Damaged bag'
+        : `${damagedAcc.length} damaged`;
+      meta.push(`<span class="meta-warn" title="Damaged: ${escapeHtml(damagedAcc.join(', '))}">${escapeHtml(label)}</span>`);
+    }
+    // Oddful reason — so an owner (or a gift recipient of a "Gift/Oddful") knows
+    // what's unusual about it.
+    if (item.oddfulReason) {
+      meta.push(`<span class="meta-warn" title="${escapeHtml(item.oddfulReason)}">Oddful: ${escapeHtml(item.oddfulReason)}</span>`);
+    }
   } else {
     if (item.url) {
       try {
@@ -739,6 +752,20 @@ function cardMetaHtml(item, kind) {
     }
   }
   return meta.length ? `<div class="card-meta">${meta.join('')}</div>` : '';
+}
+
+// Tri-state accessory picker (Have / Missing / Damaged) for the edit modal.
+function accStateSelect(key, state) {
+  const opt = (v, label) => `<option value="${v}"${v === state ? ' selected' : ''}>${label}</option>`;
+  return `<select class="accessory-state" data-accessory-key="${escapeHtml(key)}">${
+    opt('have', 'Have it')}${opt('missing', 'Missing')}${opt('damaged', 'Damaged')}</select>`;
+}
+
+// Show the "what makes it an oddful?" field only when the acquired-how value is
+// oddful-flavoured (Oddful or the gift-carried Gift/Oddful).
+function syncOddfulField() {
+  const v = document.getElementById('f-acquired')?.value || '';
+  document.getElementById('field-oddful')?.classList.toggle('hidden', !/oddful/i.test(v));
 }
 
 function cardBadgesHtml(item, kind) {
@@ -1344,12 +1371,17 @@ function openModal(kind, item, { fresh = false } = {}) {
   // and lock the visibility select while it's checked.
   const presentChk = document.getElementById('f-present');
   if (presentChk) { presentChk.checked = !!item.isPresent; syncPresentVisibility(); }
-  // Received-gift note (recipient can keep or clear it).
+  // Received-gift note (recipient can keep or clear it), prefixed with who it
+  // came from so it's clear even after months.
   const noteBlock = document.getElementById('field-gift-note');
   if (noteBlock) {
-    const show = !!(item.isGift && item.giftMessage);
+    const show = !!(item.isGift && (item.giftMessage || item.giftedByUsername));
     noteBlock.classList.toggle('hidden', !show);
-    if (show) document.getElementById('gift-note-text').textContent = `“${item.giftMessage}”`;
+    if (show) {
+      const from = item.giftedByUsername ? `From @${item.giftedByUsername}` : 'A gift';
+      document.getElementById('gift-note-text').textContent =
+        item.giftMessage ? `${from}: “${item.giftMessage}”` : `${from} 🎁`;
+    }
   }
   // "Send as a gift" makes sense only when it's not already mid-gift.
   const sendGiftBtn = document.getElementById('modal-send-gift');
@@ -1357,6 +1389,10 @@ function openModal(kind, item, { fresh = false } = {}) {
 
   document.getElementById('f-date').value = item.dateCollected ?? '';
   document.getElementById('f-acquired').value = item.acquiredHow ?? '';
+  // Oddful reason field: populate + show/hide based on acquired-how.
+  const oddfulInput = document.getElementById('f-oddful-reason');
+  if (oddfulInput) oddfulInput.value = item.oddfulReason ?? '';
+  syncOddfulField();
 
   // Build the accessories checklist from the catalog item's parsed
   // Set Includes. One checkbox per expected accessory; unchecked
@@ -1371,28 +1407,28 @@ function openModal(kind, item, { fresh = false } = {}) {
   const isPlushie = !isWearableItem(item) && (!cat || (cat.type || '').toLowerCase() === 'plush');
   const expected = (cat && Array.isArray(cat.accessories)) ? cat.accessories : [];
   const missing = Array.isArray(item.missingAccessories) ? item.missingAccessories : [];
+  const damaged = Array.isArray(item.damagedAccessories) ? item.damagedAccessories : [];
+  // Each accessory is tri-state: Have / Missing / Damaged (a key lives in at
+  // most one array). Damaged is the "damaged bag" oddful case, generalised.
+  const accState = (key) => damaged.includes(key) ? 'damaged' : (missing.includes(key) ? 'missing' : 'have');
+  const accRow = (name, key) => `<div class="accessory-row">
+      <span class="accessory-name">${escapeHtml(name)}</span>
+      ${accStateSelect(key, accState(key))}
+    </div>`;
 
   const checklist = document.getElementById('accessory-checklist');
   const fieldset = document.getElementById('field-accessories');
   if (expected.length > 0) {
-    checklist.innerHTML = expected.map((acc, i) => {
+    checklist.innerHTML = expected.map((acc) => {
       const name = typeof acc === 'string' ? acc : acc.name;
       const key = typeof acc === 'string' ? acc.toLowerCase() : (acc.key || name.toLowerCase());
-      const isMissing = missing.includes(key);
-      return `<label class="checkbox accessory-row">
-        <input type="checkbox" data-accessory-key="${escapeHtml(key)}" ${isMissing ? '' : 'checked'} />
-        <span>${escapeHtml(name)}</span>
-      </label>`;
+      return accRow(name, key);
     }).join('');
     fieldset.classList.remove('hidden');
   } else if (isPlushie) {
-    // Fallback for plushies with no parsed accessories: a single
-    // "Tote bag" checkbox so the existing has_bag behavior survives.
-    const hasBag = !missing.some((a) => /\bbag\b/i.test(a));
-    checklist.innerHTML = `<label class="checkbox accessory-row">
-      <input type="checkbox" data-accessory-key="tote bag" ${hasBag ? 'checked' : ''} />
-      <span>Tote bag</span>
-    </label>`;
+    // Fallback for plushies with no parsed accessories: a single "Tote bag"
+    // row so the existing has_bag behavior survives (now tri-state too).
+    checklist.innerHTML = accRow('Tote bag', 'tote bag');
     fieldset.classList.remove('hidden');
   } else {
     fieldset.classList.add('hidden');
@@ -1616,12 +1652,23 @@ async function submitForm(e) {
   const existing = state.collection.find((x) => x.id === state.editingId);
   if (!existing) { closeModal(); return; }
 
-  // Collect unchecked accessories. Each input's data-accessory-key is
-  // the canonical lowercase identifier (matches what catalog parser
-  // emits). data._itemToRow syncs has_bag for legacy clients.
-  const missingAccessories = [...document.querySelectorAll('#accessory-checklist input[data-accessory-key]')]
-    .filter((cb) => !cb.checked)
-    .map((cb) => cb.dataset.accessoryKey);
+  // Collect accessory states. Each select's data-accessory-key is the canonical
+  // lowercase identifier; value is have | missing | damaged. data._itemToRow
+  // syncs has_bag for legacy clients.
+  const missingAccessories = [];
+  const damagedAccessories = [];
+  [...document.querySelectorAll('#accessory-checklist select[data-accessory-key]')].forEach((sel) => {
+    const key = sel.dataset.accessoryKey;
+    if (sel.value === 'missing') missingAccessories.push(key);
+    else if (sel.value === 'damaged') damagedAccessories.push(key);
+  });
+
+  const acquiredHow = document.getElementById('f-acquired').value || null;
+  // Keep the oddful reason only while acquired-how is oddful-flavoured;
+  // switching away from Oddful clears it.
+  const oddfulReason = /oddful/i.test(acquiredHow || '')
+    ? (document.getElementById('f-oddful-reason').value.trim() || null)
+    : null;
 
   const record = {
     ...existing,
@@ -1629,8 +1676,10 @@ async function submitForm(e) {
     meaning: document.getElementById('f-meaning').value.trim() || null,
     visibility: document.getElementById('f-visibility').value || 'friends',
     dateCollected: document.getElementById('f-date').value || null,
-    acquiredHow: document.getElementById('f-acquired').value || null,
+    acquiredHow,
     missingAccessories,
+    damagedAccessories,
+    oddfulReason,
     hasBag: !missingAccessories.some((a) => /\bbag\b/i.test(a)),
     updatedAt: Date.now(),
   };

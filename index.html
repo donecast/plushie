@@ -42,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=155" />
+  <link rel="stylesheet" href="./styles.css?v=156" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -517,6 +517,7 @@
             <option>Giveaway</option>
             <option>Trade</option>
             <option>Gift</option>
+            <option>Gift/Oddful</option>
           </select>
         </label>
 
@@ -540,6 +541,19 @@
           <legend>What's included</legend>
           <div id="accessory-checklist"></div>
         </fieldset>
+
+        <!-- Oddful reason — shown by openModal only when "How acquired" is
+             oddful-flavoured. The bag quick-picks set the bag's state in the
+             checklist above; the text box is for anything else unusual. -->
+        <div class="field hidden" id="field-oddful">
+          <span>What makes it an oddful?</span>
+          <div class="oddful-quickpicks">
+            <button type="button" class="btn-chip" data-oddful-bag="missing">No bag</button>
+            <button type="button" class="btn-chip" data-oddful-bag="damaged">Damaged bag</button>
+          </div>
+          <input type="text" id="f-oddful-reason" maxlength="200" placeholder="e.g. missing a magnet, two left hands…" />
+          <span class="account-hint">The bag buttons set it in the checklist above. Use the box for anything else unusual — that's what carries over as “Gift/Oddful” if you give it away.</span>
+        </div>
 
         <!-- Worn-by: shown only for plush clothing. Populated by openModal
              with the user's full plushes; saving attaches the accessory. -->
@@ -1170,6 +1184,8 @@
           <div class="changelog-day">
             <h3 class="changelog-date">July 26, 2026</h3>
             <ul>
+              <li>Gifts now carry their story. A plush you receive shows <strong>who it's from</strong> ("From @friend: …") right on its note, and its "how acquired" becomes <strong>Gift</strong> — or <strong>Gift/Oddful</strong> if it was an oddful, so you know there may be something special about it.</li>
+              <li>Oddfuls can now explain themselves. 🔎 Mark a plush "Oddful" and say <strong>why</strong> — quick buttons for <strong>No bag</strong> or <strong>Damaged bag</strong>, or type anything unusual (missing a magnet, two left hands…). And accessories can now be marked <strong>Damaged</strong>, not just missing.</li>
               <li>Give a plush to a friend. 🎁 Open any plush in your crypt and choose “Send as a gift” to hand it to someone in your Coven, with a note if you like. It shows up in a <strong>Gifts</strong> tray at the top of their My Crypt to accept or decline — and if they accept, it moves into their crypt (so it leaves yours). You can also mark a plush as a <strong>present</strong> to tuck it away as Only-me until you're ready to give it.</li>
               <li>You can now peek inside another collector's crypt. 🦇 Open someone's profile to see the plushes they've chosen to share with you — filtered to your friendship tier, so each person only sees what you've set them up to see. Pair it with the Sharing default in Settings to decide who sees yours.</li>
               <li>When you type <strong>@</strong> to mention someone in a comment, the suggestions now put your closest friends first — Coffin Buddies, then Inner Circle, then the rest — so tagging the people you actually talk to takes fewer keystrokes.</li>
@@ -1975,18 +1991,18 @@
   <script src="./config.js?v=54"></script>
   <script src="./auth.js?v=66"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=116"></script>
+  <script src="./data.js?v=117"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=215"></script>
-  <script src="./app-catalog.js?v=215"></script>
-  <script src="./app-collection.js?v=215"></script>
-  <script src="./app-ui.js?v=215"></script>
-  <script src="./app-trade.js?v=215"></script>
-  <script src="./app-account.js?v=215"></script>
-  <script src="./app-admin.js?v=215"></script>
-  <script src="./app-admin-catalog.js?v=215"></script>
-  <script src="./app-social.js?v=215"></script>
+  <script src="./app-core.js?v=216"></script>
+  <script src="./app-catalog.js?v=216"></script>
+  <script src="./app-collection.js?v=216"></script>
+  <script src="./app-ui.js?v=216"></script>
+  <script src="./app-trade.js?v=216"></script>
+  <script src="./app-account.js?v=216"></script>
+  <script src="./app-admin.js?v=216"></script>
+  <script src="./app-admin-catalog.js?v=216"></script>
+  <script src="./app-social.js?v=216"></script>
 </body>
 </html>
