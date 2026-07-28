@@ -117,8 +117,48 @@ const state = {
 // repeated `document.getElementById(id).classList.remove/add('hidden')`. The
 // optional chaining makes a missing element a no-op (strictly safer than the
 // old bare `.classList` calls, and matches the sites that already used `?.`).
-function showEl(id) { document.getElementById(id)?.classList.remove('hidden'); }
-function hideEl(id) { document.getElementById(id)?.classList.add('hidden'); }
+function showEl(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('hidden');
+  // A fresh open carries no user work yet (see wireModalDraftGuard).
+  el.removeAttribute('data-touched');
+}
+function hideEl(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.add('hidden');
+  el.removeAttribute('data-touched');
+}
+
+// ─── Modal draft guard ─────────────────────────────────────────────────
+// Losing typed text to a stray tap on a modal's backdrop is unforgivable —
+// a long post, a trade note, an item's personal meaning. So: once a modal
+// holds text the user actually typed, tapping the backdrop does nothing;
+// closing takes a deliberate Cancel / ×. Untouched modals still dismiss on
+// a tap as before, and #social-modal opts out because it runs its own,
+// stricter guard (confirm-before-discard + autosaved draft).
+const MODAL_TEXT_FIELDS = 'textarea, input[type="text"], input[type="search"], input[type="url"],'
+  + ' input[type="email"], input[type="tel"], input[type="number"], input:not([type])';
+function modalHasTypedText(modal) {
+  return [...modal.querySelectorAll(MODAL_TEXT_FIELDS)].some((el) => (el.value || '').trim() !== '');
+}
+function wireModalDraftGuard() {
+  // Only a real keystroke (isTrusted) counts as user work — populating a
+  // form from code fires nothing, so prefilled editors stay dismissible.
+  document.addEventListener('input', (e) => {
+    if (!e.isTrusted) return;
+    e.target.closest?.('.modal')?.setAttribute('data-touched', '1');
+  }, true);
+  document.addEventListener('click', (e) => {
+    const modal = e.target.closest?.('.modal-backdrop')?.closest('.modal');
+    if (!modal || modal.id === 'social-modal' || modal.classList.contains('hidden')) return;
+    if (modal.dataset.touched !== '1' || !modalHasTypedText(modal)) return;
+    e.stopPropagation();
+    e.preventDefault();
+    toast('Kept what you typed — use Cancel or × to close.');
+  }, true);
+}
 
 // Today's calendar day as a 'YYYY-MM-DD' string, in the USER'S LOCAL timezone.
 // `date_collected` is a date-only field, but `new Date().toISOString()` returns

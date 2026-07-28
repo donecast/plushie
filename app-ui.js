@@ -1555,6 +1555,8 @@ function handleNotificationHash() {
 
 // ─── Event wiring ────────────────────────────────────────────────────
 function wireEvents() {
+  // Typed text is never lost to a stray backdrop tap (app-core).
+  wireModalDraftGuard();
   // A notification tapped while the app is already open posts us the tab to
   // show (the SW can't navigate an existing client itself).
   if ('serviceWorker' in navigator) {
@@ -2318,9 +2320,14 @@ function wireEvents() {
   );
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !document.getElementById('modal').classList.contains('hidden')) {
-      closeModal();
+    const modal = document.getElementById('modal');
+    if (e.key !== 'Escape' || modal.classList.contains('hidden')) return;
+    // Escape is as easy to hit by accident as the backdrop — same guard.
+    if (modal.dataset.touched === '1' && modalHasTypedText(modal)) {
+      toast('Kept what you typed — use Cancel or × to close.');
+      return;
     }
+    closeModal();
   });
 }
 
