@@ -244,6 +244,9 @@ const data = {
     if ('acquiredHow' in patch)   cols.acquired_how   = patch.acquiredHow ?? null;
     if ('dateCollected' in patch) cols.date_collected = patch.dateCollected ?? null;
     if (!Object.keys(cols).length) throw new Error('bulkUpdateCollection: no fields to change');
+    // Answering the method by hand retires the db/0102 question marker: the
+    // owner has now said what this one was, whatever they said.
+    if ('acquiredHow' in patch) cols.acquired_how_backfilled = false;
     cols.updated_at = new Date().toISOString();
 
     const CHUNK = 100;
@@ -260,6 +263,21 @@ const data = {
       changed += (rows || []).length;
     }
     return changed;
+  },
+
+  // "They were all bought new" — retire the db/0103 question across this
+  // collection in one statement. Nothing about the plushes changes; only the
+  // marker that says we still owe the owner a question. Returns how many rows
+  // the DB actually cleared so the caller can report a real number.
+  async clearAcquireBackfillFlags() {
+    const { data: rows, error } = await sb
+      .from('plushies')
+      .update({ acquired_how_backfilled: false })
+      .eq('collection_id', data.collectionId)
+      .eq('acquired_how_backfilled', true)
+      .select('id');
+    if (error) throw error;
+    return (rows || []).length;
   },
 
   // Persist a manual collection ordering (item 20). `orderedIds` is the full
@@ -441,6 +459,10 @@ const data = {
         missingAccessories: Array.isArray(r.missing_accessories) ? r.missing_accessories : [],
         damagedAccessories: Array.isArray(r.damaged_accessories) ? r.damaged_accessories : [],
         oddfulReason: r.oddful_reason || null,
+        // db/0103: this row's method came from the Direct Purchase → first-hand
+        // backfill, so the app should ask the owner once whether it was really
+        // a secondhand buy. Cleared by any save (see _itemToRow).
+        acquiredHowBackfilled: !!r.acquired_how_backfilled,
         retired: r.retired,
         quantity: r.quantity ?? 1,
         wornBy: r.worn_by || null,
@@ -494,6 +516,10 @@ const data = {
         missing_accessories: missing,
         damaged_accessories: damaged,
         oddful_reason: item.oddfulReason ?? null,
+        // Saving an item means its owner has had the acquire field in front of
+        // them, so the db/0103 "was this secondhand?" question is answered —
+        // whether they changed the value or left it.
+        acquired_how_backfilled: false,
         retired: !!item.retired,
         quantity: Math.max(1, parseInt(item.quantity, 10) || 1),
         clothing_scale: item.clothingScale ?? null,

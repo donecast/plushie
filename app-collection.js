@@ -1136,17 +1136,41 @@ function render() {
     const manualHint = state.arranging && mainItems.length > 1
       ? '<p class="subview-hint">↕ Drag the ☰ grip or use ▲▼ to arrange your collection exactly how you want.</p>'
       : '';
-    // Bulk-edit nudge: a toolbar button alone isn't discoverable enough on a
-    // phone, so when a real number of items are missing how/when they got them,
-    // say so in the grid itself with a way to fix the lot in one go. Suppressed
-    // while arranging (that hint owns the slot) and below a handful, where
-    // opening them one at a time is genuinely easier.
-    const needInfo = state.arranging ? 0 : bulkMissingCount();
-    const bulkNudge = needInfo >= 3
-      ? `<p class="subview-hint bulk-nudge">📋 ${needInfo} items don't say how or when you got them.
-           <button type="button" class="btn-link" data-bulk-open>Fill them in all at once →</button></p>`
-      : '';
-    colGrid.innerHTML = manualHint + bulkNudge + mainItems.map((i) => renderCollectionEntry(i)).join('');
+    // Nudges: a toolbar button alone isn't discoverable enough on a phone, so
+    // the grid says what needs a look and opens the bulk editor already pointed
+    // at it. All suppressed while arranging (that hint owns the slot).
+    //
+    // Order matters — the Direct Purchase question goes first because it's the
+    // one where WE put a wrong answer in, and it's asked once.
+    const nudges = [];
+    if (!state.arranging) {
+      const wasDirect = bulkWasDirectCount();
+      if (wasDirect) {
+        nudges.push(`
+          <div class="crypt-prompt bulk-nudge">
+            <p>🛒 We split “Direct Purchase” into <strong>Bought from Manufacturer</strong> and
+               <strong>Purchased Secondhand</strong>, and moved your ${wasDirect} older
+               item${wasDirect === 1 ? '' : 's'} to <strong>Bought from Manufacturer</strong>.
+               Were any of them secondhand finds?</p>
+            <div class="crypt-prompt-actions">
+              <button type="button" class="btn-primary" data-bulk-open="was-direct">Let me check ${wasDirect === 1 ? 'it' : 'them'}</button>
+              <button type="button" class="btn-ghost" data-acquire-confirm>They were all bought new</button>
+            </div>
+          </div>`);
+      }
+      const suspect = bulkSuspectDateCount();
+      if (suspect >= 3) {
+        nudges.push(`<p class="subview-hint bulk-nudge">📅 ${suspect} items are dated the day you
+           added them to the crypt, which probably isn't the day you got them.
+           <button type="button" class="btn-link" data-bulk-open="suspect-date">Fix the dates →</button></p>`);
+      }
+      const noHow = state.collection.filter((i) => !i.acquiredHow).length;
+      if (noHow >= 3) {
+        nudges.push(`<p class="subview-hint bulk-nudge">📋 ${noHow} items don't say how you got them.
+           <button type="button" class="btn-link" data-bulk-open="missing-how">Fill them in all at once →</button></p>`);
+      }
+    }
+    colGrid.innerHTML = manualHint + nudges.join('') + mainItems.map((i) => renderCollectionEntry(i)).join('');
     const unwornSection = document.getElementById('unworn-clothing-section');
     if (unwornSection) {
       document.getElementById('unworn-clothing-grid').innerHTML = closetItems.map((i) => renderCard(i, 'collection')).join('');
@@ -1546,31 +1570,98 @@ function bulkAllItems() {
   return [...state.collection].sort((a, b) => label(a).localeCompare(label(b)));
 }
 
-// "Needs attention" = either half of the how/when pair is blank.
+// Adding a plush stamps today's date (todayLocalDate()), so a collector who
+// backfilled a shelf of thirty in one sitting has thirty plushes claiming they
+// arrived that afternoon. Those dates aren't missing — they're wrong, which is
+// worse, because nothing on screen looks empty.
+//
+// Two conditions, both needed. The cutoff is Scott's call on when the crypt
+// filled up with backfilled collections; a date at or before it was typed by
+// someone who meant it. Matching the added-day is what separates an untouched
+// auto-stamp from a real answer: of the 1228 rows dated after the cutoff, 1137
+// are exactly their added day and 91 aren't — those 91 were edited by hand and
+// are none of our business. It also means a corrected date stops being flagged
+// the moment it's corrected, with nothing to remember.
+const DATE_AUTOFILL_CUTOFF = '2026-06-16';
+
+function dateLooksAutoFilled(item) {
+  if (!item.dateCollected || !item.addedAt) return false;
+  if (item.dateCollected <= DATE_AUTOFILL_CUTOFF) return false;
+  const added = new Date(item.addedAt);
+  if (Number.isNaN(added.getTime())) return false;
+  const pad = (n) => String(n).padStart(2, '0');
+  const addedDay = `${added.getFullYear()}-${pad(added.getMonth() + 1)}-${pad(added.getDate())}`;
+  return item.dateCollected === addedDay;
+}
+
+// db/0103: this row's "Bought from Manufacturer" came from the Direct Purchase
+// merge, not from its owner. Until they say otherwise, treat it as a question.
+function wasDirectPurchase(item) {
+  return !!item.acquiredHowBackfilled;
+}
+
+// "Needs a look" = something is blank, or the date is one of those auto-stamps.
 function bulkNeedsInfo(item) {
-  return !item.acquiredHow || !item.dateCollected;
+  return !item.acquiredHow || !item.dateCollected || dateLooksAutoFilled(item);
 }
 
 function bulkMissingCount() {
   return state.collection.filter(bulkNeedsInfo).length;
 }
 
+function bulkSuspectDateCount() {
+  return state.collection.filter(dateLooksAutoFilled).length;
+}
+
+function bulkWasDirectCount() {
+  return state.collection.filter(wasDirectPurchase).length;
+}
+
 function bulkVisibleItems() {
   const q = (state.bulkQuery || '').trim().toLowerCase();
   return bulkAllItems().filter((i) => {
-    if (state.bulkScope === 'missing'      && !bulkNeedsInfo(i)) return false;
-    if (state.bulkScope === 'missing-how'  && i.acquiredHow)     return false;
-    if (state.bulkScope === 'missing-when' && i.dateCollected)   return false;
+    if (state.bulkScope === 'missing'      && !bulkNeedsInfo(i))      return false;
+    if (state.bulkScope === 'missing-how'  && i.acquiredHow)          return false;
+    if (state.bulkScope === 'missing-when' && i.dateCollected)        return false;
+    if (state.bulkScope === 'suspect-date' && !dateLooksAutoFilled(i)) return false;
+    if (state.bulkScope === 'was-direct'   && !wasDirectPurchase(i))  return false;
     if (q && !`${i.nickname || ''} ${i.name || ''}`.toLowerCase().includes(q)) return false;
     return true;
   });
 }
 
-function openBulkEditor() {
+// "Was Direct Purchase" is a leftover from one migration, so it only belongs in
+// the menu while this collector still has rows carrying the marker — everyone
+// else shouldn't have to read a filter about a merge they never saw.
+function syncBulkScopeOptions() {
+  const sel = document.getElementById('bulk-scope');
+  if (!sel) return;
+  const existing = sel.querySelector('option[value="was-direct"]');
+  const n = bulkWasDirectCount();
+  if (n && !existing) {
+    const o = document.createElement('option');
+    o.value = 'was-direct';
+    o.textContent = `Was “Direct Purchase” (${n})`;
+    sel.insertBefore(o, sel.querySelector('option[value="all"]'));
+  } else if (n && existing) {
+    existing.textContent = `Was “Direct Purchase” (${n})`;
+  } else if (!n && existing) {
+    existing.remove();
+  }
+}
+
+// `scope` lets a nudge open the editor already pointed at what it nagged about,
+// so the fix is one tap from the prompt rather than a menu hunt.
+function openBulkEditor(scope = null) {
   state.bulkSel = new Set();
   state.bulkQuery = '';
   // Open on the rows that actually need work, unless nothing does.
-  state.bulkScope = state.collection.some(bulkNeedsInfo) ? 'missing' : 'all';
+  state.bulkScope = scope || (state.collection.some(bulkNeedsInfo) ? 'missing' : 'all');
+  // "Was Direct Purchase" is only in the menu when there's something in it, so
+  // don't leave the select showing a scope it can't display.
+  const scopeSel = document.getElementById('bulk-scope');
+  syncBulkScopeOptions();
+  if (![...scopeSel.options].some((o) => o.value === state.bulkScope)) state.bulkScope = 'all';
   document.getElementById('bulk-scope').value = state.bulkScope;
   document.getElementById('bulk-search').value = '';
   document.getElementById('bulk-date').value = '';
@@ -1605,6 +1696,18 @@ function renderBulkList() {
       : '<span class="no-photo">🖤</span>';
     const unset = '<span class="bulk-unset">not set</span>';
     const on = state.bulkSel.has(i.id);
+    // Say WHY a row is here rather than just listing it: a date that's really
+    // the day it was added, or a method we filled in on the owner's behalf.
+    const how = i.acquiredHow
+      ? `${escapeHtml(i.acquiredHow)}${wasDirectPurchase(i)
+          ? ' <span class="bulk-flag" title="We set this when “Direct Purchase” was split — change it if it was secondhand">was Direct Purchase</span>'
+          : ''}`
+      : unset;
+    const when = i.dateCollected
+      ? `<span class="${dateLooksAutoFilled(i) ? 'bulk-suspect' : ''}"${dateLooksAutoFilled(i)
+          ? ' title="This is the day you added it to the crypt — probably not the day you got it"' : ''}>${
+          escapeHtml(i.dateCollected)}${dateLooksAutoFilled(i) ? ' ?' : ''}</span>`
+      : unset;
     // A <label> row means tapping anywhere on it toggles the box — the whole
     // point is ticking a lot of these quickly on a phone.
     return `
@@ -1612,8 +1715,8 @@ function renderBulkList() {
         <input type="checkbox" class="bulk-check" data-bulk-id="${escapeHtml(i.id)}"${on ? ' checked' : ''} />
         <span class="bulk-photo">${photo}</span>
         <span class="bulk-name">${escapeHtml(i.nickname || i.name)}</span>
-        <span class="bulk-how">${i.acquiredHow ? escapeHtml(i.acquiredHow) : unset}</span>
-        <span class="bulk-when">${i.dateCollected ? escapeHtml(i.dateCollected) : unset}</span>
+        <span class="bulk-how">${how}</span>
+        <span class="bulk-when">${when}</span>
       </label>`;
   }).join('');
 
@@ -1672,7 +1775,7 @@ async function applyBulkEdit() {
       const sel = new Set(ids);
       for (const it of state.collection) {
         if (!sel.has(it.id)) continue;
-        if (how)  it.acquiredHow = how;
+        if (how)  { it.acquiredHow = how; it.acquiredHowBackfilled = false; }
         if (when) it.dateCollected = when;
       }
       toast(`Updated ${changed} item${changed === 1 ? '' : 's'}. 🦇`);
@@ -1695,6 +1798,24 @@ async function applyBulkEdit() {
     toast('Bulk update stopped partway — the list now shows what actually saved.');
   } finally {
     btn.disabled = state.bulkSel.size === 0;
+  }
+}
+
+// "They were all bought new" — the answer to the db/0103 question for everything
+// at once. Nothing about the plushes changes; it only retires the question, so
+// the prompt goes away for good instead of nagging every visit.
+async function confirmAcquireBackfill() {
+  const n = bulkWasDirectCount();
+  if (!n) return;
+  if (!confirm(`Mark all ${n} as bought new from Plushie Dreadfuls?\n\nYou can still change any of them later.`)) return;
+  try {
+    const cleared = await data.clearAcquireBackfillFlags();
+    for (const it of state.collection) it.acquiredHowBackfilled = false;
+    render();
+    toast(`Thanks — ${cleared} confirmed. 🦇`);
+  } catch (e) {
+    console.error('clearAcquireBackfillFlags', e);
+    toast('Could not save that — the question is still there, nothing was lost.');
   }
 }
 

@@ -30,6 +30,7 @@ function makeSb(respond) {
       const chain = {
         update(cols) { call.cols = cols; return chain; },
         in(_col, ids) { call.ids = ids; return chain; },
+        eq(col, val) { (call.eqs ||= []).push([col, val]); return chain; },
         select() {
           calls.push(call);
           return Promise.resolve(respond(call, calls.length));
@@ -103,6 +104,54 @@ test('bulk update reports the DB row count, not the count we asked for', async (
 
   const changed = await data.bulkUpdateCollection(ids(10), { acquiredHow: 'Trade' });
   assert.equal(changed, 2);
+});
+
+// ─── db/0103: the "was this secondhand?" question marker ───────────────
+//
+// The marker records that WE answered the acquire question during the Direct
+// Purchase merge, not the owner. Every path where the owner answers has to
+// retire it, or the app keeps asking a question it already got an answer to.
+
+test('answering the method in bulk retires the question marker', async () => {
+  const sb = makeSb(okAll);
+  const data = loadData(sb);
+
+  await data.bulkUpdateCollection(['a'], { acquiredHow: 'Purchased Secondhand' });
+  assert.equal(sb.calls[0].cols.acquired_how_backfilled, false);
+
+  // A date-only edit says nothing about how it was acquired — leave it asking.
+  await data.bulkUpdateCollection(['a'], { dateCollected: '2026-07-04' });
+  assert.ok(!('acquired_how_backfilled' in sb.calls[1].cols));
+});
+
+test('saving an item from the edit modal retires its marker', () => {
+  const data = loadData(makeSb(okAll));
+  const row = data._itemToRow({ id: 'a', name: 'X', acquiredHow: 'Gift' }, 'collection');
+  assert.equal(row.acquired_how_backfilled, false);
+});
+
+test('the marker round-trips from the row into the item shape', () => {
+  const data = loadData(makeSb(okAll));
+  assert.equal(data._rowToItem({ id: 'a', acquired_how_backfilled: true }, 'collection').acquiredHowBackfilled, true);
+  assert.equal(data._rowToItem({ id: 'a' }, 'collection').acquiredHowBackfilled, false);
+  // Pre-migration backends just omit the column; that must read as "no question".
+});
+
+test('"they were all bought new" clears only this collection\'s flagged rows', async () => {
+  const sb = makeSb((call) => ({ data: [{ id: 'x' }, { id: 'y' }], error: null }));
+  const data = loadData(sb);
+  data.collectionId = 'col-1';
+
+  const cleared = await data.clearAcquireBackfillFlags();
+
+  // Objects built inside the vm come from another realm, so compare by value
+  // (deepEqual would trip over the differing prototypes, not the contents).
+  assert.equal(cleared, 2, 'reports the DB row count');
+  assert.equal(Object.keys(sb.calls[0].cols).length, 1,
+    'it must not touch acquired_how — no plush changes, only the question');
+  assert.equal(sb.calls[0].cols.acquired_how_backfilled, false);
+  assert.equal(JSON.stringify(sb.calls[0].eqs),
+    JSON.stringify([['collection_id', 'col-1'], ['acquired_how_backfilled', true]]));
 });
 
 test('bulk update fails loudly — no partial-success swallow', async () => {
