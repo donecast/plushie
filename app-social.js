@@ -480,6 +480,40 @@ function updateDmBadge() {
 }
 
 // ─── Feed ───────────────────────────────────────────────────────────
+// Deep-link from a notification: land on the exact post (and comment), then
+// scroll it into view and flash a highlight — the "tapping a notification
+// takes you there" half of the Facebook-style redesign. The feed only holds
+// the recent window (listFeed's 60), so a poll waits out an in-flight load and
+// falls back to a toast if the post has aged out. Post ids are uuids, safe to
+// interpolate straight into a selector.
+function openPostDeepLink(postId, commentId) {
+  if (!postId) return;
+  // Force the Home feed surface (not a profile view or another sub-tab).
+  state.socProfile = null;
+  state.socSubTab = 'feed';
+  if (commentId) state.socExpandedComments.add(postId);
+  goToTab('home');
+  rerenderSocialCurrent();   // reflect the expand flag / feed sub-tab now
+
+  let tries = 0;
+  const seek = () => {
+    const node = (commentId && document.querySelector(`[data-comment-id="${commentId}"]`))
+      || document.querySelector(`[data-post-id="${postId}"]`);
+    if (node) {
+      node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      node.classList.remove('notif-flash');
+      // Reflow so the animation restarts even if the class lingered.
+      void node.offsetWidth;
+      node.classList.add('notif-flash');
+      setTimeout(() => node.classList.remove('notif-flash'), 2200);
+      return;
+    }
+    if (++tries < 20) { setTimeout(seek, 150); return; }
+    if (typeof toast === 'function') toast('That post isn’t in your recent feed anymore.');
+  };
+  setTimeout(seek, 60);
+}
+
 function renderFeed() {
   const el = document.getElementById('soc-feed');
   const composer = `
@@ -682,7 +716,7 @@ function renderComment(c, postId, depth = 0) {
     : '';
 
   return `
-    <div class="soc-comment ${depth ? 'soc-comment-reply' : ''}">
+    <div class="soc-comment ${depth ? 'soc-comment-reply' : ''}" data-comment-id="${c.id}">
       <button class="soc-userlink soc-comment-avatar" data-soc-action="view-profile" data-uid="${c.authorId}" tabindex="-1" aria-label="@${escapeHtml(c.authorName)}">${socAvatar(c.authorAvatar, c.authorName)}</button>
       <div class="soc-comment-col">
         ${commentBubbleHtml(c, postId)}
