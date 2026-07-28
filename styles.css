@@ -3131,6 +3131,33 @@ body.cl-insider .changelog-gated strong { color: #2f6fed; }
 .demo-mode-copy { display: flex; flex-direction: column; }
 .demo-mode-copy .account-hint { margin-top: 2px; }
 
+/* Blocked-notifications rescue panel. Deliberately louder than a hint: an
+   unchecked switch reads as "off", and the whole point here is that it isn't —
+   the browser is refusing us and only the user can undo that. */
+.notify-blocked {
+  margin: 10px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--rose-edge);
+  border-radius: 10px;
+  background: var(--blush);
+}
+.notify-blocked-title {
+  margin: 0;
+  font-weight: 600;
+  color: var(--rose-2);
+}
+.notify-blocked .account-hint { margin-top: 4px; }
+.notify-blocked-steps {
+  margin: 8px 0 10px;
+  padding-left: 20px;
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.notify-blocked-steps li { margin-bottom: 3px; }
+/* Disabled switch: make "can't touch this" visible rather than just inert. */
+.demo-mode-row > input[type="checkbox"]:disabled { cursor: not-allowed; opacity: 0.45; }
+
 .feedback-summary {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
