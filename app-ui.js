@@ -1710,6 +1710,39 @@ function wireEvents() {
     }
     render();
   });
+  // Bulk editor: the toolbar button, the in-grid nudge, and the modal's own
+  // controls. Selection lives in state.bulkSel (the list re-renders as you
+  // filter), so the change handler is the only place that writes it.
+  document.getElementById('col-bulk')?.addEventListener('click', openBulkEditor);
+  document.getElementById('collection-grid').addEventListener('click', (e) => {
+    if (e.target.closest('[data-bulk-open]')) openBulkEditor();
+  });
+  const bulkModal = document.getElementById('bulk-modal');
+  if (bulkModal) {
+    bulkModal.addEventListener('click', (e) => {
+      if (e.target.closest('[data-close-bulk]')) closeBulkEditor();
+    });
+    bulkModal.addEventListener('change', (e) => {
+      const cb = e.target.closest('.bulk-check');
+      if (!cb) return;
+      if (cb.checked) state.bulkSel.add(cb.dataset.bulkId);
+      else state.bulkSel.delete(cb.dataset.bulkId);
+      cb.closest('.bulk-row')?.classList.toggle('selected', cb.checked);
+      syncBulkApply();
+    });
+  }
+  document.getElementById('bulk-search')?.addEventListener('input', (e) => {
+    state.bulkQuery = e.target.value;
+    renderBulkList();
+  });
+  document.getElementById('bulk-scope')?.addEventListener('change', (e) => {
+    state.bulkScope = e.target.value;
+    renderBulkList();
+  });
+  document.getElementById('bulk-select-all')?.addEventListener('click', () => bulkSelectVisible(true));
+  document.getElementById('bulk-select-none')?.addEventListener('click', () => bulkSelectVisible(false));
+  document.getElementById('bulk-apply')?.addEventListener('click', applyBulkEdit);
+
   document.querySelectorAll('#col-extras input[data-col-toggle]').forEach((cb) => {
     cb.addEventListener('change', () => {
       if (cb.dataset.colToggle === 'dupes') state.colDupes = cb.checked;

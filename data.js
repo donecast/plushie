@@ -226,6 +226,42 @@ const data = {
     if (error) throw error;
   },
 
+  // Bulk edit: stamp "how acquired" / "date collected" onto many rows at once.
+  //
+  // A dedicated column update, like setWornBy/setItemVisibility — deliberately
+  // NOT a mass put()/upsert. An upsert would rewrite every column of every row
+  // from the client's in-memory copy, so anything stale or not-yet-loaded there
+  // would be clobbered; here only the columns the user actually filled in move.
+  //
+  // Chunked because PostgREST puts `id=in.(…)` in the query string: 600 UUIDs
+  // is a ~23KB URL, past what proxies will carry. 100 ids ≈ 3.7KB.
+  //
+  // Returns the number of rows the DATABASE reports as updated — not the number
+  // we asked for. If RLS silently drops some (another member's items, say), the
+  // caller needs the real figure, not our optimistic one.
+  async bulkUpdateCollection(ids, patch) {
+    const cols = {};
+    if ('acquiredHow' in patch)   cols.acquired_how   = patch.acquiredHow ?? null;
+    if ('dateCollected' in patch) cols.date_collected = patch.dateCollected ?? null;
+    if (!Object.keys(cols).length) throw new Error('bulkUpdateCollection: no fields to change');
+    cols.updated_at = new Date().toISOString();
+
+    const CHUNK = 100;
+    let changed = 0;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const { data: rows, error } = await sb
+        .from('plushies')
+        .update(cols)
+        .in('id', ids.slice(i, i + CHUNK))
+        .select('id');
+      // Fail loudly and immediately — the caller re-reads from the server so a
+      // half-applied batch never leaves the screen showing something untrue.
+      if (error) throw error;
+      changed += (rows || []).length;
+    }
+    return changed;
+  },
+
   // Persist a manual collection ordering (item 20). `orderedIds` is the full
   // sequence; we write each row's sort_order = its index. One update per row
   // keeps it RLS-safe. Tolerates the column not existing yet (pre-0029).

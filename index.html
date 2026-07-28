@@ -42,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=158" />
+  <link rel="stylesheet" href="./styles.css?v=159" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -247,6 +247,7 @@
           <option value="compact">Compact list</option>
         </select>
         <button id="col-arrange" class="filter-arrange" type="button" title="Drag your collection into a custom order">↕ Arrange</button>
+        <button id="col-bulk" class="filter-action" type="button" title="Set how &amp; when you got lots of items — without opening them one at a time">✏️ Bulk edit</button>
         <button id="col-share" class="filter-action" type="button" title="Get a link to your Public items that anyone can open — no account needed">🔗 Share</button>
         <button class="filter-clear" data-clear-tab="collection">Clear filters</button>
       </div>
@@ -597,6 +598,50 @@
   <div id="wearer-modal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-backdrop" data-close-wearer></div>
     <div class="modal-card" id="wearer-modal-card"></div>
+  </div>
+
+  <!-- Bulk editor — set "how acquired" / "date collected" across many items at
+       once. The backdrop has no data-close: ticking 200 boxes is real work, and
+       a stray tap shouldn't throw it away (same stance as #208). Its "How
+       acquired" options are cloned from #f-acquired at open time so the two
+       lists can never drift apart. -->
+  <div id="bulk-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="bulk-title">
+    <div class="modal-backdrop"></div>
+    <div class="modal-card modal-card-wide bulk-card">
+      <button class="modal-close" data-close-bulk aria-label="Close">×</button>
+      <h2 id="bulk-title">Bulk edit</h2>
+      <p class="dim">Tick the items, then fill in only what you want to change. Anything you leave blank stays exactly as it is.</p>
+
+      <div class="bulk-controls">
+        <input type="search" id="bulk-search" placeholder="Filter by name…" aria-label="Filter by name" />
+        <select id="bulk-scope" class="filter-select" aria-label="Which items to show">
+          <option value="missing">Missing how or when</option>
+          <option value="missing-how">Missing “how acquired”</option>
+          <option value="missing-when">Missing “date collected”</option>
+          <option value="all">All my items</option>
+        </select>
+        <button type="button" class="btn-ghost" id="bulk-select-all">Select all shown</button>
+        <button type="button" class="btn-ghost" id="bulk-select-none">Clear selection</button>
+      </div>
+      <p class="bulk-count" id="bulk-count"></p>
+
+      <div class="bulk-list" id="bulk-list"></div>
+
+      <div class="bulk-apply">
+        <label class="field">
+          <span>How acquired</span>
+          <select id="bulk-acquired"></select>
+        </label>
+        <label class="field">
+          <span>Date collected</span>
+          <input type="date" id="bulk-date" />
+        </label>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn-ghost" data-close-bulk>Done</button>
+        <button type="button" class="btn-primary" id="bulk-apply" disabled>Apply</button>
+      </div>
+    </div>
   </div>
 
   <!-- Add-your-own clothing (gated: feature.custom_clothing). Creates a
@@ -1185,6 +1230,7 @@
           <div class="changelog-day">
             <h3 class="changelog-date">July 28, 2026</h3>
             <ul>
+              <li><strong>Bulk edit — stop opening plushes one at a time. ✏️</strong> There's a <strong>Bulk edit</strong> button on My Crypt (and a nudge in the grid if some of your items are missing details). Tick as many plushes as you like — or hit “Select all shown” — then set <strong>how</strong> you got them, <strong>when</strong>, or both, in one go. It opens on just the ones missing that info, and anything you leave blank stays exactly as it was. <em>(Thanks @nini and @ydkj — this one came out of the same conversation.)</em></li>
               <li>Bought it secondhand? Say so. 🛒 “How acquired” used to lump every purchase under <strong>Direct Purchase</strong>; it now splits into <strong>Bought from Manufacturer</strong> and <strong>Purchased Secondhand</strong>, so a Mercari find reads differently from one straight from Plushie Dreadfuls. Everything you'd already marked Direct Purchase has moved to <strong>Bought from Manufacturer</strong> — if one of those was really a secondhand find, just switch it over. <em>(Thanks @nini and @ydkj for the suggestion!)</em></li>
               <li>Notifications no longer pile up. 🔔 When a bunch of people like the same post, or react to the same comment, they now fold into a single line — “<strong>@wifeosaurus and 4 others liked your post</strong>” — instead of a stack of near-identical buzzes. Comments, replies, mentions and messages still come through one by one, because you'll want to read each one.</li>
               <li class="changelog-fixes">Misc bug fixes.</li>
@@ -2010,18 +2056,18 @@
   <script src="./config.js?v=54"></script>
   <script src="./auth.js?v=66"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=118"></script>
+  <script src="./data.js?v=119"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=220"></script>
-  <script src="./app-catalog.js?v=220"></script>
-  <script src="./app-collection.js?v=220"></script>
-  <script src="./app-ui.js?v=220"></script>
-  <script src="./app-trade.js?v=220"></script>
-  <script src="./app-account.js?v=220"></script>
-  <script src="./app-admin.js?v=220"></script>
-  <script src="./app-admin-catalog.js?v=220"></script>
-  <script src="./app-social.js?v=220"></script>
+  <script src="./app-core.js?v=221"></script>
+  <script src="./app-catalog.js?v=221"></script>
+  <script src="./app-collection.js?v=221"></script>
+  <script src="./app-ui.js?v=221"></script>
+  <script src="./app-trade.js?v=221"></script>
+  <script src="./app-account.js?v=221"></script>
+  <script src="./app-admin.js?v=221"></script>
+  <script src="./app-admin-catalog.js?v=221"></script>
+  <script src="./app-social.js?v=221"></script>
 </body>
 </html>
