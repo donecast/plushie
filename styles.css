@@ -4778,6 +4778,32 @@ body.maint-locked { overflow: hidden; }
 .soc-confirm-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .btn-primary.soc-danger-btn { background: var(--danger); border-color: var(--danger); }
 
+/* "Throw this away?" layer — painted over the social modal so the form
+   underneath (and everything typed into it) survives the question. */
+.soc-discard {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--modal-backdrop);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+.soc-discard-card {
+  background: var(--surface);
+  border: 1px solid var(--hairline-2);
+  border-radius: 18px;
+  padding: 24px;
+  width: 100%;
+  max-width: 360px;
+  box-shadow: var(--shadow-popover);
+}
+.soc-discard-card h2 { font-family: var(--display); margin: 0 0 8px; font-size: 1.3rem; }
+.soc-discard-card p { margin: 0 0 18px; color: var(--muted-1); }
+
 .soc-comment-replies { padding-left: 14px; border-left: 2px solid var(--hairline); margin-top: 8px; display: flex; flex-direction: column; gap: 12px; }
 .soc-reply-form { margin-top: 4px; }
 .soc-mention {

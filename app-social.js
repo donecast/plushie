@@ -1317,13 +1317,99 @@ function renderTop8(top8, isMe) {
 // ─── Social modal (compose / edit profile / Top 8 picker) ───────────
 function openSocialModal(html) {
   document.getElementById('social-modal-card').innerHTML = html;
+  // Fingerprint the untouched form so we can tell later whether anything
+  // has been typed (see requestCloseSocialModal).
+  state._socModalClean = socialModalSignature();
+  state._socModalForceDirty = false;
   showEl('social-modal');
 }
 function closeSocialModal() {
   hideEl('social-modal');
+  document.getElementById('social-modal').querySelector('.soc-discard')?.remove();
   document.getElementById('social-modal-card').innerHTML = '';
   state.socComposePhoto = null;
   state.top8PhotoBlobs = null;
+  state._socModalClean = null;
+  state._socModalForceDirty = false;
+}
+
+// ─── Unsaved-work guard ─────────────────────────────────────────────
+// Losing a long, half-written post to a stray tap outside the box is
+// unforgivable, so the social modal will not close while anything has
+// been typed into it. Clicking the backdrop does nothing; throwing work
+// away takes an explicit Cancel (or ×) plus a confirm. Belt and braces:
+// the new-post composer also autosaves its text to localStorage, so a
+// refresh, crash or confirmed discard-by-accident is still recoverable.
+function socialModalSignature() {
+  const card = document.getElementById('social-modal-card');
+  if (!card) return '';
+  return [...card.querySelectorAll('textarea, input, select')].map((el) => {
+    if (el.type === 'checkbox' || el.type === 'radio') return el.checked ? '1' : '0';
+    if (el.type === 'file') return el.files?.length ? 'file' : '';
+    return el.value || '';
+  }).join(' ');
+}
+function socialModalDirty() {
+  if (state._socModalForceDirty) return true;
+  if (state.socComposePhoto || state.top8PhotoBlobs) return true;
+  if (state._socModalClean == null) return false;
+  return socialModalSignature() !== state._socModalClean;
+}
+function requestCloseSocialModal(viaBackdrop) {
+  if (!socialModalDirty()) { closeSocialModal(); return; }
+  if (viaBackdrop) {
+    toast('Kept your draft. Tap Cancel if you want to throw it away.');
+    return;
+  }
+  showDiscardGuard();
+}
+// A second layer painted over the modal rather than a socConfirm() — the
+// form's DOM (and everything typed into it) has to survive the question.
+function showDiscardGuard() {
+  const host = document.getElementById('social-modal');
+  if (!host || host.querySelector('.soc-discard')) return;
+  const veil = document.createElement('div');
+  veil.className = 'soc-discard';
+  veil.innerHTML = `
+    <div class="soc-discard-card" role="alertdialog" aria-modal="true">
+      <h2>Throw this away?</h2>
+      <p>You've written something here. Discard it and it's gone for good.</p>
+      <div class="soc-confirm-actions">
+        <button type="button" class="btn-ghost" data-soc-discard="keep">Keep editing</button>
+        <button type="button" class="btn-primary soc-danger-btn" data-soc-discard="discard">Discard</button>
+      </div>
+    </div>`;
+  veil.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-soc-discard]');
+    if (!btn) return; // clicking beside the little card does nothing, deliberately
+    veil.remove();
+    if (btn.dataset.socDiscard === 'discard') { clearComposerDraft(); closeSocialModal(); }
+  });
+  host.appendChild(veil);
+  veil.querySelector('[data-soc-discard="keep"]')?.focus();
+}
+
+// ─── New-post draft (localStorage, per user) ────────────────────────
+function composeDraftKey() { return `soc_draft_post_${window.currentUser?.id || 'anon'}`; }
+function readComposerDraft() {
+  try { return JSON.parse(localStorage.getItem(composeDraftKey()) || 'null'); }
+  catch { return null; }
+}
+function clearComposerDraft() {
+  try { localStorage.removeItem(composeDraftKey()); } catch { /* private mode */ }
+}
+function saveComposerDraft() {
+  const bodyEl = document.getElementById('soc-compose-body');
+  if (!bodyEl) return;
+  const draft = {
+    body: bodyEl.value,
+    vis: document.getElementById('soc-compose-vis')?.value || '',
+    plush: document.getElementById('soc-compose-plush')?.value || '',
+  };
+  try {
+    if (!draft.body.trim() && !draft.plush) localStorage.removeItem(composeDraftKey());
+    else localStorage.setItem(composeDraftKey(), JSON.stringify(draft));
+  } catch { /* private mode — the in-modal guard still protects the text */ }
 }
 
 // ─── Confirm dialog ─────────────────────────────────────────────────
@@ -1423,11 +1509,17 @@ function pollOptionRow(value = '') {
 function openComposer() {
   state.socComposeVis = state.socComposeVis || 'public';
   state.socComposePhoto = null;
+  // Anything left over from a previous session comes straight back.
+  const draft = readComposerDraft();
+  const vis = draft?.vis || state.socComposeVis;
   const visOptions = Object.entries(VIS_META).map(([k, m]) =>
-    `<option value="${k}" ${state.socComposeVis === k ? 'selected' : ''}>${m.glyph} ${m.label} — ${m.hint}</option>`).join('');
+    `<option value="${k}" ${vis === k ? 'selected' : ''}>${m.glyph} ${m.label} — ${m.hint}</option>`).join('');
   // Optional: tag one of my own plushes (sets a catalog image + name).
-  const plushOptions = ['<option value="">Tag a plush (optional)…</option>']
-    .concat(state.collection.map((p) => `<option value="${escapeHtml(p.catalogId || '')}|${escapeHtml(p.nickname || p.name)}">${escapeHtml(p.nickname || p.name)}</option>`))
+  const plushOptions = [`<option value="" ${draft?.plush ? '' : 'selected'}>Tag a plush (optional)…</option>`]
+    .concat(state.collection.map((p) => {
+      const val = `${p.catalogId || ''}|${p.nickname || p.name}`;
+      return `<option value="${escapeHtml(val)}" ${val === draft?.plush ? 'selected' : ''}>${escapeHtml(p.nickname || p.name)}</option>`;
+    }))
     .join('');
   openSocialModal(`
     <button class="modal-close" data-close-social aria-label="Close">×</button>
@@ -1435,7 +1527,7 @@ function openComposer() {
     <form id="soc-compose-form">
       <label class="field">
         <span>Your story</span>
-        <textarea id="soc-compose-body" rows="4" maxlength="1000" placeholder="Tell the crypt about your plush…"></textarea>
+        <textarea id="soc-compose-body" rows="4" maxlength="1000" placeholder="Tell the crypt about your plush…">${escapeHtml(draft?.body || '')}</textarea>
       </label>
       <label class="field">
         <span>Tag a plush</span>
@@ -1474,6 +1566,14 @@ function openComposer() {
         <button type="submit" class="btn-primary">Post</button>
       </div>
     </form>`);
+  // A restored draft counts as unsaved work from the first frame, so the
+  // guard is armed before a single new keystroke.
+  if (draft?.body?.trim() || draft?.plush) {
+    state._socModalForceDirty = true;
+    toast('Picked up where you left off. ✍️');
+  }
+  const bodyEl = document.getElementById('soc-compose-body');
+  if (bodyEl) { bodyEl.focus(); bodyEl.setSelectionRange(bodyEl.value.length, bodyEl.value.length); }
 }
 
 async function submitComposer(e) {
@@ -1511,6 +1611,7 @@ async function submitComposer(e) {
   try {
     await data.createPost({ body, visibility: vis, photoBlob: state.socComposePhoto, catalogId, plushName, poll });
     state.socComposeVis = vis;
+    clearComposerDraft();
     closeSocialModal();
     toast('Posted to the crypt. 🦇');
     await loadSocialData();
@@ -1958,6 +2059,12 @@ function wireSocialEvents() {
     const photo = img.closest('.soc-post-photo, .soc-comment-photo');
     if (photo) { photo.remove(); }
   }, true);
+  // Autosave the new-post draft as it's typed, so nothing can eat it.
+  for (const evt of ['input', 'change']) {
+    document.getElementById('social-modal').addEventListener(evt, (e) => {
+      if (e.target.closest('#soc-compose-form')) saveComposerDraft();
+    });
+  }
   document.getElementById('social-modal').addEventListener('submit', (e) => {
     if (e.target.id === 'soc-compose-form') submitComposer(e);
     else if (e.target.id === 'soc-edit-form') submitPostEdit(e);
@@ -2017,7 +2124,10 @@ async function loadMyProfileCache() {
 }
 
 function onSocialModalClick(e) {
-  if (e.target.closest('[data-close-social]')) { closeSocialModal(); return; }
+  // Never close over the top of unsaved text: the backdrop is inert while
+  // there's a draft, and Cancel/× ask first (requestCloseSocialModal).
+  const closer = e.target.closest('[data-close-social]');
+  if (closer) { requestCloseSocialModal(closer.classList.contains('modal-backdrop')); return; }
   const cam = e.target.closest('[data-soc-cam]');
   if (cam) {
     // Open the hidden file input paired with this bun's tile.
