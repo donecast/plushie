@@ -768,6 +768,26 @@ function syncOddfulField() {
   document.getElementById('field-oddful')?.classList.toggle('hidden', !/oddful/i.test(v));
 }
 
+// acquired_how is free text, so a saved value may not match today's option
+// list — "Direct Purchase" pre-dates its split into "Bought from Manufacturer"
+// / "Purchased Secondhand". Setting an unknown value on a <select> silently
+// blanks it, which would wipe the answer on the next save, so keep the old
+// value as an extra option (marked legacy) until the collector picks a new one.
+function setAcquiredSelect(value) {
+  const sel = document.getElementById('f-acquired');
+  if (!sel) return;
+  sel.querySelectorAll('option[data-legacy]').forEach((o) => o.remove());
+  const v = value ?? '';
+  if (v && ![...sel.options].some((o) => o.value === v)) {
+    const opt = document.createElement('option');
+    opt.value = v;
+    opt.textContent = `${v} (old option)`;
+    opt.dataset.legacy = '1';
+    sel.appendChild(opt);
+  }
+  sel.value = v;
+}
+
 function cardBadgesHtml(item, kind) {
   const badges = [];
   // Custom (user-added, off-catalog) clothing gets a ✨ tag so it reads
@@ -1388,7 +1408,7 @@ function openModal(kind, item, { fresh = false } = {}) {
   if (sendGiftBtn) sendGiftBtn.classList.toggle('hidden', !!giftPendingOutFor(item.id));
 
   document.getElementById('f-date').value = item.dateCollected ?? '';
-  document.getElementById('f-acquired').value = item.acquiredHow ?? '';
+  setAcquiredSelect(item.acquiredHow);
   // Oddful reason field: populate + show/hide based on acquired-how.
   const oddfulInput = document.getElementById('f-oddful-reason');
   if (oddfulInput) oddfulInput.value = item.oddfulReason ?? '';
@@ -1498,6 +1518,7 @@ async function removeCollectionItem(id) {
 function closeModal() {
   hideEl('modal');
   document.getElementById('plushie-form').reset();
+  setAcquiredSelect('');   // drop any legacy option injected for the edited item
   state.editingId = null;
 }
 
