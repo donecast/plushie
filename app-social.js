@@ -334,6 +334,7 @@ function dmConversationHtml() {
       </div>
       <form class="soc-comment-form dm-compose" data-soc-action="submit-dm">
         <input type="text" id="dm-input" class="soc-comment-input" maxlength="2000"
+               data-draft-key="${dmDraftKey(p.id)}" value="${escapeHtml(stickyDraft(dmDraftKey(p.id)))}"
                placeholder="Message @${escapeHtml(p.username)}…" autocomplete="off" />
         <button class="btn-primary" type="submit">Send</button>
       </form>
@@ -383,6 +384,7 @@ async function submitDmForm(form) {
     const row = await data.sendDm(p.id, body);
     state.dmMessages.push({ id: row.id, mine: true, body, createdAt: row.created_at, readAt: null });
     input.value = '';
+    clearStickyDraft(dmDraftKey(p.id));
     renderMessages();
     document.getElementById('dm-input')?.focus();
     loadDmThreads().catch(() => {});
@@ -413,11 +415,12 @@ async function refreshDmView() {
         const hadNew = fresh.length > state.dmMessages.length && fresh.some((m) => !m.mine);
         state.dmMessages = fresh;
         if (hadNew) await data.markDmRead(state.dmPartner.id);
-        renderMessages();
+        // A poll tick must not steal the caret from a half-typed message.
+        withStickyFocus(renderMessages);
       }
     } else {
       await loadDmThreads();
-      renderMessages();
+      withStickyFocus(renderMessages);
     }
   } catch (e) { console.warn('dm refresh', e); }
 }
@@ -645,6 +648,54 @@ function commentKebabHtml(c) {
   ]);
 }
 
+// ─── Sticky in-progress text (comments, replies, edits, DMs) ────────
+// The feed and the messages view are rebuilt from HTML strings whenever
+// anything refreshes them — a new comment lands, the 8s DM poll ticks, you
+// tab away and come back. That used to silently wipe a half-typed reply
+// (Amber lost one after five seconds away). Every unsent box now carries a
+// `data-draft-key`; its text is saved on each keystroke, in state AND
+// localStorage, and rendered straight back into the box. So a repaint, a
+// tab hop, or even a reload keeps what you were writing. Cleared only when
+// the thing is actually sent (or an edit is explicitly cancelled).
+function draftStoreKey() { return `soc_drafts_${window.currentUser?.id || 'anon'}`; }
+function stickyDrafts() {
+  if (state.socDrafts) return state.socDrafts;
+  try { state.socDrafts = JSON.parse(localStorage.getItem(draftStoreKey()) || '{}'); }
+  catch { state.socDrafts = {}; }
+  return state.socDrafts;
+}
+function stickyDraft(key) { return stickyDrafts()[key] || ''; }
+function setStickyDraft(key, text) {
+  const drafts = stickyDrafts();
+  if (text) drafts[key] = text; else delete drafts[key];
+  try { localStorage.setItem(draftStoreKey(), JSON.stringify(drafts)); }
+  catch { /* private mode — in-memory state still survives repaints */ }
+}
+function clearStickyDraft(key) { setStickyDraft(key, ''); }
+function commentDraftKey(postId, parentId) { return `c:${postId}:${parentId || ''}`; }
+function editDraftKey(commentId) { return `e:${commentId}`; }
+function dmDraftKey(partnerId) { return `d:${partnerId}`; }
+// Saved on every keystroke in any box that carries a draft key.
+function onDraftInput(e) {
+  const input = e.target.closest?.('[data-draft-key]');
+  if (!input) return;
+  setStickyDraft(input.dataset.draftKey, input.value);
+}
+// A repaint that happens while someone is typing must not yank the caret out
+// of the box. Capture where focus was, then put it back after the render.
+function withStickyFocus(render) {
+  const active = document.activeElement;
+  const key = active?.dataset?.draftKey || null;
+  const caret = key ? active.selectionStart : null;
+  render();
+  if (!key) return;
+  const back = document.querySelector(`[data-draft-key="${key}"]`);
+  if (!back) return;
+  back.focus();
+  const at = caret == null ? back.value.length : Math.min(caret, back.value.length);
+  try { back.setSelectionRange(at, at); } catch { /* not a text input */ }
+}
+
 // 📷 attach control for comment/reply forms (0090). The picked blob lives on
 // the form element itself (form._photoBlob, set by the delegated change
 // handler) so it survives typing but is naturally dropped on a re-render —
@@ -661,8 +712,11 @@ function commentBubbleHtml(c, postId) {
   // Editing swaps the bubble for an inline form; otherwise show bubble + actions.
   const editing = state.socEditComment === c.id;
   if (editing) {
+    // An unsaved edit outlives a repaint too; Cancel is what throws it away.
+    const editKey = editDraftKey(c.id);
+    const editVal = stickyDraft(editKey) || c.body;
     return `<form class="soc-comment-form soc-comment-edit-form" data-soc-action="submit-comment-edit" data-comment-id="${c.id}">
-         <input type="text" class="soc-comment-input" maxlength="500" value="${escapeHtml(c.body)}" />
+         <input type="text" class="soc-comment-input" maxlength="500" data-draft-key="${editKey}" value="${escapeHtml(editVal)}" />
          <button class="btn-primary" type="submit">Save</button>
          <button class="linklike" type="button" data-soc-action="cancel-edit-comment">Cancel</button>
        </form>`;
@@ -723,7 +777,7 @@ function renderComment(c, postId, depth = 0) {
         ${replying ? `
           <form class="soc-comment-form soc-reply-form" data-soc-action="submit-comment" data-post-id="${postId}" data-parent-id="${c.id}">
             ${commentPhotoPickerHtml()}
-            <input type="text" class="soc-comment-input" maxlength="500" placeholder="Reply to @${escapeHtml(c.authorName)}…" />
+            <input type="text" class="soc-comment-input" maxlength="500" data-draft-key="${commentDraftKey(postId, c.id)}" value="${escapeHtml(stickyDraft(commentDraftKey(postId, c.id)))}" placeholder="Reply to @${escapeHtml(c.authorName)}…" />
             <button class="btn-primary" type="submit">Reply</button>
           </form>` : ''}
         ${replies ? `<div class="soc-comment-replies">${replies}</div>` : ''}
@@ -818,7 +872,7 @@ function renderPostCard(p) {
       ${expanded ? `
         <form class="soc-comment-form" data-soc-action="submit-comment" data-post-id="${p.id}">
           ${commentPhotoPickerHtml()}
-          <input type="text" class="soc-comment-input" maxlength="500" placeholder="Add a comment… (@mention someone)" />
+          <input type="text" class="soc-comment-input" maxlength="500" data-draft-key="${commentDraftKey(p.id, null)}" value="${escapeHtml(stickyDraft(commentDraftKey(p.id, null)))}" placeholder="Add a comment… (@mention someone)" />
           <button class="btn-primary" type="submit">Post</button>
         </form>` : ''}
     </div>
@@ -1977,6 +2031,9 @@ function wireMentionAutocomplete() {
 
 function wireSocialEvents() {
   wireMentionAutocomplete();
+  // Every unsent comment / reply / edit / DM box saves itself as it's typed,
+  // wherever in the app it's rendered (feed, profile, My Crypt rails).
+  document.addEventListener('input', onDraftInput, true);
   // Sub-tabs.
   document.querySelectorAll('#social-view .subtab').forEach((s) => {
     s.addEventListener('click', async () => {
@@ -2232,6 +2289,8 @@ async function onSocialClick(e) {
       rerenderSocialCurrent();
       break;
     case 'cancel-edit-comment':
+      // Cancel is the deliberate "throw my edit away" gesture.
+      clearStickyDraft(editDraftKey(state.socEditComment));
       state.socEditComment = null;
       rerenderSocialCurrent();
       break;
@@ -2475,6 +2534,7 @@ async function submitCommentForm(form) {
     // Clear only after the write succeeds — clearing up front lost the user's
     // typed comment when the request failed.
     input.value = '';
+    clearStickyDraft(commentDraftKey(postId, parentId));
     form._photoBlob = null;
     state.socReplyTo = null;
     await loadSocialData();
@@ -2491,6 +2551,7 @@ async function submitCommentEdit(form) {
   if (!body) { toast('A comment can’t be empty.'); return; }
   try {
     await data.editComment(commentId, body);
+    clearStickyDraft(editDraftKey(commentId));
     state.socEditComment = null;
     await loadSocialData();
     if (state.socProfile) await openProfile(state.socProfile.profile.id);
@@ -2598,7 +2659,8 @@ function findFeedPost(postId) {
 }
 
 function rerenderSocialCurrent() {
-  renderSocial();
+  // Keep the caret where it was if this repaint landed mid-sentence.
+  withStickyFocus(renderSocial);
 }
 
 // The auth gate calls boot() again on SIGNED_IN / TOKEN_REFRESHED, so
