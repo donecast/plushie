@@ -327,6 +327,9 @@ async function populateAccountFields() {
   syncUsernameCooldownHint();
   const themeSel = document.getElementById('acct-theme');
   if (themeSel) themeSel.value = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+  // Reminders toggle + the blocked-state help panel. Must run on every open:
+  // browser notification permission can change outside the app entirely.
+  syncNotifySettingsUI();
   // Admin tag in the Settings header so it's obvious who you're signed in as.
   const heading = document.getElementById('settings-title');
   if (heading) {

@@ -385,6 +385,102 @@ function checkAllRestocks() {
 }
 
 // ─── Notifications ───────────────────────────────────────────────────
+// One name for the four states the UI has to tell apart. "off" and "blocked"
+// used to render identically (an unchecked box), which is how someone could sit
+// in permanent silence thinking they'd simply never turned reminders on.
+//   unsupported — no Notification API at all (some in-app webviews)
+//   blocked     — the browser refuses us; nothing in-app can change that
+//   on          — permission granted AND the user wants reminders
+//   off         — everything else (never asked, or deliberately opted out)
+async function notifyState() {
+  if (!('Notification' in window)) return 'unsupported';
+  if (Notification.permission === 'denied') return 'blocked';
+  if (Notification.permission !== 'granted') return 'off';
+  return (await idb.getMeta('notify_enabled')) ? 'on' : 'off';
+}
+
+// Where the "allow notifications" control actually lives, per browser. There is
+// no API for this — every vendor buries it somewhere different — so the honest
+// thing is to name the path instead of a vague "check your browser settings".
+// Order matters: Edge, Opera and Brave all carry "Chrome" in their UA string.
+function notifyUnblockSteps() {
+  const ua = navigator.userAgent;
+  const isIOS = /iPad|iPhone|iPod/.test(ua)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIOS) return [
+    'Open the iOS Settings app → Notifications.',
+    'Find The Plush Crypt (or your browser) and switch Allow Notifications on.',
+    'Come back here and tap “check again”.',
+  ];
+  if (/Edg\//.test(ua)) return [
+    'Click the icon just left of the web address, at the top of this window.',
+    'Set Notifications to Allow.',
+    'Reload the page.',
+  ];
+  if (/Firefox\//.test(ua)) return [
+    'Click the padlock just left of the web address.',
+    'Next to “Send Notifications”, click the ✕ to clear the block.',
+    'Reload the page — we’ll ask you again.',
+  ];
+  if (/Chrome\//.test(ua)) return [
+    'Click the icon just left of the web address (a slider, padlock, or ⓘ).',
+    'Set Notifications to Allow.',
+    'Reload the page.',
+  ];
+  if (/Safari\//.test(ua)) return [
+    'Open Safari → Settings → Websites → Notifications.',
+    'Find plushcrypt.com in the list and set it to Allow.',
+    'Come back here and click “check again”.',
+  ];
+  return [
+    'Open your browser’s site settings for plushcrypt.com.',
+    'Allow notifications for this site.',
+    'Reload the page.',
+  ];
+}
+
+// Paint the blocked-state help panel. Called from updateNotifyButton() so the
+// panel tracks permission automatically rather than needing its own trigger.
+function renderNotifyBlockedHelp(show) {
+  const box = document.getElementById('acct-notify-blocked');
+  if (!box) return;
+  box.classList.toggle('hidden', !show);
+  if (!show) return;
+  const list = document.getElementById('acct-notify-steps');
+  if (!list) return;
+  list.innerHTML = '';
+  for (const step of notifyUnblockSteps()) {
+    const li = document.createElement('li');
+    li.textContent = step;      // textContent, not innerHTML — these are plain strings
+    list.appendChild(li);
+  }
+}
+
+// Re-check permission after the user says they've fixed it in browser settings.
+// A grant here also has to clear the opt-out latch (see maybeAutoEnable...),
+// otherwise permission comes back and the app stays stubbornly silent.
+async function recheckNotifyPermission() {
+  if (!('Notification' in window)) { toast('Notifications not supported on this device.'); return; }
+  if (Notification.permission === 'denied') {
+    toast('Still blocked — the change may need a page reload.');
+    return;
+  }
+  await idb.setMeta('notify_off_reason', null);
+  if (Notification.permission === 'granted') {
+    await idb.setMeta('notify_enabled', true);
+    await updateNotifyButton();
+    toast('Reminders on. 🦇');
+    scheduleReminderCheck();
+    ensurePushSubscription();
+    return;
+  }
+  // Back to 'default' — the block is gone but we have to ask again, and we can
+  // do it right now because this ran from a real click.
+  await idb.setMeta('notify_enabled', null);
+  await toggleNotifications();
+  await updateNotifyButton();
+}
+
 async function toggleNotifications() {
   if (!('Notification' in window)) {
     toast('Notifications not supported on this device.');
@@ -393,20 +489,31 @@ async function toggleNotifications() {
   if (Notification.permission === 'granted') {
     const wasOn = await idb.getMeta('notify_enabled');
     await idb.setMeta('notify_enabled', !wasOn);
-    updateNotifyButton();
+    // A deliberate off records no reason, which is what makes it permanent —
+    // only a *blocked* off is ever auto-cleared later.
+    await idb.setMeta('notify_off_reason', null);
+    await updateNotifyButton();
     toast(wasOn ? 'Reminders off.' : 'Reminders on.');
     if (!wasOn) { scheduleReminderCheck(); ensurePushSubscription(); }
     else disablePushSubscription();
   } else if (Notification.permission === 'denied') {
-    toast('Notifications blocked in browser settings.');
+    // Dead end no more: show the way out instead of just naming the problem.
+    await updateNotifyButton();
+    document.getElementById('acct-notify-blocked')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    toast('Your browser is blocking notifications — see the steps below.');
   } else {
     const perm = await Notification.requestPermission();
     if (perm === 'granted') {
       await idb.setMeta('notify_enabled', true);
-      updateNotifyButton();
+      await idb.setMeta('notify_off_reason', null);
+      await updateNotifyButton();
       toast('Reminders on.');
       scheduleReminderCheck();
       ensurePushSubscription();
+    } else {
+      if (perm === 'denied') await idb.setMeta('notify_off_reason', 'blocked');
+      await updateNotifyButton();   // surfaces the help panel if they just blocked us
     }
   }
 }
@@ -421,14 +528,18 @@ async function toggleNotifications() {
 // block is likewise left alone.
 async function maybeAutoEnableNotifications() {
   if (!('Notification' in window)) return;
+  await unlatchBlockedOptOut();
   const pref = await idb.getMeta('notify_enabled');
   if (pref === false) return;                        // explicitly opted out
-  if (Notification.permission === 'denied') return;  // OS-blocked; can't prompt
+  if (Notification.permission === 'denied') {        // OS-blocked; can't prompt
+    await updateNotifyButton();                            // …but do explain why
+    return;
+  }
   if (Notification.permission === 'granted') {
     // Already allowed at OS level → honor default-on: mark enabled (if the user
     // never chose) and make sure this device is subscribed for real push.
     if (pref == null) await idb.setMeta('notify_enabled', true);
-    updateNotifyButton();
+    await updateNotifyButton();
     ensurePushSubscription();
     return;
   }
@@ -451,11 +562,16 @@ function armNotifyPrompt() {
       const perm = await Notification.requestPermission();
       if (perm === 'granted') {
         await idb.setMeta('notify_enabled', true);
-        updateNotifyButton();
+        await updateNotifyButton();
         ensurePushSubscription();
         scheduleReminderCheck();
       } else if (perm === 'denied') {
-        await idb.setMeta('notify_enabled', false);  // honor the refusal; stop asking
+        // Honor the refusal and stop asking — but record WHY, so that if they
+        // later allow us in browser settings we can reopen instead of staying
+        // silent forever.
+        await idb.setMeta('notify_enabled', false);
+        await idb.setMeta('notify_off_reason', 'blocked');
+        await updateNotifyButton();
       }
     } catch (e) { console.warn('auto notify prompt failed', e); }
   };
@@ -465,13 +581,44 @@ function armNotifyPrompt() {
 
 // Reflect the current reminders state onto the Settings toggle (the header
 // bell is gone — notifications now live under Account & settings). Safe to
-// call any time; no-ops if the checkbox isn't in the DOM yet.
+// call any time; no-ops if the checkbox isn't in the DOM yet. Also drives the
+// blocked-state help panel, so permission and explanation can never disagree.
 async function updateNotifyButton() {
-  const enabled = await idb.getMeta('notify_enabled');
-  const granted = 'Notification' in window && Notification.permission === 'granted';
-  const on = !!(enabled && granted);
+  const st = await notifyState();
   const chk = document.getElementById('acct-notify');
-  if (chk) chk.checked = on;
+  if (chk) {
+    chk.checked = st === 'on';
+    // Blocked or unsupported: the switch genuinely cannot do anything, so stop
+    // pretending it can. The help panel below says what to do instead.
+    chk.disabled = st === 'blocked' || st === 'unsupported';
+  }
+  renderNotifyBlockedHelp(st === 'blocked');
+}
+
+// A `false` written because the browser prompt was denied is NOT the same as
+// someone deliberately switching reminders off — but until we recorded the
+// reason the two were indistinguishable, so fixing the browser permission left
+// the app silent forever with no way back short of clearing site data. Only the
+// block-induced case is ever reopened; a deliberate off carries no reason and
+// stays off for good. Returns true if it un-latched.
+async function unlatchBlockedOptOut() {
+  if (!('Notification' in window)) return false;
+  if (Notification.permission === 'denied') return false;
+  if ((await idb.getMeta('notify_enabled')) !== false) return false;
+  if ((await idb.getMeta('notify_off_reason')) !== 'blocked') return false;
+  await idb.setMeta('notify_enabled', null);
+  await idb.setMeta('notify_off_reason', null);
+  return true;
+}
+
+// Run whenever the Settings surface opens. Two jobs nothing used to do: paint
+// the toggle to match reality (it rendered the raw HTML default until you
+// touched it, so someone with reminders ON saw an unchecked box), and reopen a
+// block-induced opt-out now that the browser block is gone — the one step
+// between "I allowed it again" and still receiving nothing.
+async function syncNotifySettingsUI() {
+  await unlatchBlockedOptOut();
+  await updateNotifyButton();
 }
 
 async function scheduleReminderCheck() {
@@ -1854,10 +2001,11 @@ function wireEvents() {
   // Share links (db/0089): read-only public pages for the wish list / crypt.
   document.getElementById('wish-share')?.addEventListener('click', () => openShareListModal('wishlist'));
   document.getElementById('col-share')?.addEventListener('click', () => openShareListModal('collection'));
+  document.getElementById('acct-notify-recheck')?.addEventListener('click', recheckNotifyPermission);
   const notifyChk = document.getElementById('acct-notify');
   if (notifyChk) notifyChk.addEventListener('change', async () => {
     await toggleNotifications();
-    updateNotifyButton();   // resync (e.g. if permission was denied, revert the box)
+    await updateNotifyButton();   // resync (e.g. if permission was denied, revert the box)
   });
 
   document.querySelectorAll('[data-close]').forEach((el) =>

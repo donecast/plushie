@@ -42,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=160" />
+  <link rel="stylesheet" href="./styles.css?v=161" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -1233,6 +1233,7 @@
           <div class="changelog-day">
             <h3 class="changelog-date">July 28, 2026</h3>
             <ul>
+              <li><strong>Not getting any notifications? Now we tell you why. 🔕</strong> If your browser is the thing blocking them, the <strong>Reminders &amp; alerts</strong> switch in Settings now says so outright — with the exact steps to allow us again in the browser you're actually using, and a “check again” button for when you're done. Before this, the switch simply looked switched off, and a single accidental “Block” could leave you in silence for good, even after you'd allowed notifications again.</li>
               <li><strong>Two things worth a minute of your time. 🛒📅</strong> When we split “Direct Purchase”, everything you'd marked that way moved to <strong>Bought from Manufacturer</strong> — so My Crypt now asks you, once, whether any of those were actually secondhand finds. Answer “they were all bought new” and it goes away for good, or tap through and fix just the ones that were. Separately: adding a plush stamps today's date, so anything you backfilled is dated the day you typed it in rather than the day you got it. Those are now flagged with a <strong>?</strong> so you can correct them in a batch — dates you set yourself are left alone.</li>
               <li><strong>Bulk edit — stop opening plushes one at a time. ✏️</strong> There's a <strong>Bulk edit</strong> button on My Crypt (and a nudge in the grid if some of your items are missing details). Tick as many plushes as you like — or hit “Select all shown” — then set <strong>how</strong> you got them, <strong>when</strong>, or both, in one go. It opens on just the ones missing that info, and anything you leave blank stays exactly as it was. <em>(Thanks @nini and @ydkj — this one came out of the same conversation.)</em></li>
               <li>Bought it secondhand? Say so. 🛒 “How acquired” used to lump every purchase under <strong>Direct Purchase</strong>; it now splits into <strong>Bought from Manufacturer</strong> and <strong>Purchased Secondhand</strong>, so a Mercari find reads differently from one straight from Plushie Dreadfuls. Everything you'd already marked Direct Purchase has moved to <strong>Bought from Manufacturer</strong> — if one of those was really a secondhand find, just switch it over. <em>(Thanks @nini and @ydkj for the suggestion!)</em></li>
@@ -1875,6 +1876,16 @@
             <span class="account-hint">Get a nudge about trade activity, friend requests, and wish-list restocks. Turn it off any time. (On a phone, allow notifications when your browser asks.)</span>
           </span>
         </label>
+        <!-- Shown only when the browser itself is blocking us. Without this the
+             switch above just looks "off", so nobody can tell the difference
+             between opting out and being locked out. Steps are filled in by
+             renderNotifyBlockedHelp() for the browser you're actually using. -->
+        <div id="acct-notify-blocked" class="notify-blocked hidden">
+          <p class="notify-blocked-title">🔕 Your browser is blocking notifications</p>
+          <p class="account-hint">The switch above can&rsquo;t do anything until you allow notifications for plushcrypt.com in your browser. It only takes a moment:</p>
+          <ol id="acct-notify-steps" class="notify-blocked-steps"></ol>
+          <button type="button" class="btn-ghost" id="acct-notify-recheck">I&rsquo;ve allowed it &mdash; check again</button>
+        </div>
       </section>
 
       <section class="account-section">
@@ -2064,14 +2075,14 @@
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=222"></script>
-  <script src="./app-catalog.js?v=222"></script>
-  <script src="./app-collection.js?v=222"></script>
-  <script src="./app-ui.js?v=222"></script>
-  <script src="./app-trade.js?v=222"></script>
-  <script src="./app-account.js?v=222"></script>
-  <script src="./app-admin.js?v=222"></script>
-  <script src="./app-admin-catalog.js?v=222"></script>
-  <script src="./app-social.js?v=222"></script>
+  <script src="./app-core.js?v=223"></script>
+  <script src="./app-catalog.js?v=223"></script>
+  <script src="./app-collection.js?v=223"></script>
+  <script src="./app-ui.js?v=223"></script>
+  <script src="./app-trade.js?v=223"></script>
+  <script src="./app-account.js?v=223"></script>
+  <script src="./app-admin.js?v=223"></script>
+  <script src="./app-admin-catalog.js?v=223"></script>
+  <script src="./app-social.js?v=223"></script>
 </body>
 </html>
