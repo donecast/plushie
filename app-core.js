@@ -42,6 +42,13 @@ const state = {
   catQuery: '',
   wishQuery: '',
   editingId: null,
+  // Bulk editor (how acquired / date collected across many items at once).
+  // The selection is deliberately kept in state, not read off the checkboxes:
+  // the list re-renders on every filter/search keystroke, so anything ticked
+  // under a previous filter would be lost if the DOM were the source of truth.
+  bulkSel: new Set(),
+  bulkScope: 'missing',       // missing | missing-how | missing-when | all
+  bulkQuery: '',
   railDetailId: null,         // collection/wishlist item shown in the right-rail master-detail
   railCatalogId: null,        // catalog item shown in the right-rail master-detail (richer detail)
   // Which sections have completed their first data load this session

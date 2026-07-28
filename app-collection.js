@@ -1136,7 +1136,17 @@ function render() {
     const manualHint = state.arranging && mainItems.length > 1
       ? '<p class="subview-hint">↕ Drag the ☰ grip or use ▲▼ to arrange your collection exactly how you want.</p>'
       : '';
-    colGrid.innerHTML = manualHint + mainItems.map((i) => renderCollectionEntry(i)).join('');
+    // Bulk-edit nudge: a toolbar button alone isn't discoverable enough on a
+    // phone, so when a real number of items are missing how/when they got them,
+    // say so in the grid itself with a way to fix the lot in one go. Suppressed
+    // while arranging (that hint owns the slot) and below a handful, where
+    // opening them one at a time is genuinely easier.
+    const needInfo = state.arranging ? 0 : bulkMissingCount();
+    const bulkNudge = needInfo >= 3
+      ? `<p class="subview-hint bulk-nudge">📋 ${needInfo} items don't say how or when you got them.
+           <button type="button" class="btn-link" data-bulk-open>Fill them in all at once →</button></p>`
+      : '';
+    colGrid.innerHTML = manualHint + bulkNudge + mainItems.map((i) => renderCollectionEntry(i)).join('');
     const unwornSection = document.getElementById('unworn-clothing-section');
     if (unwornSection) {
       document.getElementById('unworn-clothing-grid').innerHTML = closetItems.map((i) => renderCard(i, 'collection')).join('');
@@ -1520,6 +1530,172 @@ function closeModal() {
   document.getElementById('plushie-form').reset();
   setAcquiredSelect('');   // drop any legacy option injected for the edited item
   state.editingId = null;
+}
+
+// ─── Bulk editor — how acquired / date collected, many at a time ────
+// Collectors with hundreds of plushes can't open a modal per item, and the
+// Direct Purchase split (#211) plus a lot of never-filled-in rows gave everyone
+// a reason to go back over old entries. This is deliberately dull: a checklist,
+// two fields, one Apply. Blank field = leave that column alone.
+
+// Everything in the crypt is eligible — a cardigan or an accessory was bought
+// somewhere too. Sorted by the name shown on the card so a long list is
+// scannable (the grid's own sort is about browsing, not bookkeeping).
+function bulkAllItems() {
+  const label = (i) => (i.nickname || i.name || '').toLowerCase();
+  return [...state.collection].sort((a, b) => label(a).localeCompare(label(b)));
+}
+
+// "Needs attention" = either half of the how/when pair is blank.
+function bulkNeedsInfo(item) {
+  return !item.acquiredHow || !item.dateCollected;
+}
+
+function bulkMissingCount() {
+  return state.collection.filter(bulkNeedsInfo).length;
+}
+
+function bulkVisibleItems() {
+  const q = (state.bulkQuery || '').trim().toLowerCase();
+  return bulkAllItems().filter((i) => {
+    if (state.bulkScope === 'missing'      && !bulkNeedsInfo(i)) return false;
+    if (state.bulkScope === 'missing-how'  && i.acquiredHow)     return false;
+    if (state.bulkScope === 'missing-when' && i.dateCollected)   return false;
+    if (q && !`${i.nickname || ''} ${i.name || ''}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+
+function openBulkEditor() {
+  state.bulkSel = new Set();
+  state.bulkQuery = '';
+  // Open on the rows that actually need work, unless nothing does.
+  state.bulkScope = state.collection.some(bulkNeedsInfo) ? 'missing' : 'all';
+  document.getElementById('bulk-scope').value = state.bulkScope;
+  document.getElementById('bulk-search').value = '';
+  document.getElementById('bulk-date').value = '';
+
+  // Clone the edit modal's own option list rather than repeating it in the
+  // markup — one source of truth, so a future rename can't leave the bulk
+  // editor offering an option the single-item form no longer has. Legacy
+  // options (injected by setAcquiredSelect for one specific item) are skipped:
+  // they're that item's history, not something to stamp onto a batch.
+  const src = document.getElementById('f-acquired');
+  const opts = [...src.options].filter((o) => o.value && !o.dataset.legacy);
+  document.getElementById('bulk-acquired').innerHTML =
+    '<option value="">— leave unchanged —</option>' +
+    opts.map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.textContent)}</option>`).join('');
+
+  renderBulkList();
+  showEl('bulk-modal');
+}
+
+function closeBulkEditor() {
+  hideEl('bulk-modal');
+  state.bulkSel = new Set();
+  document.getElementById('bulk-list').innerHTML = '';
+}
+
+function renderBulkList() {
+  const items = bulkVisibleItems();
+  const rows = items.map((i) => {
+    const src = photoSrc(i) || catalogImageFor(i.catalogId);
+    const photo = src
+      ? `<img src="${escapeHtml(src)}" loading="lazy" alt="" />`
+      : '<span class="no-photo">🖤</span>';
+    const unset = '<span class="bulk-unset">not set</span>';
+    const on = state.bulkSel.has(i.id);
+    // A <label> row means tapping anywhere on it toggles the box — the whole
+    // point is ticking a lot of these quickly on a phone.
+    return `
+      <label class="bulk-row${on ? ' selected' : ''}">
+        <input type="checkbox" class="bulk-check" data-bulk-id="${escapeHtml(i.id)}"${on ? ' checked' : ''} />
+        <span class="bulk-photo">${photo}</span>
+        <span class="bulk-name">${escapeHtml(i.nickname || i.name)}</span>
+        <span class="bulk-how">${i.acquiredHow ? escapeHtml(i.acquiredHow) : unset}</span>
+        <span class="bulk-when">${i.dateCollected ? escapeHtml(i.dateCollected) : unset}</span>
+      </label>`;
+  }).join('');
+
+  document.getElementById('bulk-list').innerHTML = rows ||
+    '<p class="empty-note">Nothing matches that filter.</p>';
+  syncBulkApply();
+}
+
+// Keep the counter + Apply button honest about what's actually selected.
+function syncBulkApply() {
+  const n = state.bulkSel.size;
+  const shown = bulkVisibleItems().length;
+  const countEl = document.getElementById('bulk-count');
+  if (countEl) countEl.textContent = `${shown} shown · ${n} selected`;
+  const btn = document.getElementById('bulk-apply');
+  if (btn) {
+    btn.textContent = n ? `Apply to ${n} item${n === 1 ? '' : 's'}` : 'Apply';
+    btn.disabled = n === 0;
+  }
+}
+
+// Select/deselect everything currently listed. Only what's VISIBLE, so a
+// filter is also how you scope a batch ("all my minis", "everything unset").
+function bulkSelectVisible(on) {
+  for (const i of bulkVisibleItems()) {
+    if (on) state.bulkSel.add(i.id);
+    else state.bulkSel.delete(i.id);
+  }
+  renderBulkList();
+}
+
+async function applyBulkEdit() {
+  const ids = [...state.bulkSel];
+  if (!ids.length) { toast('Tick some items first.'); return; }
+
+  const how  = document.getElementById('bulk-acquired').value;
+  const when = document.getElementById('bulk-date').value;
+  if (!how && !when) { toast('Pick a “how acquired” or a date to apply.'); return; }
+
+  const parts = [];
+  if (how)  parts.push(`how acquired → ${how}`);
+  if (when) parts.push(`date collected → ${when}`);
+  if (!confirm(`Set ${parts.join('\nand ')}\n\non ${ids.length} item${ids.length === 1 ? '' : 's'}?`)) return;
+
+  const patch = {};
+  if (how)  patch.acquiredHow = how;
+  if (when) patch.dateCollected = when;
+
+  const btn = document.getElementById('bulk-apply');
+  btn.disabled = true;
+  try {
+    const changed = await data.bulkUpdateCollection(ids, patch);
+    if (changed === ids.length) {
+      // The DB moved exactly the rows we asked for, so patching them in memory
+      // is safe and saves a full re-fetch of a big collection.
+      const sel = new Set(ids);
+      for (const it of state.collection) {
+        if (!sel.has(it.id)) continue;
+        if (how)  it.acquiredHow = how;
+        if (when) it.dateCollected = when;
+      }
+      toast(`Updated ${changed} item${changed === 1 ? '' : 's'}. 🦇`);
+    } else {
+      // Fewer (or more) rows moved than we selected — don't guess which ones.
+      // Re-read the truth from the server rather than show a hopeful screen.
+      await loadAll();
+      toast(`Updated ${changed} of ${ids.length} — reloaded from the server.`);
+    }
+    state.bulkSel = new Set();
+    renderBulkList();
+    render();
+  } catch (e) {
+    console.error('bulkUpdateCollection', e);
+    // A chunk may have landed before the failure, so "nothing changed" would be
+    // a lie. Re-read and say plainly that it stopped partway.
+    await loadAll().catch(() => {});
+    renderBulkList();
+    render();
+    toast('Bulk update stopped partway — the list now shows what actually saved.');
+  } finally {
+    btn.disabled = state.bulkSel.size === 0;
+  }
 }
 
 // ─── Wearer picker (attach a clothing accessory to a plush) ─────────
