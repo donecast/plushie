@@ -75,7 +75,7 @@ const result = await page.evaluate(async () => {
   out.giftNoteMsg = document.getElementById('gift-note-text').textContent.includes('Happy Birthday Amber');
 
   // ── Oddful field hides when acquired-how is not oddful ──
-  document.getElementById('f-acquired').value = 'Direct Purchase';
+  document.getElementById('f-acquired').value = 'Purchased Secondhand';
   syncOddfulField();
   out.oddfulHiddenWhenNotOddful = document.getElementById('field-oddful').classList.contains('hidden');
 
