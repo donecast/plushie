@@ -172,11 +172,13 @@ const result = await page.evaluate(async () => {
   // and that tapping it opens the editor through the delegated handler.
   closeBulkEditor();
   // Reset to a known board — the applies above deliberately changed some rows.
+  // Three with no method, which is what the missing-how nudge nags about.
   state.collection = [
     mk('a', 'Anxiety Axolotl', null, null),
     mk('b', 'Blue Plaid Love Rabbit', 'Gift', null),
     mk('c', 'Cursed Corgi', null, '2026-01-05'),
     mk('d', 'Doomed Duck', 'Mystery Bag', '2026-02-02'),
+    mk('e', 'Existential Eel', null, '2026-01-09'),
   ];
   state.tab = 'crypt';
   state.colSubTab = 'plushes';
@@ -185,9 +187,11 @@ const result = await page.evaluate(async () => {
     render();
     const grid = document.getElementById('collection-grid');
     out.nudgeRendered = !!grid.querySelector('[data-bulk-open]');
-    out.nudgeCountsItems = /3 items don't say how or when/.test(grid.textContent);
+    out.nudgeCountsItems = /3 items don't say how you got them/.test(grid.textContent);
     grid.querySelector('[data-bulk-open]')?.click();
     out.nudgeOpensEditor = !document.getElementById('bulk-modal').classList.contains('hidden');
+    // The nudge names its own scope, so the editor opens already filtered.
+    out.nudgeSetsScope = state.bulkScope === 'missing-how';
     closeBulkEditor();
     // With nothing missing there's nothing to nag about.
     const saved = state.collection;
@@ -240,6 +244,7 @@ const checks = [
   ['grid nudges about incomplete items', result.nudgeRendered],
   ['nudge names the real count', result.nudgeCountsItems],
   ['tapping the nudge opens the editor', result.nudgeOpensEditor],
+  ['the nudge scopes the editor to its own complaint', result.nudgeSetsScope],
   ['no nudge when nothing is missing', result.nudgeHiddenWhenComplete],
 ];
 if (result._renderNote) console.log('[render note]', result._renderNote);

@@ -1715,7 +1715,11 @@ function wireEvents() {
   // filter), so the change handler is the only place that writes it.
   document.getElementById('col-bulk')?.addEventListener('click', openBulkEditor);
   document.getElementById('collection-grid').addEventListener('click', (e) => {
-    if (e.target.closest('[data-bulk-open]')) openBulkEditor();
+    // A nudge can name the scope it's nagging about, so the editor opens
+    // already filtered to those rows.
+    const open = e.target.closest('[data-bulk-open]');
+    if (open) { openBulkEditor(open.dataset.bulkOpen || null); return; }
+    if (e.target.closest('[data-acquire-confirm]')) confirmAcquireBackfill();
   });
   const bulkModal = document.getElementById('bulk-modal');
   if (bulkModal) {

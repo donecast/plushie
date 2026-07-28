@@ -5171,6 +5171,21 @@ body.maint-locked { overflow: hidden; }
 }
 .bulk-photo img { width: 100%; height: 100%; object-fit: cover; }
 .bulk-name { font-weight: 700; overflow-wrap: anywhere; }
+/* Why a row is in the list: a date that's really the add-date, or a method we
+   filled in during the Direct Purchase merge and still owe the owner a check on. */
+.bulk-suspect { color: var(--danger); font-weight: 700; }
+.bulk-flag {
+  display: inline-block; font-size: 0.66rem; font-weight: 800; white-space: nowrap;
+  color: var(--gold); border: 1px solid var(--gold-border);
+  padding: 0 6px; border-radius: 999px; margin-left: 4px;
+}
+/* One-time question in the crypt grid (the Direct Purchase split). */
+.crypt-prompt {
+  border: 1px solid var(--gold-border); background: var(--gold-soft-bg);
+  border-radius: 12px; padding: 12px 14px; margin: 0 0 12px;
+}
+.crypt-prompt p { margin: 0 0 10px; font-size: 0.9rem; }
+.crypt-prompt-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .bulk-how, .bulk-when { font-size: 0.8rem; color: var(--muted-1); }
 .bulk-unset { font-style: italic; opacity: 0.75; }
 .bulk-apply { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0 4px; }
