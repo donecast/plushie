@@ -3506,10 +3506,14 @@ body.locked { overflow: hidden; }
 
 /* ─── Notification bell (🔔) dropdown inbox ────────────────── */
 .notif-wrap { position: relative; }
+/* Anchored by positionNotifPanel() rather than by the DOM: it's a top-level
+   element, because the header's backdrop-filter would otherwise capture a
+   position:fixed child and lay it out against the header instead of the
+   viewport (it ended up off-screen above the fold). */
 .notif-panel {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 8px);
+  position: fixed;
+  right: 12px;
+  top: 60px;
   z-index: 950;
   width: 340px;
   max-width: min(92vw, 340px);
@@ -3886,6 +3890,22 @@ body.rails-on .rail-right.rail-right--active { display: block; }
     min-width: 16px;
     line-height: 16px;
     font-size: 0.62rem;
+  }
+
+  /* Seven tabs now — trim the padding so the labels still fit on a 360px
+     phone without wrapping. */
+  .bottom-tab { padding: 8px 2px 7px; font-size: 0.62rem; }
+  .bottom-tab .bn-ico { font-size: 1.25rem; }
+
+  /* The inbox is a real surface on a phone, not a 340px dropdown hanging off
+     a header icon: a sheet that sits above the bottom bar and uses the width. */
+  .notif-panel {
+    position: fixed;
+    left: 8px; right: 8px; top: auto;
+    bottom: calc(66px + env(safe-area-inset-bottom));
+    width: auto; max-width: none;
+    max-height: 62vh;
+    border-radius: 16px;
   }
 
   /* Lift page content so the fixed bar never hides the last row. */
