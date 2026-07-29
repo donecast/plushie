@@ -158,13 +158,24 @@ function itemCategory(item) {
   return cat ? catalogCategory(cat) : (isWearableItem(item) ? 'clothing' : 'other');
 }
 
+// "Do I own more than one of this plush?" — true two different ways, because
+// the app records duplicates two different ways: a quantity on one row, or
+// several rows for the same catalog item when the copies have been nicknamed
+// apart. "Duplicates only" used to test just the first, so a collector who'd
+// named their three Love Rabbits saw an empty list.
+function ownsMoreThanOne(item) {
+  if ((item.quantity || 1) > 1) return true;
+  if (!item.catalogId) return false;   // custom/off-catalog rows can't be matched up
+  return state.collection.filter((o) => o.catalogId === item.catalogId).length > 1;
+}
+
 function filteredCollection() {
   const q = state.colQuery.trim().toLowerCase();
   const arr = state.collection.filter((it) => {
     if (state.filter === 'active' && it.retired) return false;
     if (state.filter === 'retired' && !it.retired) return false;
     if (state.colCategory !== 'all' && itemCategory(it) !== state.colCategory) return false;
-    if (state.colDupes && (it.quantity || 1) <= 1) return false;
+    if (state.colDupes && !ownsMoreThanOne(it)) return false;
     if (state.colNoBag) {
       // The filter now covers any missing accessory, not just the bag.
       // Items with a missing_accessories array OR legacy has_bag = false
@@ -523,7 +534,14 @@ function catalogCardActionsHtml(item, isOwned, isWished) {
     : item.handle;
   const productUrl = productHandleForBuy ? (PRODUCT_URL_BASE + productHandleForBuy) : null;
   const canHave = !(status === 'coming_soon' || status === 'fyc');
-  const haveBtn  = canHave  ? `<button class="btn-have" data-action="cat-have" data-cid="${item.id}">🖤 Have</button>` : '';
+  // On something you already own, "🖤 Have" reads as a no-op — which is why
+  // people couldn't find how to record a second copy ("I can't seem to find how
+  // to add two of the same item"). Same action, honest label.
+  const haveLabel = isOwned ? '＋ Add another' : '🖤 Have';
+  const haveTitle = isOwned
+    ? 'Record another copy of this one — it becomes ×2 (or a separate entry if you\'ve nicknamed the one you have)'
+    : 'Add this to your crypt';
+  const haveBtn  = canHave  ? `<button class="btn-have" data-action="cat-have" data-cid="${item.id}" title="${escapeHtml(haveTitle)}">${haveLabel}</button>` : '';
   const wantBtn  = !isWished ? `<button class="btn-want" data-action="cat-want" data-cid="${item.id}">🕯 Want</button>` : '';
   // No Buy for loyalty rewards (points-only) or retired items (no longer sold).
   const linkBtn  = (productUrl && !isLoyaltyReward(item) && status !== 'retired') ? `<a class="btn-buy" href="${escapeHtml(productUrl)}" target="_blank" rel="noopener" title="Open product page">Buy</a>` : '';
@@ -858,11 +876,13 @@ function cardActionsHtml(item, kind) {
     : `<button data-action="seek-trade" data-id="${item.id}">↺ Seek in trade</button>`;
 
   const qty = item.quantity || 1;
+  // The stepper IS the "I own two of these" control, but it only ever said
+  // "×1" — nothing told you the + was for duplicates. Spell it out.
   const qtyControl = kind === 'collection' ? `
-    <div class="qty-control" title="How many you have">
-      <button class="qty-btn" data-action="col-dec" data-id="${item.id}" aria-label="One fewer">−</button>
+    <div class="qty-control" title="How many of this you own — tap + for another copy">
+      <button class="qty-btn" data-action="col-dec" data-id="${item.id}" aria-label="One fewer of this plush" title="One fewer">−</button>
       <span class="qty-display">×${qty}</span>
-      <button class="qty-btn" data-action="col-inc" data-id="${item.id}" aria-label="One more">+</button>
+      <button class="qty-btn" data-action="col-inc" data-id="${item.id}" aria-label="Another copy of this plush" title="Another copy">+</button>
     </div>` : '';
 
   const isSeeking = kind === 'wishlist' && item.catalogId
@@ -1441,6 +1461,7 @@ function openModal(kind, item, { fresh = false } = {}) {
   const sendGiftBtn = document.getElementById('modal-send-gift');
   if (sendGiftBtn) sendGiftBtn.classList.toggle('hidden', !!giftPendingOutFor(item.id));
 
+  document.getElementById('f-qty').value = item.quantity ?? 1;
   document.getElementById('f-date').value = item.dateCollected ?? '';
   setAcquiredSelect(item.acquiredHow);
   // Oddful reason field: populate + show/hide based on acquired-how.
@@ -1989,8 +2010,14 @@ async function submitForm(e) {
     ? (document.getElementById('f-oddful-reason').value.trim() || null)
     : null;
 
+  // Clamp rather than trust the input: an empty or nonsense box must never
+  // wipe a count someone set with the card stepper.
+  const qtyRaw = parseInt(document.getElementById('f-qty').value, 10);
+  const quantity = Number.isFinite(qtyRaw) ? Math.min(99, Math.max(1, qtyRaw)) : (existing.quantity || 1);
+
   const record = {
     ...existing,
+    quantity,
     nickname: document.getElementById('f-nickname').value.trim() || null,
     meaning: document.getElementById('f-meaning').value.trim() || null,
     visibility: document.getElementById('f-visibility').value || 'friends',
