@@ -42,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=161" />
+  <link rel="stylesheet" href="./styles.css?v=162" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -1233,6 +1233,7 @@
           <div class="changelog-day">
             <h3 class="changelog-date">July 28, 2026</h3>
             <ul>
+              <li><strong>Enter starts a new line — it doesn't publish. ⏎</strong> Comments, replies and messages used to send the moment you pressed Enter, which meant half-finished thoughts going out in public. Now Enter does what it does everywhere else: adds a line break. You send with the <strong>Post</strong> / <strong>Reply</strong> / <strong>Send</strong> button (or Ctrl+Enter, ⌘+Enter on a Mac, if you'd rather not reach for the mouse). The box grows as you type, and line breaks show up properly in the comment itself. <em>(Thanks @nini — you were right.)</em></li>
               <li><strong>iPhone photos just work now. 📸</strong> iPhones shoot in a format called <strong>HEIC</strong>, and until now picking one meant your photo either wouldn't upload or came out broken for everyone who wasn't on an iPhone. HEIC and HEIF files are now converted for you the moment you choose them, anywhere you can add a picture — your crypt, trade listings, catalogue suggestions and your avatar. And if a file really can't be read, we say so instead of quietly saving a broken image.</li>
               <li><strong>Not getting any notifications? Now we tell you why. 🔕</strong> If your browser is the thing blocking them, the <strong>Reminders &amp; alerts</strong> switch in Settings now says so outright — with the exact steps to allow us again in the browser you're actually using, and a “check again” button for when you're done. Before this, the switch simply looked switched off, and a single accidental “Block” could leave you in silence for good, even after you'd allowed notifications again.</li>
               <li><strong>Two things worth a minute of your time. 🛒📅</strong> When we split “Direct Purchase”, everything you'd marked that way moved to <strong>Bought from Manufacturer</strong> — so My Crypt now asks you, once, whether any of those were actually secondhand finds. Answer “they were all bought new” and it goes away for good, or tap through and fix just the ones that were. Separately: adding a plush stamps today's date, so anything you backfilled is dated the day you typed it in rather than the day you got it. Those are now flagged with a <strong>?</strong> so you can correct them in a batch — dates you set yourself are left alone.</li>
@@ -2076,14 +2077,14 @@
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=224"></script>
-  <script src="./app-catalog.js?v=224"></script>
-  <script src="./app-collection.js?v=224"></script>
-  <script src="./app-ui.js?v=224"></script>
-  <script src="./app-trade.js?v=224"></script>
-  <script src="./app-account.js?v=224"></script>
-  <script src="./app-admin.js?v=224"></script>
-  <script src="./app-admin-catalog.js?v=224"></script>
-  <script src="./app-social.js?v=224"></script>
+  <script src="./app-core.js?v=225"></script>
+  <script src="./app-catalog.js?v=225"></script>
+  <script src="./app-collection.js?v=225"></script>
+  <script src="./app-ui.js?v=225"></script>
+  <script src="./app-trade.js?v=225"></script>
+  <script src="./app-account.js?v=225"></script>
+  <script src="./app-admin.js?v=225"></script>
+  <script src="./app-admin-catalog.js?v=225"></script>
+  <script src="./app-social.js?v=225"></script>
 </body>
 </html>

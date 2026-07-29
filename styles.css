@@ -4713,7 +4713,8 @@ body.maint-locked { overflow: hidden; }
 }
 
 .soc-more-comments { align-self: flex-start; font-size: 0.82rem; }
-.soc-comment-form { display: flex; gap: 8px; margin-top: 6px; align-items: center; }
+/* flex-end so Post/Send stays level with the last line as the box grows. */
+.soc-comment-form { display: flex; gap: 8px; margin-top: 6px; align-items: flex-end; }
 /* The 📷 attach control on comment/reply forms (0090). */
 .soc-comment-photo-btn { flex: 0 0 auto; cursor: pointer; line-height: 1; }
 .soc-comment-photo-ico { font-size: 1.15rem; }
@@ -4721,10 +4722,17 @@ body.maint-locked { overflow: hidden; }
   display: block; width: 30px; height: 30px; object-fit: cover;
   border-radius: 7px; border: 1px solid var(--gold);
 }
+/* A <textarea rows="1"> wearing the old input's pill, so Enter can be a
+   newline (JS grows it to fit, up to COMPOSER_MAX_HEIGHT, then it scrolls). */
 .soc-comment-input {
-  flex: 1; padding: 8px 12px; border-radius: 999px;
+  flex: 1; padding: 8px 12px; border-radius: 18px;
   border: 1px solid var(--border-rose-faint); background: var(--surface-2); font: inherit; color: var(--ink);
+  resize: none; overflow-y: auto; line-height: 1.35;
+  min-height: 38px; max-height: 132px;   /* keep in sync with COMPOSER_MAX_HEIGHT */
+  white-space: pre-wrap; overflow-wrap: anywhere;
 }
+/* One line of text still reads as the old pill. */
+.soc-comment-input:not(:focus):placeholder-shown { border-radius: 999px; }
 
 /* Reaction summary pill — tucked into the bubble's bottom-right corner. */
 .soc-react-summary {
@@ -4918,6 +4926,7 @@ body.maint-locked { overflow: hidden; }
   padding: 8px 12px; border-radius: 16px;
   background: var(--surface-2); color: var(--ink-1);
   overflow-wrap: anywhere;
+  white-space: pre-wrap;   /* messages can hold line breaks now */
 }
 .dm-mine .dm-bubble {
   background: var(--rose-1); color: #fff;

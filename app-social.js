@@ -260,6 +260,8 @@ function renderSocial() {
   else if (state.socSubTab === 'friends') renderFriends();
   else if (state.socSubTab === 'me') renderMyProfileTab();
   else if (state.socSubTab === 'messages') renderMessages();
+  // Any of those may have painted a composer holding a multi-line draft.
+  autoGrowAllComposers();
 }
 
 // ─── Private messages (db/0083) ─────────────────────────────────────
@@ -333,9 +335,13 @@ function dmConversationHtml() {
         ${msgs.length ? bubbles : '<p class="empty-note">No messages yet — say hi 🦇</p>'}
       </div>
       <form class="soc-comment-form dm-compose" data-soc-action="submit-dm">
-        <input type="text" id="dm-input" class="soc-comment-input" maxlength="2000"
-               data-draft-key="${dmDraftKey(p.id)}" value="${escapeHtml(stickyDraft(dmDraftKey(p.id)))}"
-               placeholder="Message @${escapeHtml(p.username)}…" autocomplete="off" />
+        ${composerBoxHtml({
+          id: 'dm-input',
+          draftKey: dmDraftKey(p.id),
+          value: stickyDraft(dmDraftKey(p.id)),
+          placeholder: `Message @${p.username}…`,
+          maxlength: 2000,
+        })}
         <button class="btn-primary" type="submit">Send</button>
       </form>
     </section>`;
@@ -681,6 +687,50 @@ function onDraftInput(e) {
   if (!input) return;
   setStickyDraft(input.dataset.draftKey, input.value);
 }
+
+// ─── The one composer box (comments, replies, edits, DMs) ───────────
+// It's a <textarea>, not an <input>, for a single reason: Enter has to add a
+// line break, not publish. A one-line <input> inside a <form> gets implicit
+// submission from the browser for free — which is how people kept posting
+// half-written thoughts (@nini: "I kept forgetting and accidentally publishing
+// my unfinished comment"). Sending is now always deliberate: the Post / Reply /
+// Save / Send button, or Ctrl/Cmd+Enter for anyone who types faster than they
+// point. The post composer was already a <textarea>, so this also ends the
+// inconsistency where the big box behaved one way and the small one another.
+//
+// rows="1" keeps the pill shape it had as an input; autoGrowComposer() grows it
+// as the text wraps, so a long comment is actually readable while you write it.
+const COMPOSER_MAX_HEIGHT = 132;   // ≈6 lines, then it scrolls internally
+
+function composerBoxHtml({ draftKey, value = '', placeholder = '', maxlength = 500, id = '' }) {
+  return `<textarea class="soc-comment-input" rows="1"${id ? ` id="${escapeHtml(id)}"` : ''} maxlength="${maxlength}" data-draft-key="${escapeHtml(draftKey)}" placeholder="${escapeHtml(placeholder)}" autocomplete="off">${escapeHtml(value)}</textarea>`;
+}
+
+// Height follows the content. Called on input, and again after any repaint —
+// a rebuilt box starts at one row even when it's holding four lines of draft.
+function autoGrowComposer(el) {
+  if (!el || el.tagName !== 'TEXTAREA') return;
+  el.style.height = 'auto';
+  el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
+}
+
+function autoGrowAllComposers(root = document) {
+  root.querySelectorAll?.('textarea.soc-comment-input').forEach(autoGrowComposer);
+}
+
+// Ctrl/Cmd+Enter sends. Plain Enter deliberately falls through to the browser's
+// own newline — that IS the feature.
+function onComposerKeydown(e) {
+  if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey)) return;
+  const box = e.target.closest?.('textarea.soc-comment-input');
+  const form = box?.closest('form');
+  if (!form) return;
+  e.preventDefault();
+  // requestSubmit fires the submit event the delegated handlers listen for;
+  // form.submit() would bypass them and reload the page.
+  if (typeof form.requestSubmit === 'function') form.requestSubmit();
+  else form.querySelector('button[type="submit"]')?.click();
+}
 // A repaint that happens while someone is typing must not yank the caret out
 // of the box. Capture where focus was, then put it back after the render.
 function withStickyFocus(render) {
@@ -688,6 +738,9 @@ function withStickyFocus(render) {
   const key = active?.dataset?.draftKey || null;
   const caret = key ? active.selectionStart : null;
   render();
+  // A rebuilt box starts one row tall even when it's holding four lines of
+  // restored draft, so re-fit every composer the repaint just created.
+  autoGrowAllComposers();
   if (!key) return;
   const back = document.querySelector(`[data-draft-key="${key}"]`);
   if (!back) return;
@@ -716,7 +769,7 @@ function commentBubbleHtml(c, postId) {
     const editKey = editDraftKey(c.id);
     const editVal = stickyDraft(editKey) || c.body;
     return `<form class="soc-comment-form soc-comment-edit-form" data-soc-action="submit-comment-edit" data-comment-id="${c.id}">
-         <input type="text" class="soc-comment-input" maxlength="500" data-draft-key="${editKey}" value="${escapeHtml(editVal)}" />
+         ${composerBoxHtml({ draftKey: editKey, value: editVal })}
          <button class="btn-primary" type="submit">Save</button>
          <button class="linklike" type="button" data-soc-action="cancel-edit-comment">Cancel</button>
        </form>`;
@@ -777,7 +830,11 @@ function renderComment(c, postId, depth = 0) {
         ${replying ? `
           <form class="soc-comment-form soc-reply-form" data-soc-action="submit-comment" data-post-id="${postId}" data-parent-id="${c.id}">
             ${commentPhotoPickerHtml()}
-            <input type="text" class="soc-comment-input" maxlength="500" data-draft-key="${commentDraftKey(postId, c.id)}" value="${escapeHtml(stickyDraft(commentDraftKey(postId, c.id)))}" placeholder="Reply to @${escapeHtml(c.authorName)}…" />
+            ${composerBoxHtml({
+              draftKey: commentDraftKey(postId, c.id),
+              value: stickyDraft(commentDraftKey(postId, c.id)),
+              placeholder: `Reply to @${c.authorName}…`,
+            })}
             <button class="btn-primary" type="submit">Reply</button>
           </form>` : ''}
         ${replies ? `<div class="soc-comment-replies">${replies}</div>` : ''}
@@ -872,7 +929,11 @@ function renderPostCard(p) {
       ${expanded ? `
         <form class="soc-comment-form" data-soc-action="submit-comment" data-post-id="${p.id}">
           ${commentPhotoPickerHtml()}
-          <input type="text" class="soc-comment-input" maxlength="500" data-draft-key="${commentDraftKey(p.id, null)}" value="${escapeHtml(stickyDraft(commentDraftKey(p.id, null)))}" placeholder="Add a comment… (@mention someone)" />
+          ${composerBoxHtml({
+            draftKey: commentDraftKey(p.id, null),
+            value: stickyDraft(commentDraftKey(p.id, null)),
+            placeholder: 'Add a comment… (@mention someone)',
+          })}
           <button class="btn-primary" type="submit">Post</button>
         </form>` : ''}
     </div>
@@ -1182,6 +1243,7 @@ function renderCryptFooter() {
       ${posts.length ? (posts.filter((p) => !isHiddenPost(p.id)).map(renderPostCard).join('') || `<p class="empty-note">No posts to show.</p>`) : `<p class="empty-note">No posts yet.</p>`}
     </section>`;
   el.insertAdjacentHTML('beforeend', renderBlockedManager());
+  autoGrowAllComposers(el);   // these post cards carry comment boxes too
 }
 
 // "Blocked collectors" manager — the only place to unblock someone whose
@@ -2034,6 +2096,13 @@ function wireSocialEvents() {
   // Every unsent comment / reply / edit / DM box saves itself as it's typed,
   // wherever in the app it's rendered (feed, profile, My Crypt rails).
   document.addEventListener('input', onDraftInput, true);
+  // …and grows to fit what's in it. Same capture phase, same reasoning: these
+  // boxes are rendered in a dozen places, so bind once at the document.
+  document.addEventListener('input', (e) => {
+    autoGrowComposer(e.target.closest?.('textarea.soc-comment-input'));
+  }, true);
+  // Ctrl/Cmd+Enter sends; plain Enter is a newline (see composerBoxHtml).
+  document.addEventListener('keydown', onComposerKeydown, true);
   // Sub-tabs.
   document.querySelectorAll('#social-view .subtab').forEach((s) => {
     s.addEventListener('click', async () => {
