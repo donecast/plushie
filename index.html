@@ -529,7 +529,7 @@
              their own picture of the actual plush. -->
         <label class="field hidden" id="field-photo">
           <span>Your photo (optional)</span>
-          <input type="file" id="f-photo" accept="image/*" />
+          <input type="file" id="f-photo" accept="image/*,.heic,.heif" />
           <span id="f-photo-name" class="soc-file-name"></span>
         </label>
 
@@ -680,7 +680,7 @@
 
         <label class="field hidden" id="cc-photo-field">
           <span>Photo (optional)</span>
-          <input type="file" id="cc-photo" accept="image/*" />
+          <input type="file" id="cc-photo" accept="image/*,.heic,.heif" />
           <span id="cc-photo-name" class="soc-file-name"></span>
         </label>
 
@@ -749,7 +749,7 @@
         <span>Real photos <span class="dim">— up to 5 actual pics of your plush, not the stock image</span></span>
         <div id="tl-suggestion" class="tl-suggestion hidden"></div>
         <div id="tl-photos" class="tl-photo-grid"></div>
-        <input type="file" id="tl-photo-input" accept="image/*" capture="environment" multiple hidden />
+        <input type="file" id="tl-photo-input" accept="image/*,.heic,.heif" capture="environment" multiple hidden />
         <button type="button" class="btn-ghost" id="tl-add-photo">📷 Add photo</button>
       </div>
       <div class="field hidden" id="tl-extras-field">
@@ -884,7 +884,7 @@
             <button type="button" class="ci-source-tab" data-ci-source="pick">Pick from a user's collection</button>
           </div>
           <div id="ci-source-upload">
-            <input type="file" id="ci-photo" accept="image/*" />
+            <input type="file" id="ci-photo" accept="image/*,.heic,.heif" />
           </div>
           <div id="ci-source-pick" class="hidden">
             <input type="text" id="ci-pick-user" placeholder="Type a username (e.g., amber)" autocomplete="off" autocapitalize="none" spellcheck="false" />
@@ -959,7 +959,7 @@
           <div id="co-photos-list" class="co-photos-list"></div>
           <div class="co-photo-add">
             <input id="co-photo-url" type="url" placeholder="Paste image URL…" />
-            <input id="co-photo-file" type="file" accept="image/*" class="co-photo-file" />
+            <input id="co-photo-file" type="file" accept="image/*,.heic,.heif" class="co-photo-file" />
             <input id="co-photo-slot" type="text" placeholder="Slot" maxlength="3" class="co-photo-slot" />
             <button type="button" class="btn-primary" data-admin-action="catalog-photo-add">Add photo</button>
           </div>
@@ -1027,7 +1027,7 @@
       <form id="suggest-photo-form">
         <label class="field">
           <span>Photo</span>
-          <input type="file" id="sp-photo" accept="image/*" required />
+          <input type="file" id="sp-photo" accept="image/*,.heic,.heif" required />
         </label>
         <p id="sp-photo-preview-wrap" class="dim" style="margin:6px 0 0;"></p>
         <label class="field">
@@ -1233,6 +1233,7 @@
           <div class="changelog-day">
             <h3 class="changelog-date">July 28, 2026</h3>
             <ul>
+              <li><strong>iPhone photos just work now. 📸</strong> iPhones shoot in a format called <strong>HEIC</strong>, and until now picking one meant your photo either wouldn't upload or came out broken for everyone who wasn't on an iPhone. HEIC and HEIF files are now converted for you the moment you choose them, anywhere you can add a picture — your crypt, trade listings, catalogue suggestions and your avatar. And if a file really can't be read, we say so instead of quietly saving a broken image.</li>
               <li><strong>Not getting any notifications? Now we tell you why. 🔕</strong> If your browser is the thing blocking them, the <strong>Reminders &amp; alerts</strong> switch in Settings now says so outright — with the exact steps to allow us again in the browser you're actually using, and a “check again” button for when you're done. Before this, the switch simply looked switched off, and a single accidental “Block” could leave you in silence for good, even after you'd allowed notifications again.</li>
               <li><strong>Two things worth a minute of your time. 🛒📅</strong> When we split “Direct Purchase”, everything you'd marked that way moved to <strong>Bought from Manufacturer</strong> — so My Crypt now asks you, once, whether any of those were actually secondhand finds. Answer “they were all bought new” and it goes away for good, or tap through and fix just the ones that were. Separately: adding a plush stamps today's date, so anything you backfilled is dated the day you typed it in rather than the day you got it. Those are now flagged with a <strong>?</strong> so you can correct them in a batch — dates you set yourself are left alone.</li>
               <li><strong>Bulk edit — stop opening plushes one at a time. ✏️</strong> There's a <strong>Bulk edit</strong> button on My Crypt (and a nudge in the grid if some of your items are missing details). Tick as many plushes as you like — or hit “Select all shown” — then set <strong>how</strong> you got them, <strong>when</strong>, or both, in one go. It opens on just the ones missing that info, and anything you leave blank stays exactly as it was. <em>(Thanks @nini and @ydkj — this one came out of the same conversation.)</em></li>
@@ -1789,7 +1790,7 @@
           <span class="soc-avatar soc-avatar-lg" id="acct-avatar-preview"></span>
           <label class="field">
             <span>Avatar</span>
-            <input type="file" id="acct-avatar" accept="image/*" />
+            <input type="file" id="acct-avatar" accept="image/*,.heic,.heif" />
             <span id="acct-avatar-name" class="soc-file-name"></span>
           </label>
         </div>
@@ -2075,14 +2076,14 @@
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=223"></script>
-  <script src="./app-catalog.js?v=223"></script>
-  <script src="./app-collection.js?v=223"></script>
-  <script src="./app-ui.js?v=223"></script>
-  <script src="./app-trade.js?v=223"></script>
-  <script src="./app-account.js?v=223"></script>
-  <script src="./app-admin.js?v=223"></script>
-  <script src="./app-admin-catalog.js?v=223"></script>
-  <script src="./app-social.js?v=223"></script>
+  <script src="./app-core.js?v=224"></script>
+  <script src="./app-catalog.js?v=224"></script>
+  <script src="./app-collection.js?v=224"></script>
+  <script src="./app-ui.js?v=224"></script>
+  <script src="./app-trade.js?v=224"></script>
+  <script src="./app-account.js?v=224"></script>
+  <script src="./app-admin.js?v=224"></script>
+  <script src="./app-admin-catalog.js?v=224"></script>
+  <script src="./app-social.js?v=224"></script>
 </body>
 </html>

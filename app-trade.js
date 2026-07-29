@@ -1182,8 +1182,8 @@ async function onTradeListAddPhotos(fileList) {
   for (const file of files) {
     if (d.photos.length >= TRADE_MAX_PHOTOS) { tlError('Up to 5 photos.'); break; }
     let blob;
-    try { blob = await compressImage(file); }
-    catch { tlError('Could not read that image.'); continue; }
+    try { blob = await compressPickedPhoto(file); }
+    catch (err) { tlError(err.message); continue; }
     // Reject the catalog stock image (near-duplicate dHash). Fail open if we
     // couldn't fingerprint the stock render (hammingDistance → Infinity).
     const shotHash = await perceptualHash(blob);

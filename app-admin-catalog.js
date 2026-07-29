@@ -208,7 +208,7 @@ async function submitCatalogItemForm(e) {
       // photo through to the catalog bucket (admin-only writes).
       imagePath = await data.adminCopyPhotoToCatalog(state.catalogItemPicked.photoPath, handle);
     } else if (photoFile) {
-      const compressed = await compressImage(photoFile).catch(() => photoFile);
+      const compressed = await compressPickedPhoto(photoFile);
       imagePath = await data.uploadCatalogImage(compressed, handle);
     }
 
@@ -516,7 +516,9 @@ async function catalogPhotoAdd() {
     let payload;
     if (file) {
       // Uploaded file → store in R2 (catalog bucket) and reference by path.
-      const path = await data.uploadCatalogPhotoFile(file, ctx.handle);
+      // Full resolution is kept here on purpose (gallery shots get viewed
+      // large); ensureDisplayableImage only steps in for HEIC.
+      const path = await data.uploadCatalogPhotoFile(await ensureDisplayableImage(file), ctx.handle);
       payload = { slot, imagePath: path, source: 'owner' };
     } else {
       // Hot-linked URL.
@@ -1050,7 +1052,7 @@ async function submitSuggestPhotoForm(e) {
   submit.disabled = true;
   submit.textContent = 'Sending…';
   try {
-    const compressed = await compressImage(file).catch(() => file);
+    const compressed = await compressPickedPhoto(file);
     const path = await data.uploadCatalogSuggestionImage(compressed, target.id);
     await data.suggestCatalogPhoto({
       targetShopifyId: target.kind === 'shopify' ? target.id : null,
