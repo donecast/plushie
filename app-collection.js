@@ -1942,7 +1942,8 @@ async function submitCustomClothing(e) {
 
   const photoFile = document.getElementById('cc-photo').files?.[0];
   if (photoFile && data.featureEnabled('feature.user_photo_uploads')) {
-    record.photo = await compressImage(photoFile).catch(() => photoFile);
+    try { record.photo = await compressPickedPhoto(photoFile); }
+    catch (err) { toast(err.message); return; }
   }
 
   try {
@@ -2014,7 +2015,8 @@ async function submitForm(e) {
   // item's path instead of keeping the catalog-sourced photo.
   const photoFile = document.getElementById('f-photo').files?.[0];
   if (photoFile && data.featureEnabled('feature.user_photo_uploads')) {
-    record.photo = await compressImage(photoFile).catch(() => photoFile);
+    try { record.photo = await compressPickedPhoto(photoFile); }
+    catch (err) { toast(err.message); return; }
     record.photoPath = null;
   }
 

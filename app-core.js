@@ -731,21 +731,105 @@ function itemStatus(item) {
   return 'available';
 }
 
-// ─── Photo compression ───────────────────────────────────────────────
-async function compressImage(file, maxDim = 800, quality = 0.82) {
-  let bitmap;
+// ─── Photo decoding (incl. HEIC/HEIF) ────────────────────────────────
+// Browsers don't agree on what counts as an image. They all read
+// JPEG/PNG/GIF/WebP and current ones read AVIF, but *only Safari* decodes
+// HEIC/HEIF — which is what iPhones shoot by default. So a .heic picked in
+// Chrome/Firefox fails both createImageBitmap() and <img>, and used to fall
+// through to "just upload the original", leaving a photo that renders as a
+// broken image for everyone who isn't on Safari.
+//
+// We decode those ourselves with libheif compiled to wasm
+// (vendor/libheif-bundle.js) and then re-encode to JPEG through the normal
+// compressImage() path, so nothing HEIC-shaped ever reaches storage. The
+// decoder is ~1.4 MB, so it's fetched lazily the first time someone actually
+// picks a HEIC — JPEG uploaders and Safari never pay for it.
+const HEIF_DECODER_SRC = './vendor/libheif-bundle.js';
+let _heifDecoderLoad = null;
+
+// Deliberately loose: this is only consulted *after* native decoding failed,
+// so a mislabelled JPEG never gets here. Windows and Linux routinely hand us
+// an empty or bogus MIME type for .heic, which leaves the filename as the
+// only tell.
+function isHeif(file) {
+  return /^image\/hei[cf]/i.test(file?.type || '') ||
+         /\.(heic|heif)$/i.test(file?.name || '');
+}
+
+// Resolves to the *instantiated* libheif module. The script tag leaves a
+// `libheif` global that is an Emscripten factory, not the module itself —
+// calling it is what materialises the wasm — so `new libheif.HeifDecoder()`
+// straight off the global (as the upstream README shows) throws. We call the
+// factory once and cache the result.
+function loadHeifDecoder() {
+  if (!_heifDecoderLoad) {
+    _heifDecoderLoad = new Promise((resolve, reject) => {
+      if (window.libheif) return resolve(window.libheif);
+      const s = document.createElement('script');
+      s.src = HEIF_DECODER_SRC;
+      s.onload = () => window.libheif
+        ? resolve(window.libheif)
+        : reject(new Error('HEIC decoder loaded but exposed no libheif'));
+      s.onerror = () => reject(new Error('HEIC decoder failed to load'));
+      document.head.appendChild(s);
+    }).then((factory) => factory()).catch((err) => {
+      _heifDecoderLoad = null;   // a flaky network shouldn't poison later picks
+      throw err;
+    });
+  }
+  return _heifDecoderLoad;
+}
+
+// Render the first frame of a HEIC/HEIF onto a canvas. A canvas is drawable
+// by everything downstream, so there's no intermediate JPEG round-trip.
+async function decodeHeif(file) {
+  const libheif = await loadHeifDecoder();
+  const images = new libheif.HeifDecoder().decode(new Uint8Array(await file.arrayBuffer()));
+  const image = images?.[0];   // a burst / Live Photo holds several frames
+  if (!image) throw new Error('no image found in HEIC file');
   try {
-    bitmap = await createImageBitmap(file);
-  } catch (e) {
-    // Fallback via HTMLImageElement for Safari/older browsers
-    bitmap = await new Promise((resolve, reject) => {
+    const width = image.get_width();
+    const height = image.get_height();
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(width, height);
+    await new Promise((resolve, reject) => {
+      image.display(imageData, (out) =>
+        out ? resolve(out) : reject(new Error('HEIC decode failed')));
+    });
+    ctx.putImageData(imageData, 0, 0);
+    return canvas;
+  } finally {
+    images.forEach((img) => img.free?.());   // release the wasm-side handles
+  }
+}
+
+// Turn a picked file into something canvas can draw: an ImageBitmap where the
+// browser can decode it, an <img> on engines without createImageBitmap, or a
+// libheif-rendered canvas for HEIC/HEIF. Throws if it's a format we genuinely
+// can't read — the caller must surface that rather than upload it blind.
+async function decodeImageFile(file) {
+  try {
+    return await createImageBitmap(file);
+  } catch (e) { /* not natively decodable here — keep trying */ }
+  try {
+    return await new Promise((resolve, reject) => {
       const img = new Image();
       const url = URL.createObjectURL(file);
       img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
       img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('image load failed')); };
       img.src = url;
     });
-  }
+  } catch (e) { /* fall through to the HEIC path */ }
+  if (isHeif(file)) return decodeHeif(file);
+  throw new Error('unsupported image format');
+}
+
+// ─── Photo compression ───────────────────────────────────────────────
+async function compressImage(file, maxDim = 800, quality = 0.82) {
+  const bitmap = await decodeImageFile(file);
   let { width, height } = bitmap;
   if (width > maxDim || height > maxDim) {
     const ratio = maxDim / Math.max(width, height);
@@ -764,6 +848,30 @@ async function compressImage(file, maxDim = 800, quality = 0.82) {
       quality
     );
   });
+}
+
+// Compress a photo the user just picked, turning a decode failure into a
+// message worth reading. Call sites must NOT fall back to uploading the
+// original file: something this app can't decode is something it can't
+// display either, so a silent fallback just stores a permanently broken
+// image (that's how the first .heic uploads got in).
+const UNREADABLE_PHOTO_MSG = 'Could not read that photo. Try a JPEG, PNG, HEIC, WebP or GIF.';
+
+async function compressPickedPhoto(file, maxDim, quality) {
+  try {
+    return await compressImage(file, maxDim, quality);
+  } catch (err) {
+    console.warn('compressImage failed for', file?.name, file?.type, err);
+    throw new Error(UNREADABLE_PHOTO_MSG);
+  }
+}
+
+// For the upload paths that deliberately keep the original resolution (admin
+// gallery photos): transcode a HEIC to JPEG, since nothing but Safari can
+// render one, but leave anything already displayable completely alone.
+async function ensureDisplayableImage(file) {
+  if (!isHeif(file)) return file;
+  return compressPickedPhoto(file, Infinity, 0.92);
 }
 
 // ─── Perceptual hash (dHash) ──────────────────────────────────────────

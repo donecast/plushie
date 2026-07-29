@@ -2403,10 +2403,10 @@ function wireEvents() {
     const file = e.target.files?.[0];
     if (!file) { state._acctAvatarBlob = null; syncAcctAvatarPreview(); return; }
     try {
-      state._acctAvatarBlob = await compressImage(file);
+      state._acctAvatarBlob = await compressPickedPhoto(file);
       document.getElementById('acct-avatar-name').textContent = '✓ ' + file.name;
       syncAcctAvatarPreview();
-    } catch (err) { console.warn('compress', err); toast('Could not read that image.'); }
+    } catch (err) { toast(err.message); }
   });
 
   document.getElementById('acct-theme').addEventListener('change', (e) => setTheme(e.target.value));
