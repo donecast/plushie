@@ -5082,6 +5082,23 @@ body.maint-locked { overflow: hidden; }
 }
 .soc-vault-count { font-size: 0.8rem; font-weight: 700; color: var(--ink-mute); }
 
+/* Profile preview (db/0104) — tier switcher + the "what they see" summary. */
+.soc-preview-tiers { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 8px; }
+.soc-preview-tiers .btn-chip.active {
+  border-color: var(--gold-border); background: var(--gold-soft-bg); font-weight: 800;
+}
+.soc-preview-summary {
+  margin: 0 0 10px; padding: 8px 10px; border-radius: 10px;
+  background: var(--surface-2); font-size: 0.86rem; color: var(--ink-1);
+}
+/* The preview is someone else's-eye-view, so give it an edge of its own
+   rather than letting it read as more of your own settings screen. */
+.soc-preview-body {
+  border: 1px dashed var(--border-rose-mild); border-radius: 12px;
+  padding: 10px; max-height: 58vh; overflow-y: auto;
+}
+.soc-preview-loading { padding: 24px 8px; text-align: center; }
+
 /* Top 8 picker (modal) */
 .soc-help { color: var(--ink-mute); font-size: 0.86rem; margin: 0 0 12px; }
 .soc-pick-grid {
