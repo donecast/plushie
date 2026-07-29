@@ -1314,7 +1314,12 @@ function closeProfileToFeed() {
   window.scrollTo({ top: state._socFeedScroll || 0, behavior: 'instant' });
 }
 
-function renderProfileInto(el, { profile, posts = [], top8 = [], relics = [], vault = [], friendship, isMe, withBack, unavailable, omitPosts, omitTop8, omitRelics, omitVault }) {
+// `preview` is a third mode alongside "mine" and "someone else's": it's my own
+// profile, but drawn the way a visitor at some tier would get it. So the vault
+// shows (isMe hides it, because your own crypt is right below), and none of the
+// relationship or edit buttons do — you can't befriend or report yourself, and
+// an Edit button in a preview would be a lie about what the visitor can do.
+function renderProfileInto(el, { profile, posts = [], top8 = [], relics = [], vault = [], friendship, isMe, withBack, unavailable, omitPosts, omitTop8, omitRelics, omitVault, preview }) {
   if (unavailable) {
     el.innerHTML = `
       ${withBack ? `<button class="linklike soc-back" data-soc-action="close-profile">← Back to feed</button>` : ''}
@@ -1323,11 +1328,14 @@ function renderProfileInto(el, { profile, posts = [], top8 = [], relics = [], va
       </div>`;
     return;
   }
-  const top8Html = renderTop8(top8, isMe);
+  const top8Html = renderTop8(top8, isMe && !preview);
   let relBtns = '';
-  if (isMe) {
+  if (preview) {
+    relBtns = '';   // a visitor's buttons would be pretend; show none
+  } else if (isMe) {
     relBtns = `<button class="btn-ghost" data-soc-action="edit-profile">Edit profile</button>
-               <button class="btn-ghost" data-soc-action="edit-top8">Edit Top 8 Buns</button>`;
+               <button class="btn-ghost" data-soc-action="edit-top8">Edit Top 8 Buns</button>
+               <button class="btn-ghost" data-soc-action="preview-profile">👁 Preview as…</button>`;
   } else {
     if (friendship === 'friends') {
       // Tier flags come from the loaded friends list; default to plain Coven.
@@ -1364,7 +1372,7 @@ function renderProfileInto(el, { profile, posts = [], top8 = [], relics = [], va
       <div class="soc-profile-id">
         <h2>@${escapeHtml(profile.username)}</h2>
         ${profile.displayName ? `<p class="soc-realname">${escapeHtml(profile.displayName)}</p>` : ''}
-        ${profile.bio ? `<p class="soc-bio">${linkifyMentions(profile.bio)}</p>` : (isMe ? `<p class="soc-bio soc-bio-empty">Add a bio to tell the crypt about yourself…</p>` : '')}
+        ${profile.bio ? `<p class="soc-bio">${linkifyMentions(profile.bio)}</p>` : (isMe && !preview ? `<p class="soc-bio soc-bio-empty">Add a bio to tell the crypt about yourself…</p>` : '')}
         ${renderSocialLinks(profile.socialLinks)}
         <div class="soc-profile-actions">${relBtns}</div>
       </div>
@@ -1373,7 +1381,7 @@ function renderProfileInto(el, { profile, posts = [], top8 = [], relics = [], va
       <h2 class="soc-section-head">Top 8 Buns 🐰</h2>
       ${top8Html}
     </section>`}
-    ${isMe || omitVault ? '' : `<section class="soc-section">
+    ${(isMe && !preview) || omitVault ? '' : `<section class="soc-section">
       <h2 class="soc-section-head">Crypt 🦇${vault.length ? ` <span class="soc-vault-count">${vault.length}</span>` : ''}</h2>
       ${renderVault(vault)}
     </section>`}
@@ -1382,7 +1390,7 @@ function renderProfileInto(el, { profile, posts = [], top8 = [], relics = [], va
       ${renderRelicShelf(relics, isMe)}
     </section>`}
     ${omitPosts ? '' : `<section class="soc-section">
-      <h2 class="soc-section-head">${isMe ? 'Your posts' : 'Posts'}</h2>
+      <h2 class="soc-section-head">${isMe && !preview ? 'Your posts' : 'Posts'}</h2>
       ${posts.length ? (posts.filter((p) => !isHiddenPost(p.id)).map(renderPostCard).join('') || `<p class="empty-note">No posts to show.</p>`) : `<p class="empty-note">No posts yet.</p>`}
     </section>`}`;
 }
@@ -1428,6 +1436,70 @@ function renderTop8(top8, isMe) {
       </div>`;
   }).join('');
   return `<div class="soc-top8-grid">${slots}</div>`;
+}
+
+// ─── Profile preview — "what do they actually see?" (db/0104) ───────
+// @ydkj asked for a way to preview how your profile looks to the public. The
+// tiers are a ladder in the picker (Public → Coven → Castle Crew → Coffin
+// Buddies), but nothing ever showed you the CONSEQUENCE of where you set it.
+//
+// Every number here comes from the server: preview_my_vault_as / _posts_as run
+// the same ladder the read policies do. Nothing is filtered in JS, because a
+// preview that guesses is worse than no preview — people set privacy by what
+// this screen tells them.
+const PREVIEW_TIERS = ['public', 'friends', 'inner', 'coffin_buddies'];
+
+async function openProfilePreview(tier = 'public') {
+  if (!window.currentUser) return;
+  const t = PREVIEW_TIERS.includes(tier) ? tier : 'public';
+  state.previewTier = t;
+  openSocialModal(`<div class="soc-preview-loading"><p class="empty-note">Looking at your crypt through their eyes…</p></div>`);
+  try {
+    const { items, posts } = await data.previewMyProfileAs(t);
+    renderProfilePreview(t, items, posts);
+  } catch (e) {
+    console.error('previewMyProfileAs', e);
+    // Say it plainly rather than render an empty profile that reads as "you're
+    // showing nothing" — that's the wrong answer to act on.
+    document.getElementById('social-modal-card').innerHTML = `
+      <button class="modal-close" data-close-social aria-label="Close">×</button>
+      <h2>Preview my profile</h2>
+      <p class="empty-note">Couldn't load the preview, so we're not going to guess at what
+         others can see. Try again in a moment.</p>`;
+  }
+}
+
+function renderProfilePreview(tier, items, posts) {
+  const meta = VIS_META[tier];
+  const chips = PREVIEW_TIERS.map((t) => `
+    <button type="button" class="btn-chip${t === tier ? ' active' : ''}" data-soc-action="preview-tier" data-tier="${t}">
+      ${VIS_META[t].glyph} ${escapeHtml(VIS_META[t].label)}
+    </button>`).join('');
+
+  const totalItems = (state.collection || []).length;
+  const hiddenItems = Math.max(0, totalItems - items.length);
+
+  document.getElementById('social-modal-card').innerHTML = `
+    <button class="modal-close" data-close-social aria-label="Close">×</button>
+    <h2>Seen as: ${meta.glyph} ${escapeHtml(meta.label)}</h2>
+    <p class="dim">${escapeHtml(meta.hint)} — this is your profile exactly as they get it.</p>
+    <div class="soc-preview-tiers">${chips}</div>
+    <p class="soc-preview-summary">
+      They see <strong>${items.length}</strong> of your ${totalItems} item${totalItems === 1 ? '' : 's'}${
+        hiddenItems ? ` · <strong>${hiddenItems}</strong> stay${hiddenItems === 1 ? 's' : ''} hidden` : ''
+      } · <strong>${posts.length}</strong> post${posts.length === 1 ? '' : 's'}.
+    </p>
+    <div class="soc-preview-body" id="soc-preview-body"></div>`;
+
+  renderProfileInto(document.getElementById('soc-preview-body'), {
+    profile: {
+      id: window.currentUser.id, username: window.currentUser.username,
+      displayName: state._myDisplayName, bio: state._myBio,
+      avatarUrl: state._myAvatarUrl, socialLinks: state._mySocialLinks,
+    },
+    posts, top8: state._myTop8 || [], relics: state._myRelics || [],
+    vault: items, isMe: true, preview: true,
+  });
 }
 
 // ─── Social modal (compose / edit profile / Top 8 picker) ───────────
@@ -2273,6 +2345,12 @@ function onSocialModalClick(e) {
   }
   const action = e.target.closest('[data-soc-action]')?.dataset.socAction;
   if (action === 'save-top8') { saveTop8(); return; }
+  // Profile preview lives in this modal, so its tier chips are dispatched here
+  // rather than by the #social-view delegate.
+  if (action === 'preview-tier') {
+    openProfilePreview(e.target.closest('[data-soc-action]').dataset.tier);
+    return;
+  }
   // Poll composer controls (0079).
   if (action === 'poll-toggle') {
     const fields = document.getElementById('soc-poll-fields');
@@ -2332,6 +2410,8 @@ async function onSocialClick(e) {
     case 'close-profile': closeProfileToFeed(); break;
     case 'edit-profile': closeSocialModal(); openAccountModal(); break;
     case 'edit-top8': openTop8Picker(); break;
+    case 'preview-profile': await openProfilePreview(state.previewTier || 'public'); break;
+    case 'preview-tier': await openProfilePreview(target.dataset.tier); break;
     case 'zoom-top8': openLightbox(target.dataset.src, target.dataset.name); break;
     case 'zoom-comment-photo': openLightbox(target.dataset.src, target.dataset.name || ''); break;
     case 'view-relic': openRelicCard(target.dataset.relicKey, target.dataset.earnedAt); break;

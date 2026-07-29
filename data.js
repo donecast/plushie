@@ -3327,6 +3327,30 @@ data.getUserVault = async function (userId) {
   return items;
 };
 
+// "How does my profile look to someone at tier X?" (db/0104). The tier ladder
+// is defined once, in SQL, next to the real can_see_item rule — a JS copy would
+// drift, and it would drift toward telling people their things are more private
+// than they are. Both RPCs are hard-wired to auth.uid(), so this can only ever
+// show you less of your OWN crypt.
+//
+// No silent degradation if the RPC is missing: a preview that quietly returns
+// nothing would read as "nobody can see anything", which is the most dangerous
+// wrong answer this feature could give.
+data.previewMyProfileAs = async function (tier) {
+  const [vaultRes, postRes] = await Promise.all([
+    sb.rpc('preview_my_vault_as', { p_tier: tier }),
+    sb.rpc('preview_my_posts_as', { p_tier: tier }),
+  ]);
+  if (vaultRes.error) throw vaultRes.error;
+  if (postRes.error) throw postRes.error;
+
+  const items = (vaultRes.data || []).map((r) => data._rowToItem(r, 'collection'));
+  await Promise.all(items.map(async (it) => {
+    if (it.photoPath) { try { it.photo = await data.photoUrl(it.photoPath); } catch { /* leave unresolved */ } }
+  }));
+  return { items, posts: await data._hydratePosts(postRes.data || []) };
+};
+
 // ─── Gifts + presents (db/0096) ─────────────────────────────────────
 // Mark / unmark one of my own plushes as a "present": marking forces Only-me
 // visibility (a present is a surprise) and sets the is_present flag for the
