@@ -989,6 +989,27 @@ function notifTabForTag(tag) {
 
 // Pull the recent inbox + paint the badge. Piggybacks the same triggers as
 // the other badges (boot, the 5-min social poll, the realtime stream).
+// Put the inbox under the bell. It's a top-level element (the header's
+// backdrop-filter makes the header a containing block for fixed children, which
+// silently threw the panel off-screen), so the anchoring that used to come free
+// from `position: absolute; top: 100%` is done here instead. On phones the CSS
+// sheet rules own the geometry — clear the inline values so they can.
+function positionNotifPanel() {
+  const panel = document.getElementById('notif-panel');
+  const btn = document.getElementById('notif-btn');
+  if (!panel || !btn) return;
+  // Must match the bottom-nav breakpoint in styles.css, NOT PHONE_MEDIA (768px):
+  // the sheet rules live in the same @media block as the bottom bar, and inline
+  // top/right would out-rank them for the 769–860px band.
+  if (window.matchMedia?.('(max-width: 860px)').matches) {
+    panel.style.top = panel.style.right = '';
+    return;
+  }
+  const r = btn.getBoundingClientRect();
+  panel.style.top = `${Math.round(r.bottom + 8)}px`;
+  panel.style.right = `${Math.round(Math.max(8, window.innerWidth - r.right))}px`;
+}
+
 async function refreshNotifBell() {
   const badge = document.getElementById('notif-badge');
   if (!badge || !window.currentUser) return;
@@ -1002,8 +1023,13 @@ async function refreshNotifBell() {
     } catch (_) { state._notifActors = state._notifActors || new Map(); }
   } catch (e) { console.warn('notif inbox', e); return; }
   const n = state._notifInbox.filter((r) => !r.seen_at).length;
-  badge.textContent = n;
-  badge.classList.toggle('hidden', n === 0);
+  // Header bell and the phone's 🔔 Alerts tab show the same count.
+  for (const id of ['notif-badge', 'bn-notif-badge']) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.textContent = n;
+    el.classList.toggle('hidden', n === 0);
+  }
   // Keep an open panel current (a realtime arrival while it's up).
   const panel = document.getElementById('notif-panel');
   if (panel && !panel.classList.contains('hidden')) renderNotifPanel();
@@ -1729,6 +1755,9 @@ function wireEvents() {
       // one enter logic.
       if (t.dataset.tab === 'messages') { document.getElementById('dm-btn')?.click(); return; }
       if (t.dataset.tab === 'coven') { document.getElementById('coven-btn')?.click(); return; }
+      // Same idea for 🔔 Alerts: it's an inbox, not a tab, so hand it to the
+      // header bell rather than duplicating the open + mark-seen logic.
+      if (t.dataset.tab === 'notifs') { document.getElementById('notif-btn')?.click(); return; }
       // A data-subtab (e.g. the wishlist thumbnails) lands on that crypt sub-tab.
       if (t.dataset.subtab) state.colSubTab = t.dataset.subtab;
       // Stirrings feed entries open the exact item they refer to (detail rail or
@@ -2300,6 +2329,7 @@ function wireEvents() {
     notifBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
       if (!notifPanel.classList.contains('hidden')) { closeNotifPanel(); return; }
+      positionNotifPanel();
       notifPanel.classList.remove('hidden');
       notifBtn.setAttribute('aria-expanded', 'true');
       if (!state._notifInbox) await refreshNotifBell();
@@ -2310,6 +2340,7 @@ function wireEvents() {
       const unseen = (state._notifInbox || []).filter((r) => !r.seen_at);
       if (unseen.length) {
         document.getElementById('notif-badge')?.classList.add('hidden');
+        document.getElementById('bn-notif-badge')?.classList.add('hidden');
         try { await data.markNotificationsSeen(unseen.map((r) => r.id)); } catch (err) { console.warn('notif seen', err); }
         const stamp = new Date().toISOString();
         unseen.forEach((r) => { r.seen_at = stamp; });
@@ -2317,6 +2348,10 @@ function wireEvents() {
     });
     document.addEventListener('click', (e) => {
       if (notifPanel.classList.contains('hidden')) return;
+      // The phone's 🔔 Alerts tab opens this by clicking the bell — but the
+      // real click keeps bubbling to here, and without this the panel would
+      // close in the same gesture that opened it.
+      if (e.target.closest?.('[data-tab="notifs"]')) return;
       if (!notifPanel.contains(e.target) && !notifBtn.contains(e.target)) closeNotifPanel();
     });
     notifPanel.addEventListener('click', (e) => {
