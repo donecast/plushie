@@ -1824,6 +1824,11 @@ function wireEvents() {
       render();
       // Defer to next frame so the new tab's grid has laid out.
       requestAnimationFrame(() => {
+        // A notification deep-link into the feed owns the scroll — don't restore
+        // the saved position on top of it (that's what used to land you at the
+        // old feed spot instead of the linked comment). openPostDeepLink clears
+        // the flag once it's centered.
+        if (state.tab === 'home' && state._pendingDeepLink) return;
         window.scrollTo({ top: tabScroll.get(state.tab) || 0, behavior: 'instant' });
       });
       saveFilters();

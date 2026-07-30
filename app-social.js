@@ -495,32 +495,57 @@ function updateDmBadge() {
 // the recent window (listFeed's 60), so a poll waits out an in-flight load and
 // falls back to a toast if the post has aged out. Post ids are uuids, safe to
 // interpolate straight into a selector.
+let _deepLinkTimer = null;
 function openPostDeepLink(postId, commentId) {
   if (!postId) return;
   // Force the Home feed surface (not a profile view or another sub-tab).
   state.socProfile = null;
   state.socSubTab = 'feed';
   if (commentId) state.socExpandedComments.add(postId);
+  // Publish the target BEFORE navigating: goToTab('home') runs an async
+  // tab-enter (await loadSocialData) that ends by restoring the feed's saved
+  // scroll — the home tab-enter checks this flag and steps aside so it doesn't
+  // clobber us (app-ui.js). We also drive the scroll ourselves below.
+  state._pendingDeepLink = { postId, commentId: commentId || null, flashed: false };
   goToTab('home');
   rerenderSocialCurrent();   // reflect the expand flag / feed sub-tab now
 
-  let tries = 0;
-  const seek = () => {
-    const node = (commentId && document.querySelector(`[data-comment-id="${commentId}"]`))
-      || document.querySelector(`[data-post-id="${postId}"]`);
-    if (node) {
-      node.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      node.classList.remove('notif-flash');
-      // Reflow so the animation restarts even if the class lingered.
-      void node.offsetWidth;
-      node.classList.add('notif-flash');
-      setTimeout(() => node.classList.remove('notif-flash'), 2200);
-      return;
+  // A single scroll loses a three-way race: the async scroll-restore lands
+  // AFTER us, and lazy images above the target shift it down after we've
+  // centered. So we re-center on an interval — preferring the exact comment,
+  // accepting the post only after the comment has had time to render — and keep
+  // correcting for ~2s past the first hit to outlast both. scrollIntoView is a
+  // no-op once it's already centered, so this is snap-once-then-stable.
+  if (_deepLinkTimer) clearInterval(_deepLinkTimer);
+  let tick = 0, hitTick = -1;
+  const step = () => {
+    const dl = state._pendingDeepLink;
+    if (!dl) { clearInterval(_deepLinkTimer); _deepLinkTimer = null; return; }
+    tick++;
+    const comment = dl.commentId ? document.querySelector(`[data-comment-id="${dl.commentId}"]`) : null;
+    const post = document.querySelector(`[data-post-id="${dl.postId}"]`);
+    const target = comment || ((!dl.commentId || tick >= 13) ? post : null);
+    if (target) {
+      if (hitTick < 0) hitTick = tick;
+      target.scrollIntoView({ block: 'center', behavior: 'auto' });
+      if (!dl.flashed) {
+        dl.flashed = true;
+        const flash = comment || target;
+        flash.classList.remove('notif-flash');
+        void flash.offsetWidth;   // reflow so the animation restarts
+        flash.classList.add('notif-flash');
+        setTimeout(() => flash.classList.remove('notif-flash'), 2200);
+      }
     }
-    if (++tries < 20) { setTimeout(seek, 150); return; }
-    if (typeof toast === 'function') toast('That post isn’t in your recent feed anymore.');
+    if ((hitTick >= 0 && tick - hitTick >= 16) || tick >= 67) {
+      if (hitTick < 0 && typeof toast === 'function') toast('That post isn’t in your recent feed anymore.');
+      state._pendingDeepLink = null;
+      clearInterval(_deepLinkTimer);
+      _deepLinkTimer = null;
+    }
   };
-  setTimeout(seek, 60);
+  step();   // first attempt now; the interval keeps correcting for late shifts
+  _deepLinkTimer = setInterval(step, 120);
 }
 
 function renderFeed() {
