@@ -12,10 +12,12 @@ Runs unauthenticated and read-only. Each run it:
   4. for each still-uncovered target, checks Plushie Dreadfuls' Okendo customer
      reviews for photos (multi-variant products are split by the review's
      variantId, so each colour is handled on its own),
-  5. builds a numbered contact-sheet montage per find, uploads it to litterbox
-     (72h temp host), and writes /tmp/pw_finds.json.
+  5. builds a numbered contact-sheet montage per find, uploads it to a temp
+     image host (litterbox 72h, with uguu/tmpfiles as short-lived fallbacks),
+     and writes /tmp/pw_finds.json.
 
-The scheduled agent reads pw_finds.json, posts new finds to Slack #plush-vault,
+The scheduled agent reads pw_finds.json, posts new finds to Slack
+#plush-crypt-coding,
 and applies the human's pick (insert catalog_photos + catalog_variant_covers via
 MCP). This script does NO writes and needs no secrets — handles/variant ids are
 already public on the storefront.
@@ -23,7 +25,7 @@ already public on the storefront.
 Usage:  python3 scripts/plush_photo_watch.py
 Output: /tmp/pw_finds.json  (+ /tmp/pw_montage_*.jpg, uploaded)
 """
-import json, re, io, os, sys, urllib.request, urllib.error
+import json, re, io, os, sys, time, urllib.request, urllib.error
 
 SUPABASE_URL = "https://ixymtbrvtysikhuitfta.supabase.co"
 ANON_KEY = "sb_publishable_QHMgOMOWHLTPhjW5S07Ryg_WqfaY0aR"
@@ -201,30 +203,76 @@ def build_montage(label, options, out_path):
     canvas.save(out_path, quality=85)
     return out_path
 
-def upload_litterbox(path):
-    """POST to litterbox (72h). Returns URL or None. Uses a manual multipart body."""
+def _multipart(fields, files):
+    """Build a multipart/form-data body. files: [(field, filename, ctype, bytes)]."""
     boundary = "----pwwatch7f3a2b"
-    def part(name, value, filename=None, ctype=None):
-        h = f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"'
-        if filename: h += f'; filename="{filename}"'
-        h += "\r\n"
-        if ctype: h += f"Content-Type: {ctype}\r\n"
-        return h.encode() + b"\r\n" + (value if isinstance(value, bytes) else value.encode()) + b"\r\n"
+    body = b""
+    for name, value in fields:
+        body += (f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n'
+                 ).encode() + value.encode() + b"\r\n"
+    for name, filename, ctype, data in files:
+        body += (f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; '
+                 f'filename="{filename}"\r\nContent-Type: {ctype}\r\n\r\n').encode() + data + b"\r\n"
+    body += f"--{boundary}--\r\n".encode()
+    return boundary, body
+
+def _post_multipart(url, fields, files, timeout=90):
+    boundary, body = _multipart(fields, files)
+    req = urllib.request.Request(url, data=body, headers={
+        "Content-Type": f"multipart/form-data; boundary={boundary}",
+        "User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read().decode().strip()
+
+def _up_litterbox(name, data):
+    """litterbox.catbox.moe — 72h retention. Returns a bare URL string."""
+    out = _post_multipart("https://litterbox.catbox.moe/resources/internals/api.php",
+                          [("reqtype", "fileupload"), ("time", "72h")],
+                          [("fileToUpload", name, "image/jpeg", data)])
+    return out if out.startswith("http") else None
+
+def _up_uguu(name, data):
+    """uguu.se — ~3h retention. JSON response."""
+    out = _post_multipart("https://uguu.se/upload", [], [("files[]", name, "image/jpeg", data)])
+    u = (json.loads(out).get("files") or [{}])[0].get("url")
+    return u if u and u.startswith("http") else None
+
+def _up_tmpfiles(name, data):
+    """tmpfiles.org — ~1h retention. Needs /dl/ inserted for a direct image URL."""
+    out = _post_multipart("https://tmpfiles.org/api/v1/upload", [], [("file", name, "image/jpeg", data)])
+    u = ((json.loads(out).get("data") or {}).get("url") or "")
+    return u.replace("tmpfiles.org/", "tmpfiles.org/dl/", 1) if u.startswith("http") else None
+
+# Ordered by retention: litterbox is the only host that outlives a 4-day run
+# cadence, so it stays first and gets retries. The rest are last-resort so a run
+# is never montage-less — their links die fast, so a stale one means "re-post".
+UPLOAD_HOSTS = [("litterbox", _up_litterbox, 3), ("uguu", _up_uguu, 1), ("tmpfiles", _up_tmpfiles, 1)]
+
+def upload_montage(path):
+    """Upload a montage to the first temp host that accepts it. None if all fail.
+
+    litterbox 500s intermittently (it did on 2026-08-01, costing that run its
+    contact sheets), so every host is retried with backoff before falling over.
+    """
     with open(path, "rb") as f:
-        filedata = f.read()
-    body = (part("reqtype", "fileupload") + part("time", "72h")
-            + part("fileToUpload", filedata, os.path.basename(path), "image/jpeg")
-            + f"--{boundary}--\r\n".encode())
-    req = urllib.request.Request("https://litterbox.catbox.moe/resources/internals/api.php",
-        data=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary}",
-                            "User-Agent": "Mozilla/5.0"})
-    try:
-        with urllib.request.urlopen(req, timeout=90) as r:
-            out = r.read().decode().strip()
-        return out if out.startswith("http") else None
-    except Exception as e:
-        print(f"upload failed for {path}: {e}", file=sys.stderr)
-        return None
+        data = f.read()
+    name = os.path.basename(path)
+    for host, fn, tries in UPLOAD_HOSTS:
+        for attempt in range(1, tries + 1):
+            try:
+                url = fn(name, data)
+                if url:
+                    if host != UPLOAD_HOSTS[0][0]:
+                        print(f"note: {name} uploaded via fallback host {host} "
+                              f"(short retention — re-post if the link dies)", file=sys.stderr)
+                    return url
+                raise ValueError("host returned no URL")
+            except Exception as e:
+                print(f"upload {host} attempt {attempt}/{tries} failed for {name}: {e}",
+                      file=sys.stderr)
+                if attempt < tries:
+                    time.sleep(2 ** attempt)
+    return None
 
 # ── main ────────────────────────────────────────────────────────────
 def main():
@@ -282,7 +330,7 @@ def main():
         label = f["name"] + (f" — {f['variant_name']}" if f["variant_name"] else "")
         path = f"/tmp/pw_montage_{i}_{(f['variant_id'] or f['handle'])[:24]}.jpg"
         if build_montage(label, f["options"], path):
-            f["montage_url"] = upload_litterbox(path)
+            f["montage_url"] = upload_montage(path)
         else:
             f["montage_url"] = None
 
