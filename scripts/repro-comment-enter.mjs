@@ -87,7 +87,7 @@ out.composersAreTextareas = await page.evaluate(() => {
 out.keepsDraftKey = await page.evaluate(() =>
   !!document.querySelector('.soc-comment-input[data-draft-key]'));
 out.keepsMaxLength = await page.evaluate(() =>
-  document.querySelector('.soc-comment-input').maxLength === 500);
+  document.querySelector('.soc-comment-input').maxLength === 750);
 
 // ── The actual complaint: Enter must NOT publish ──
 await page.click(COMMENT);
