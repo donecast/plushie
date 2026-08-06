@@ -4747,8 +4747,11 @@ body.maint-locked { overflow: hidden; }
 .soc-comment-input {
   flex: 1; padding: 8px 12px; border-radius: 18px;
   border: 1px solid var(--border-rose-faint); background: var(--surface-2); font: inherit; color: var(--ink);
-  resize: none; overflow-y: auto; line-height: 1.35;
-  min-height: 38px; max-height: 132px;   /* keep in sync with COMPOSER_MAX_HEIGHT */
+  /* Drag the corner to pull the box open — see autoGrowComposer(). No
+     max-height on purpose: the 198px auto-grow ceiling is applied in JS so it
+     caps growth-while-typing WITHOUT capping how far a person can drag. */
+  resize: vertical; overflow-y: auto; line-height: 1.35;
+  min-height: 38px;
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
 /* One line of text still reads as the old pill. */

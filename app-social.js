@@ -702,7 +702,9 @@ function setStickyDraft(key, text) {
   try { localStorage.setItem(draftStoreKey(), JSON.stringify(drafts)); }
   catch { /* private mode — in-memory state still survives repaints */ }
 }
-function clearStickyDraft(key) { setStickyDraft(key, ''); }
+// Sent, or an edit cancelled: the text goes, and so does any height the writer
+// dragged this box to — the next person to open it starts from the pill again.
+function clearStickyDraft(key) { setStickyDraft(key, ''); clearComposerHeight(key); }
 function commentDraftKey(postId, parentId) { return `c:${postId}:${parentId || ''}`; }
 function editDraftKey(commentId) { return `e:${commentId}`; }
 function dmDraftKey(partnerId) { return `d:${partnerId}`; }
@@ -725,7 +727,7 @@ function onDraftInput(e) {
 //
 // rows="1" keeps the pill shape it had as an input; autoGrowComposer() grows it
 // as the text wraps, so a long comment is actually readable while you write it.
-const COMPOSER_MAX_HEIGHT = 132;   // ≈6 lines, then it scrolls internally
+const COMPOSER_MAX_HEIGHT = 198;   // ≈9 lines, then it scrolls internally
 
 // Text ceilings for the two composers. DM_MAX_LEN must stay in sync with the
 // char_length check on direct_messages.body (db/0105).
@@ -736,12 +738,94 @@ function composerBoxHtml({ draftKey, value = '', placeholder = '', maxlength = C
   return `<textarea class="soc-comment-input" rows="1"${id ? ` id="${escapeHtml(id)}"` : ''} maxlength="${maxlength}" data-draft-key="${escapeHtml(draftKey)}" placeholder="${escapeHtml(placeholder)}" autocomplete="off">${escapeHtml(value)}</textarea>`;
 }
 
-// Height follows the content. Called on input, and again after any repaint —
-// a rebuilt box starts at one row even when it's holding four lines of draft.
+// ─── Composer height: auto-grow, until you take the wheel ──────────────
+// Height follows the content up to COMPOSER_MAX_HEIGHT, after which the box
+// scrolls internally — which is fine for a two-line reply and miserable for a
+// long one, where you can only ever see the last few lines of what you wrote.
+// So the box also has a drag handle (`resize: vertical`): pull it down and you
+// see the whole thing at once, as tall as you like. The moment you drag, we
+// stop auto-sizing that box and remember YOUR height against its draft key —
+// the feed repaints constantly (new comment, DM poll, tab hop) and each repaint
+// rebuilds the textarea from scratch, so without this your drag would snap back
+// within seconds, exactly the way half-typed drafts used to vanish.
+function composerHeights() { return (state.socComposerHeights ||= {}); }
+
 function autoGrowComposer(el) {
   if (!el || el.tagName !== 'TEXTAREA') return;
-  el.style.height = 'auto';
-  el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
+  watchComposerDrag(el);
+  const dragged = composerHeights()[el.dataset.draftKey];
+  if (dragged) {
+    el.style.height = `${dragged}px`;
+  } else {
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
+  }
+  // What WE just set. Any later height that differs from this was a human
+  // dragging the handle — that's the only other thing that can move it, since
+  // an explicit px height doesn't budge when the text rewraps.
+  el.dataset.autoHeight = String(Math.round(el.offsetHeight));
+}
+
+let composerResizeObserver = null;
+function watchComposerDrag(el) {
+  if (el.dataset.dragWatched || typeof ResizeObserver === 'undefined') return;
+  composerResizeObserver ||= new ResizeObserver((entries) => {
+    for (const { target } of entries) {
+      // A repaint tears the old box out of the DOM, and a detached element
+      // measures 0 — which would read as "they dragged it shut" and wipe the
+      // height we're trying to preserve. Drop it (and stop watching it).
+      if (!target.isConnected) { composerResizeObserver.unobserve(target); continue; }
+      const ours = Number(target.dataset.autoHeight || 0);
+      const now = Math.round(target.offsetHeight);
+      if (!now || !ours || Math.abs(now - ours) <= 2) continue;   // 2px of layout noise
+      const key = target.dataset.draftKey;
+      if (key) composerHeights()[key] = now;
+      target.dataset.autoHeight = String(now);
+    }
+  });
+  composerResizeObserver.observe(el);
+  el.dataset.dragWatched = '1';
+}
+
+function clearComposerHeight(key) { delete composerHeights()[key]; }
+
+// The browser's own resize corner is mouse-only — iOS and Android simply don't
+// let a finger drag it. Since this app is used on a phone first, we drive the
+// same corner ourselves for touch/pen: press within the grip square and drag.
+const COMPOSER_GRIP_PX = 30;
+
+function onComposerGripDown(e) {
+  if (e.pointerType === 'mouse') return;   // desktop already has the native grip
+  const box = e.target.closest?.('textarea.soc-comment-input');
+  if (!box) return;
+  const r = box.getBoundingClientRect();
+  if (e.clientX < r.right - COMPOSER_GRIP_PX || e.clientY < r.bottom - COMPOSER_GRIP_PX) return;
+  // Otherwise the gesture scrolls the feed out from under the box instead.
+  e.preventDefault();
+  const startY = e.clientY;
+  const startH = box.offsetHeight;
+  // Keeps the drag alive if the finger slides off the box. Not worth failing
+  // the whole gesture over — some engines refuse the capture outright.
+  try { box.setPointerCapture?.(e.pointerId); } catch { /* drag still works */ }
+  const onMove = (ev) => setComposerHeight(box, Math.max(38, startH + (ev.clientY - startY)));
+  const onDone = () => {
+    box.removeEventListener('pointermove', onMove);
+    box.removeEventListener('pointerup', onDone);
+    box.removeEventListener('pointercancel', onDone);
+  };
+  box.addEventListener('pointermove', onMove);
+  box.addEventListener('pointerup', onDone);
+  box.addEventListener('pointercancel', onDone);
+}
+
+// One place that both applies a dragged height and records it, so a repaint
+// mid-drag can't lose it (same reasoning as the sticky drafts).
+function setComposerHeight(box, px) {
+  const h = Math.round(px);
+  box.style.height = `${h}px`;
+  box.dataset.autoHeight = String(h);
+  const key = box.dataset.draftKey;
+  if (key) composerHeights()[key] = h;
 }
 
 function autoGrowAllComposers(root = document) {
@@ -2205,6 +2289,8 @@ function wireSocialEvents() {
   }, true);
   // Ctrl/Cmd+Enter sends; plain Enter is a newline (see composerBoxHtml).
   document.addEventListener('keydown', onComposerKeydown, true);
+  // Touch can't grab the browser's native resize corner, so we drive it.
+  document.addEventListener('pointerdown', onComposerGripDown, true);
   // Sub-tabs.
   document.querySelectorAll('#social-view .subtab').forEach((s) => {
     s.addEventListener('click', async () => {
