@@ -340,7 +340,7 @@ function dmConversationHtml() {
           draftKey: dmDraftKey(p.id),
           value: stickyDraft(dmDraftKey(p.id)),
           placeholder: `Message @${p.username}…`,
-          maxlength: 2000,
+          maxlength: DM_MAX_LEN,
         })}
         <button class="btn-primary" type="submit">Send</button>
       </form>
@@ -727,7 +727,12 @@ function onDraftInput(e) {
 // as the text wraps, so a long comment is actually readable while you write it.
 const COMPOSER_MAX_HEIGHT = 132;   // ≈6 lines, then it scrolls internally
 
-function composerBoxHtml({ draftKey, value = '', placeholder = '', maxlength = 500, id = '' }) {
+// Text ceilings for the two composers. DM_MAX_LEN must stay in sync with the
+// char_length check on direct_messages.body (db/0105).
+const COMMENT_MAX_LEN = 750;
+const DM_MAX_LEN = 3000;
+
+function composerBoxHtml({ draftKey, value = '', placeholder = '', maxlength = COMMENT_MAX_LEN, id = '' }) {
   return `<textarea class="soc-comment-input" rows="1"${id ? ` id="${escapeHtml(id)}"` : ''} maxlength="${maxlength}" data-draft-key="${escapeHtml(draftKey)}" placeholder="${escapeHtml(placeholder)}" autocomplete="off">${escapeHtml(value)}</textarea>`;
 }
 
