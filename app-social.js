@@ -2052,8 +2052,21 @@ async function submitEditProfile(e) {
 }
 
 // Top 8 picker — drag-free, click to add/remove from an ordered list.
-function openTop8Picker() {
-  const existing = state.socProfile?.top8 || state._myTop8 || [];
+async function openTop8Picker() {
+  // The starting lineup comes from the SERVER, always. The old seed —
+  // state.socProfile?.top8 || state._myTop8 — could be someone ELSE's list
+  // (socProfile survives switching Home → My Crypt after viewing a friend's
+  // profile) or an empty cache after a failed refresh; either way the picker
+  // opened blank with Tom's box unchecked, and Save then wrote that emptiness
+  // over the user's real Top 8. If we can't load the truth, don't open a
+  // picker whose Save would wipe it.
+  let existing;
+  try { existing = await data.getTopPlushes(window.currentUser.id); }
+  catch (err) {
+    console.error('openTop8Picker load', err);
+    toast('Could not load your current Top 8 Buns — try again in a moment.');
+    return;
+  }
   const current = existing.map((t) => t.plushName);
   // Fresh per-bun uploads staged this session, keyed by plush name.
   state.top8PhotoBlobs = {};
@@ -2092,6 +2105,13 @@ function openTop8Picker() {
         <input type="file" class="soc-pick-file" accept="image/*" hidden />
       </div>`;
   }).join('');
+  // Rank = the order picks were made, and a re-save keeps the SAVED order.
+  // Ranks used to be read off DOM order (collection-grid order), which both
+  // broke the "order = pick order" promise for new picks and scrambled an
+  // existing lineup on every edit. Track the order explicitly instead: saved
+  // positions first (only ones actually present in the grid), taps append.
+  const gridNames = new Set(state.collection.map((p) => p.nickname || p.name));
+  state._top8Order = current.filter((n) => gridNames.has(n));
   openSocialModal(`
     <button class="modal-close" data-close-social aria-label="Close">×</button>
     <h2>Pick your Top 8 Buns</h2>
@@ -2109,12 +2129,21 @@ function openTop8Picker() {
 }
 
 function refreshTop8Ranks() {
-  const picked = [...document.querySelectorAll('.soc-pick.picked')];
-  picked.forEach((b, i) => { b.querySelector('.soc-pick-rank').textContent = `#${i + 1}`; });
+  const order = state._top8Order || [];
+  document.querySelectorAll('.soc-pick').forEach((b) => {
+    const i = b.classList.contains('picked') ? order.indexOf(b.dataset.name) : -1;
+    b.querySelector('.soc-pick-rank').textContent = i >= 0 ? `#${i + 1}` : '';
+  });
 }
 
 async function saveTop8() {
-  const picked = [...document.querySelectorAll('.soc-pick.picked')];
+  const pickedBtns = [...document.querySelectorAll('.soc-pick.picked')];
+  // Save in pick order (state._top8Order), not DOM order. Any picked cell the
+  // order list somehow missed still rides along at the end rather than being
+  // dropped.
+  const order = state._top8Order || [];
+  const picked = order.map((n) => pickedBtns.find((b) => b.dataset.name === n)).filter(Boolean);
+  for (const b of pickedBtns) if (!picked.includes(b)) picked.push(b);
   if (picked.length > 8) { toast('Pick at most 8.'); return; }
   const blobs = state.top8PhotoBlobs || {};
   const entries = [];
@@ -2456,6 +2485,11 @@ function onSocialModalClick(e) {
       return;
     }
     pick.classList.toggle('picked');
+    // Keep the explicit pick order in step: a new pick appends, an unpick
+    // drops out (everything after it moves up a rank).
+    const nm = pick.dataset.name;
+    state._top8Order = (state._top8Order || []).filter((n) => n !== nm);
+    if (pick.classList.contains('picked')) state._top8Order.push(nm);
     refreshTop8Ranks();
     return;
   }
