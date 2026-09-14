@@ -92,7 +92,7 @@ const measure = (page) => page.evaluate(() => {
     navBottom: Math.round(r.bottom), navHeight: Math.round(r.height),
     panelBottom: Math.round(p.bottom),
     visualBottom: Math.round(vv.offsetTop + vv.height),
-    shiftVar: document.documentElement.style.getPropertyValue('--vv-shift') || '',
+    shiftVar: document.documentElement.style.getPropertyValue('--nav-fix') || '',
     kbUp: nav.classList.contains('kb-up'),
     visible: getComputedStyle(nav).visibility === 'visible',
     display: getComputedStyle(nav).display,
@@ -126,9 +126,9 @@ const out = {};
   // Where the bar WOULD have been with only the CSS (layout-viewport coords,
   // so the screen's bottom edge is at visualBottom): prove the bug existed.
   out.stuckWithoutSync = await page.evaluate(() => {
-    document.documentElement.style.setProperty('--vv-shift', '0px');
+    document.documentElement.style.setProperty('--nav-fix', '0px');
     const b = Math.round(document.querySelector('.bottom-nav').getBoundingClientRect().bottom);
-    document.documentElement.style.setProperty('--vv-shift', '300px');
+    document.documentElement.style.setProperty('--nav-fix', '300px');
     return b;
   });
 
@@ -183,6 +183,44 @@ const out = {};
   await page.close();
 }
 
+// ─── Phase 3: a NON-viewport cause ───────────────────────────────
+// The #229 telemetry showed the visual viewport is innocent on the real
+// phones: vvTop 0, scale 1, errors of ±1–21px. So the correction must also
+// handle the other classic way a `position: fixed` bar lands mid-screen — an
+// ancestor with a transform (or filter/contain/will-change) taking over as the
+// containing block, so `bottom: 0` means the bottom of THAT box, not the
+// screen. The old visual-viewport maths was blind to this by construction:
+// it compared two viewports and never looked at where the bar actually was.
+{
+  const page = await browser.newPage({ viewport: { width: W, height: H }, hasTouch: true, isMobile: true });
+  await bootShell(page, { fakeViewport: false });
+  out.beforeHijack = await measure(page);
+  await page.evaluate(() => {
+    const nav = document.querySelector('.bottom-nav');
+    const wrap = document.createElement('div');
+    wrap.className = 'cb-thief';
+    // A transformed, 500px-tall box: now IT is the containing block, and
+    // `bottom: 0` puts the bar 500px down the page instead of 844.
+    wrap.style.cssText = 'transform: translateZ(0); position: absolute; top: 0; left: 0; right: 0; height: 500px;';
+    nav.parentElement.appendChild(wrap);
+    wrap.appendChild(nav);
+  });
+  await page.waitForTimeout(50);
+  // What it looks like with the correction switched off: the bug, reproduced.
+  out.hijackedRaw = await page.evaluate(() => {
+    const before = document.documentElement.style.getPropertyValue('--nav-fix');
+    document.documentElement.style.setProperty('--nav-fix', '0px');
+    const b = Math.round(document.querySelector('.bottom-nav').getBoundingClientRect().bottom);
+    if (before) document.documentElement.style.setProperty('--nav-fix', before);
+    return b;
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event('resize')));
+  await page.waitForTimeout(50);
+  out.hijackedFixed = await measure(page);
+  out.hijackDrift = await page.evaluate(() => (window.__tracked || []).filter((t) => t.event === 'bottom_nav_drift').pop());
+  await page.close();
+}
+
 await browser.close();
 server.close();
 
@@ -195,13 +233,16 @@ const checks = [
   ['stuck after keyboard: bar is back on the screen bottom edge', onEdge(out.stuck) && out.stuck.visible && !out.stuck.kbUp && out.stuck.shiftVar === '300px'],
   ['stuck after keyboard: the Alerts sheet moved with it', out.stuck.panelBottom === out.stuck.visualBottom - 66],
   ['keyboard close with a leftover offset nudges Safari with a no-op scroll', out.stuckNudged >= 1],
-  ['a drift is recorded once, with the geometry, for the analytics table', out.driftRecords.length === 1 && out.driftRecords[0].props.shift === 300 && out.driftRecords[0].props.vvTop === 300 && out.driftRecords[0].props.v === 234],
+  ['a drift is recorded once, with the geometry, for the analytics table', out.driftRecords.length === 1 && out.driftRecords[0].props.fix === 300 && out.driftRecords[0].props.vvTop === 300 && out.driftRecords[0].props.v === 235],
   ['a silent drift (no viewport event) is caught by the focusout settle', onEdge(out.afterSilentBlur) && out.afterSilentBlur.shiftVar === '200px'],
   ['recovered: shift cleared, bar back at bottom: 0', onEdge(out.recovered) && out.recovered.shiftVar === '' && out.recovered.navBottom === H],
   ['stuck while the feed is scrolled: still on the edge, page scroll untouched', onEdge(out.stuckScrolled) && out.pageScrollKept === 1200],
   ['desktop: bar hidden, no shift written', out.desktop.display === 'none' && out.desktop.shiftVar === ''],
   ['real Chrome pinch-zoom: visual viewport really did offset', out.realZoomOffsetTop > 0],
   ['real Chrome pinch-zoom: bar lands on the real visual bottom edge', Math.abs(out.realZoom.navBottom - out.realZoom.visualBottom) <= 1 && out.realZoom.shiftVar !== ''],
+  ['transformed ancestor: reproduces the bug — bar paints 500px down, mid-screen', out.hijackedRaw === 500 && out.beforeHijack.navBottom === H],
+  ['transformed ancestor: corrected back onto the screen bottom edge', onEdge(out.hijackedFixed) && out.hijackedFixed.navBottom === H],
+  ['transformed ancestor: the diagnostic names the thief', !!out.hijackDrift && out.hijackDrift.props.anc.some((a) => a.includes('cb-thief') && a.includes('transform')) && out.hijackDrift.props.navPos === 'fixed'],
 ];
 let ok = true;
 for (const [label, pass] of checks) { console.log(`${pass ? 'PASS' : 'FAIL'}  ${label}`); if (!pass) ok = false; }

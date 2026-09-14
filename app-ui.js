@@ -988,71 +988,89 @@ function notifTabForTag(tag) {
 }
 
 // ─── Keep the phone's bottom bar on the *screen's* bottom edge ───────────
-// `position: fixed; bottom: 0` pins the bar to the LAYOUT viewport, and on iOS
-// that is not always where the screen's bottom is. When the keyboard opens,
-// Safari doesn't shrink the layout viewport — it scrolls the *visual* viewport
-// up inside it to show the field — and in an installed (standalone) PWA it
-// often never scrolls it back after the keyboard closes (WebKit bug). The layout
-// viewport's bottom edge then sits mid-screen, and so does anything fixed to it:
-// exactly the "bottom bar floating in the middle of the feed" report. A leftover
-// pinch-zoom does the same thing. (#188 stopped the input auto-zoom; this is the
-// remaining, keyboard-shaped cause.)
+// Amber: "the bottom bar is not sticky and it keeps moving up to the middle."
 //
-// So instead of trusting the layout viewport, follow the visual one: on every
-// visual-viewport resize/scroll, measure how far its bottom edge is from where
-// the bar's fixed position lands, and shift the bar (and the Alerts sheet that
-// sits on it) by that much via --vv-shift. While the keyboard is up the bar
-// tucks away (`kb-up`) rather than hover over the field you're typing into —
-// the way a native tab bar does.
+// Two theories have already been wrong about WHY (#188 input auto-zoom, #228
+// the iOS keyboard leaving the visual viewport scrolled). The on-device
+// telemetry from #229 killed the second one outright: every recorded drift had
+// vvTop 0, scale 1 and an error of ±1–21px — URL-bar and overscroll noise, not
+// the hundreds of pixels in the screenshot.
+//
+// So stop theorising about the cause and correct the SYMPTOM. Measure where the
+// bar actually paints (getBoundingClientRect, which includes every transform,
+// containing-block and compositing quirk in the chain) against where the bottom
+// of the visible screen is. Any disagreement gets translated away. That holds
+// whether the cause is a transformed ancestor stealing the containing block, a
+// WebKit compositing bug, a stale layout viewport, or something we haven't
+// thought of yet — none of which we have to name to cancel out.
+//
+// The correction is computed from the bar's RESTING position (painted position
+// minus the correction already applied), so it converges in one step instead of
+// oscillating. Errors under NAV_DEAD_ZONE are left alone: iOS moves the bar a
+// few px legitimately as the URL bar collapses and during overscroll bounce,
+// and chasing that would only make the bar jitter.
 //
 // Testable: `vv` is injectable so the maths can be driven without a real
 // keyboard (scripts/repro-bottom-nav-viewport.mjs).
 const KEYBOARD_MIN_PX = 150;   // visual viewport this much shorter than layout = keyboard
+const NAV_DEAD_ZONE = 24;      // measured real-world noise tops out at 21px
+
+function bottomNavAppliedFix() {
+  const v = document.documentElement.style.getPropertyValue('--nav-fix');
+  return v ? (parseFloat(v) || 0) : 0;
+}
 
 function syncBottomNavToViewport(vv = window.visualViewport) {
   const nav = document.querySelector('.bottom-nav');
   const root = document.documentElement;
   if (!nav || !vv || !nav.offsetHeight) {   // wide screens: the bar isn't shown
-    root.style.removeProperty('--vv-shift');
+    root.style.removeProperty('--nav-fix');
+    root.classList.remove('nav-adrift');
     nav?.classList.remove('kb-up');
     return null;
   }
-  // offsetTop/offsetHeight are layout values (transforms don't touch them), so
-  // this is the layout viewport's bottom edge — where `bottom: 0` put the bar.
-  const layoutBottom = nav.offsetTop + nav.offsetHeight;
-  const visualBottom = vv.offsetTop + vv.height;
-  // A pinch-zoom shrinks the visual viewport too (in CSS px) — but it reports
-  // scale > 1, and the keyboard doesn't. Only the keyboard hides the bar; while
-  // zoomed the bar just follows the visual bottom edge.
-  const keyboardUp = (vv.scale || 1) <= 1.01 && vv.height < layoutBottom - KEYBOARD_MIN_PX;
-  const shift = keyboardUp ? 0 : Math.round(visualBottom - layoutBottom);
+  const applied = bottomNavAppliedFix();
+  // Where the bar paints right now, minus what we already moved it by — i.e.
+  // where the browser would put it left to its own devices, this frame.
+  const restingBottom = nav.getBoundingClientRect().bottom - applied;
+  // The bottom of what the user can actually see.
+  const screenBottom = vv.offsetTop + vv.height;
+  // A pinch-zoom shrinks the visual viewport too, but reports scale > 1; the
+  // keyboard doesn't. Only the keyboard hides the bar — while zoomed it just
+  // follows the visible bottom edge like always.
+  const keyboardUp = (vv.scale || 1) <= 1.01
+    && vv.height < root.clientHeight - KEYBOARD_MIN_PX;
+  const error = Math.round(screenBottom - restingBottom);
+  const fix = (keyboardUp || Math.abs(error) < NAV_DEAD_ZONE) ? 0 : error;
   nav.classList.toggle('kb-up', keyboardUp);
-  if (shift) root.style.setProperty('--vv-shift', `${shift}px`);
-  else root.style.removeProperty('--vv-shift');
-  return { shift, keyboardUp };
+  // The class gates the CSS transform, so a healthy bar carries none at all.
+  root.classList.toggle('nav-adrift', !!fix);
+  if (fix) root.style.setProperty('--nav-fix', `${fix}px`);
+  else root.style.removeProperty('--nav-fix');
+  return { fix, error, keyboardUp, restingBottom, screenBottom };
 }
 
 function wireBottomNavViewport() {
   const vv = window.visualViewport;
   if (!vv) return;   // no visual-viewport API: plain fixed positioning it is
   let wasKeyboardUp = false;
-  let wasShifted = false;
+  let wasAdrift = false;
   const onChange = () => {
     const r = syncBottomNavToViewport(vv);
     // Keyboard just closed: give Safari a no-op scroll so it re-clamps the
     // visual viewport to the layout one (the documented nudge for the
-    // standalone bug). If it doesn't, --vv-shift is already covering for it.
-    if (wasKeyboardUp && r && !r.keyboardUp && r.shift > 0) {
+    // standalone bug). If it doesn't, --nav-fix is already covering for it.
+    if (wasKeyboardUp && r && !r.keyboardUp && r.fix > 0) {
       window.scrollTo(window.scrollX, window.scrollY);
       requestAnimationFrame(() => syncBottomNavToViewport(vv));
     }
     wasKeyboardUp = !!r?.keyboardUp;
-    // First frame of a drift (not every scroll tick while it lasts): record
-    // the geometry so we can see, from a real phone, which viewport state iOS
-    // actually left us in.
-    const shifted = !!r && r.shift !== 0;
-    if (shifted && !wasShifted) trackBottomNavDrift(vv, r);
-    wasShifted = shifted;
+    // Record the first frame of a real drift (not every tick while it lasts,
+    // and not the ±20px noise that burned the last cap). If the correction is
+    // NOT enough, these rows are what tells us so.
+    const adrift = !!r && !r.keyboardUp && Math.abs(r.error) >= NAV_DEAD_ZONE;
+    if (adrift && !wasAdrift) trackBottomNavDrift(vv, r);
+    wasAdrift = adrift;
   };
   vv.addEventListener('resize', onChange);
   vv.addEventListener('scroll', onChange);
@@ -1077,6 +1095,32 @@ function wireBottomNavViewport() {
   onChange();
 }
 
+// Anything in the bar's ancestor chain that can steal the containing block from
+// a position:fixed child (transform, filter, backdrop-filter, perspective,
+// contain, will-change) or clip it (overflow). Tag + up to two class names, so
+// it stays non-PII. This is the diagnostic that names the cause if the
+// correction above ever fails to hold.
+function bottomNavAncestry(nav) {
+  const out = [];
+  for (let el = nav.parentElement; el && el !== document.documentElement; el = el.parentElement) {
+    const cs = getComputedStyle(el);
+    const odd = [];
+    const backdrop = cs.backdropFilter || cs.webkitBackdropFilter;
+    if (cs.transform && cs.transform !== 'none') odd.push('transform');
+    if (cs.filter && cs.filter !== 'none') odd.push('filter');
+    if (backdrop && backdrop !== 'none') odd.push('backdrop');
+    if (cs.perspective && cs.perspective !== 'none') odd.push('perspective');
+    if (cs.contain && cs.contain !== 'none') odd.push('contain');
+    if (cs.willChange && cs.willChange !== 'auto') odd.push('will-change');
+    if (cs.overflow !== 'visible') odd.push(`overflow:${cs.overflow}`);
+    if (!odd.length) continue;
+    const cls = [...el.classList].slice(0, 2).join('.');
+    out.push(`${el.tagName.toLowerCase()}${cls ? '.' + cls : ''}[${odd.join(',')}]`);
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
 // Non-PII geometry snapshot → analytics_events (event='bottom_nav_drift'),
 // capped per session so a long scroll while drifted can't flood the table.
 // Read it with: select created_at, props from analytics_events
@@ -1088,14 +1132,21 @@ function trackBottomNavDrift(vv, r) {
   bottomNavDriftSent++;
   const nav = document.querySelector('.bottom-nav');
   const rect = nav?.getBoundingClientRect();
+  const cs = nav ? getComputedStyle(nav) : null;
   try {
     data.track?.('bottom_nav_drift', {
-      v: 234,
-      shift: r.shift, kb: r.keyboardUp,
+      v: 235,
+      fix: r.fix, err: r.error, kb: r.keyboardUp,
+      resting: Math.round(r.restingBottom), screen: Math.round(r.screenBottom),
       vvTop: Math.round(vv.offsetTop), vvH: Math.round(vv.height), vvScale: +(vv.scale || 1).toFixed(2),
       innerH: window.innerHeight, clientH: document.documentElement.clientHeight,
       navTop: Math.round(nav?.offsetTop ?? -1), navH: Math.round(nav?.offsetHeight ?? -1),
       rectBottom: Math.round(rect?.bottom ?? -1),
+      // If this is anything but "fixed", the bar is in normal flow and every
+      // viewport correction in the world is beside the point.
+      navPos: cs?.position || null,
+      offParent: nav?.offsetParent ? nav.offsetParent.tagName.toLowerCase() : null,
+      anc: bottomNavAncestry(nav),
       scrollY: Math.round(window.scrollY),
       standalone: window.matchMedia?.('(display-mode: standalone)')?.matches ?? null,
       focused: document.activeElement?.tagName || null,

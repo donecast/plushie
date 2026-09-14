@@ -71,6 +71,10 @@
   --header-bg-1: rgba(244,239,243,.92);
   --header-bg-2: rgba(244,239,243,.85);
   --header-border: var(--hairline);
+  /* Opaque twin of --header-bg-* for the phone's fixed bottom bar, which can't
+     afford a backdrop-filter (see the .bottom-nav rule). At .92/.85 alpha the
+     blur was barely visible anyway, so this costs ~a tenth of a tint. */
+  --nav-bg-solid: #f4eff3;
   --modal-backdrop: rgba(22,10,30,.55);
 
   /* Hairline tiers used by dividers + soft borders. The redesign moved
@@ -239,6 +243,7 @@
   --header-bg-1: rgba(26,13,38,.95);
   --header-bg-2: rgba(18,8,32,.85);
   --header-border: var(--hairline);
+  --nav-bg-solid: #190c25;
   --modal-backdrop: rgba(6,2,14,.7);
 
   --border-rose-mist:    rgba(255,95,168,.05);
@@ -3855,18 +3860,30 @@ body.rails-on .rail-right.rail-right--active { display: block; }
     position: fixed;
     left: 0; right: 0; bottom: 0;
     z-index: 30;
-    background: linear-gradient(0deg, var(--header-bg-1), var(--header-bg-2));
-    backdrop-filter: blur(10px);
+    /* Deliberately NOT backdrop-filter, and deliberately opaque. A
+       position:fixed element with a backdrop-filter over a long scrolling list
+       is the best-documented way to get iOS Safari to paint it at a stale
+       position — which is the bug Amber kept seeing: the bar mid-screen while
+       the DOM insisted it was at the bottom (on-device telemetry, #229, showed
+       correct geometry every time). The old background was already .85–.92
+       opaque, so the blur had almost nothing to do. */
+    background: var(--nav-bg-solid);
     border-top: 1px solid var(--header-border);
     padding-bottom: env(safe-area-inset-bottom);
   }
-  /* --vv-shift (set by syncBottomNavToViewport in app-ui.js) is how far the
-     visual viewport's bottom edge is from the layout viewport's — non-zero on
-     iOS after the keyboard closes in an installed PWA, or while pinch-zoomed —
-     so the bar stays on the screen's bottom edge instead of drifting up the
-     feed. No transition: the value ticks every frame during the keyboard
-     animation and easing would only lag it. */
-  .bottom-nav, .notif-panel { transform: translateY(var(--vv-shift, 0px)); }
+  /* --nav-fix (set by syncBottomNavToViewport in app-ui.js) is the gap between
+     where this bar actually paints and the bottom of the visible screen — the
+     symptom, measured, whatever is causing it. Zero in the normal case, so this
+     rule is inert until something goes wrong. No transition: it's recomputed
+     every frame during a keyboard animation and easing would only lag it.
+
+     Gated behind html.nav-adrift so that in the healthy case the bar carries no
+     transform AT ALL. An identity transform still promotes an element to its
+     own compositing layer, and a fixed + backdrop-filter + transformed bar is
+     exactly the combination iOS is worst at — not something to impose on the
+     99% of the time nothing is wrong. */
+  html.nav-adrift .bottom-nav,
+  html.nav-adrift .notif-panel { transform: translateY(var(--nav-fix, 0px)); }
   /* Keyboard up: tuck the bar away rather than hover over the field you're
      typing into (native tab bars do the same). */
   .bottom-nav.kb-up { visibility: hidden; pointer-events: none; }
