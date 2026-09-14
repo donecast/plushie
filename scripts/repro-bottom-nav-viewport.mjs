@@ -52,6 +52,7 @@ async function bootShell(page, { fakeViewport }) {
       isBlocked: () => false, isMyBlock: () => false, isUnblockable: () => false,
       listDmThreads: async () => [], listDmMessages: async () => [], markDmRead: async () => {},
       listPosts: async () => [], listRecentNotifications: async () => [],
+      track: (event, props) => { (window.__tracked ||= []).push({ event, props }); },
     };
     if (fakeViewport) {
       // A visualViewport we can put into any state iOS would. Installed
@@ -131,6 +132,19 @@ const out = {};
     return b;
   });
 
+  out.driftRecords = await page.evaluate(() => (window.__tracked || []).filter((t) => t.event === 'bottom_nav_drift'));
+
+  // 3b. Some iOS transitions fire NO visualViewport event. Mutate the stand-in
+  //     silently and only blur a field: the focusout settle timers must catch it.
+  await page.evaluate(() => {
+    const vv = window.visualViewport; vv.offsetTop = 0; vv.height = 844;   // silently back to clean
+    const inp = document.createElement('input'); document.body.appendChild(inp); inp.focus();
+    vv.offsetTop = 200;                                                    // silently stuck at 200
+    inp.blur();
+  });
+  await page.waitForTimeout(1000);
+  out.afterSilentBlur = await measure(page);
+
   // 4. Safari eventually re-clamps (or the user scrolls): back to clean.
   await page.evaluate(() => window.__setVV(0, 844));
   out.recovered = await measure(page);
@@ -181,6 +195,8 @@ const checks = [
   ['stuck after keyboard: bar is back on the screen bottom edge', onEdge(out.stuck) && out.stuck.visible && !out.stuck.kbUp && out.stuck.shiftVar === '300px'],
   ['stuck after keyboard: the Alerts sheet moved with it', out.stuck.panelBottom === out.stuck.visualBottom - 66],
   ['keyboard close with a leftover offset nudges Safari with a no-op scroll', out.stuckNudged >= 1],
+  ['a drift is recorded once, with the geometry, for the analytics table', out.driftRecords.length === 1 && out.driftRecords[0].props.shift === 300 && out.driftRecords[0].props.vvTop === 300 && out.driftRecords[0].props.v === 234],
+  ['a silent drift (no viewport event) is caught by the focusout settle', onEdge(out.afterSilentBlur) && out.afterSilentBlur.shiftVar === '200px'],
   ['recovered: shift cleared, bar back at bottom: 0', onEdge(out.recovered) && out.recovered.shiftVar === '' && out.recovered.navBottom === H],
   ['stuck while the feed is scrolled: still on the edge, page scroll untouched', onEdge(out.stuckScrolled) && out.pageScrollKept === 1200],
   ['desktop: bar hidden, no shift written', out.desktop.display === 'none' && out.desktop.shiftVar === ''],
