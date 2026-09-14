@@ -1036,6 +1036,7 @@ function wireBottomNavViewport() {
   const vv = window.visualViewport;
   if (!vv) return;   // no visual-viewport API: plain fixed positioning it is
   let wasKeyboardUp = false;
+  let wasShifted = false;
   const onChange = () => {
     const r = syncBottomNavToViewport(vv);
     // Keyboard just closed: give Safari a no-op scroll so it re-clamps the
@@ -1046,11 +1047,60 @@ function wireBottomNavViewport() {
       requestAnimationFrame(() => syncBottomNavToViewport(vv));
     }
     wasKeyboardUp = !!r?.keyboardUp;
+    // First frame of a drift (not every scroll tick while it lasts): record
+    // the geometry so we can see, from a real phone, which viewport state iOS
+    // actually left us in.
+    const shifted = !!r && r.shift !== 0;
+    if (shifted && !wasShifted) trackBottomNavDrift(vv, r);
+    wasShifted = shifted;
   };
   vv.addEventListener('resize', onChange);
   vv.addEventListener('scroll', onChange);
+  // Belt and braces: iOS doesn't reliably fire visualViewport events for every
+  // transition (a stuck layout viewport after the keyboard, a PWA resumed from
+  // the background), so also re-measure on the window's own events, and a few
+  // times after focus leaves a field — the keyboard animates out over ~300ms
+  // and the settled geometry only exists at the end of it.
+  window.addEventListener('resize', onChange);
   window.addEventListener('orientationchange', onChange);
+  window.addEventListener('pageshow', onChange);
+  document.addEventListener('visibilitychange', onChange);
+  let scrollTick = false;
+  window.addEventListener('scroll', () => {
+    if (scrollTick) return;
+    scrollTick = true;
+    requestAnimationFrame(() => { scrollTick = false; onChange(); });
+  }, { passive: true });
+  const settle = () => { for (const ms of [50, 200, 400, 800]) setTimeout(onChange, ms); };
+  document.addEventListener('focusin', settle);
+  document.addEventListener('focusout', settle);
   onChange();
+}
+
+// Non-PII geometry snapshot → analytics_events (event='bottom_nav_drift'),
+// capped per session so a long scroll while drifted can't flood the table.
+// Read it with: select created_at, props from analytics_events
+//               where event = 'bottom_nav_drift' order by created_at desc;
+const BOTTOM_NAV_DRIFT_CAP = 12;
+let bottomNavDriftSent = 0;
+function trackBottomNavDrift(vv, r) {
+  if (bottomNavDriftSent >= BOTTOM_NAV_DRIFT_CAP) return;
+  bottomNavDriftSent++;
+  const nav = document.querySelector('.bottom-nav');
+  const rect = nav?.getBoundingClientRect();
+  try {
+    data.track?.('bottom_nav_drift', {
+      v: 234,
+      shift: r.shift, kb: r.keyboardUp,
+      vvTop: Math.round(vv.offsetTop), vvH: Math.round(vv.height), vvScale: +(vv.scale || 1).toFixed(2),
+      innerH: window.innerHeight, clientH: document.documentElement.clientHeight,
+      navTop: Math.round(nav?.offsetTop ?? -1), navH: Math.round(nav?.offsetHeight ?? -1),
+      rectBottom: Math.round(rect?.bottom ?? -1),
+      scrollY: Math.round(window.scrollY),
+      standalone: window.matchMedia?.('(display-mode: standalone)')?.matches ?? null,
+      focused: document.activeElement?.tagName || null,
+    });
+  } catch (_) { /* diagnostics must never break the bar */ }
 }
 
 // Pull the recent inbox + paint the badge. Piggybacks the same triggers as
