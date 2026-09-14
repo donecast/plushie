@@ -3860,6 +3860,16 @@ body.rails-on .rail-right.rail-right--active { display: block; }
     border-top: 1px solid var(--header-border);
     padding-bottom: env(safe-area-inset-bottom);
   }
+  /* --vv-shift (set by syncBottomNavToViewport in app-ui.js) is how far the
+     visual viewport's bottom edge is from the layout viewport's — non-zero on
+     iOS after the keyboard closes in an installed PWA, or while pinch-zoomed —
+     so the bar stays on the screen's bottom edge instead of drifting up the
+     feed. No transition: the value ticks every frame during the keyboard
+     animation and easing would only lag it. */
+  .bottom-nav, .notif-panel { transform: translateY(var(--vv-shift, 0px)); }
+  /* Keyboard up: tuck the bar away rather than hover over the field you're
+     typing into (native tab bars do the same). */
+  .bottom-nav.kb-up { visibility: hidden; pointer-events: none; }
   .bottom-tab {
     flex: 1 1 0;
     min-width: 0;
