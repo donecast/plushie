@@ -42,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=165" />
+  <link rel="stylesheet" href="./styles.css?v=166" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -1252,6 +1252,12 @@
 
         <div class="changelog">
           <div class="changelog-day">
+            <h3 class="changelog-date">September 13, 2026</h3>
+            <ul>
+              <li class="changelog-fixes">Fixed the phone's bottom bar coming loose and floating half-way up the screen (usually after typing a comment or message on iPhone) — it now stays put on the bottom edge, and tucks out of the way while the keyboard is open. Misc bug fixes.</li>
+            </ul>
+          </div>
+          <div class="changelog-day">
             <h3 class="changelog-date">August 18, 2026</h3>
             <ul>
               <li class="changelog-fixes">Fixed the Top 8 Buns editor sometimes opening blank — no picks selected and Tom's checkbox cleared — after you'd been looking at another collector's profile, so saving replaced your real lineup with nothing. It now always starts from your actual saved Top 8, keeps your saved order when you re-edit (new picks join at the end), and if your lineup can't be loaded it won't open at all rather than risk wiping it.</li>
@@ -2121,14 +2127,14 @@
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=232"></script>
-  <script src="./app-catalog.js?v=232"></script>
-  <script src="./app-collection.js?v=232"></script>
-  <script src="./app-ui.js?v=232"></script>
-  <script src="./app-trade.js?v=232"></script>
-  <script src="./app-account.js?v=232"></script>
-  <script src="./app-admin.js?v=232"></script>
-  <script src="./app-admin-catalog.js?v=232"></script>
-  <script src="./app-social.js?v=232"></script>
+  <script src="./app-core.js?v=233"></script>
+  <script src="./app-catalog.js?v=233"></script>
+  <script src="./app-collection.js?v=233"></script>
+  <script src="./app-ui.js?v=233"></script>
+  <script src="./app-trade.js?v=233"></script>
+  <script src="./app-account.js?v=233"></script>
+  <script src="./app-admin.js?v=233"></script>
+  <script src="./app-admin-catalog.js?v=233"></script>
+  <script src="./app-social.js?v=233"></script>
 </body>
 </html>

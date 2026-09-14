@@ -987,6 +987,72 @@ function notifTabForTag(tag) {
   return null;
 }
 
+// ─── Keep the phone's bottom bar on the *screen's* bottom edge ───────────
+// `position: fixed; bottom: 0` pins the bar to the LAYOUT viewport, and on iOS
+// that is not always where the screen's bottom is. When the keyboard opens,
+// Safari doesn't shrink the layout viewport — it scrolls the *visual* viewport
+// up inside it to show the field — and in an installed (standalone) PWA it
+// often never scrolls it back after the keyboard closes (WebKit bug). The layout
+// viewport's bottom edge then sits mid-screen, and so does anything fixed to it:
+// exactly the "bottom bar floating in the middle of the feed" report. A leftover
+// pinch-zoom does the same thing. (#188 stopped the input auto-zoom; this is the
+// remaining, keyboard-shaped cause.)
+//
+// So instead of trusting the layout viewport, follow the visual one: on every
+// visual-viewport resize/scroll, measure how far its bottom edge is from where
+// the bar's fixed position lands, and shift the bar (and the Alerts sheet that
+// sits on it) by that much via --vv-shift. While the keyboard is up the bar
+// tucks away (`kb-up`) rather than hover over the field you're typing into —
+// the way a native tab bar does.
+//
+// Testable: `vv` is injectable so the maths can be driven without a real
+// keyboard (scripts/repro-bottom-nav-viewport.mjs).
+const KEYBOARD_MIN_PX = 150;   // visual viewport this much shorter than layout = keyboard
+
+function syncBottomNavToViewport(vv = window.visualViewport) {
+  const nav = document.querySelector('.bottom-nav');
+  const root = document.documentElement;
+  if (!nav || !vv || !nav.offsetHeight) {   // wide screens: the bar isn't shown
+    root.style.removeProperty('--vv-shift');
+    nav?.classList.remove('kb-up');
+    return null;
+  }
+  // offsetTop/offsetHeight are layout values (transforms don't touch them), so
+  // this is the layout viewport's bottom edge — where `bottom: 0` put the bar.
+  const layoutBottom = nav.offsetTop + nav.offsetHeight;
+  const visualBottom = vv.offsetTop + vv.height;
+  // A pinch-zoom shrinks the visual viewport too (in CSS px) — but it reports
+  // scale > 1, and the keyboard doesn't. Only the keyboard hides the bar; while
+  // zoomed the bar just follows the visual bottom edge.
+  const keyboardUp = (vv.scale || 1) <= 1.01 && vv.height < layoutBottom - KEYBOARD_MIN_PX;
+  const shift = keyboardUp ? 0 : Math.round(visualBottom - layoutBottom);
+  nav.classList.toggle('kb-up', keyboardUp);
+  if (shift) root.style.setProperty('--vv-shift', `${shift}px`);
+  else root.style.removeProperty('--vv-shift');
+  return { shift, keyboardUp };
+}
+
+function wireBottomNavViewport() {
+  const vv = window.visualViewport;
+  if (!vv) return;   // no visual-viewport API: plain fixed positioning it is
+  let wasKeyboardUp = false;
+  const onChange = () => {
+    const r = syncBottomNavToViewport(vv);
+    // Keyboard just closed: give Safari a no-op scroll so it re-clamps the
+    // visual viewport to the layout one (the documented nudge for the
+    // standalone bug). If it doesn't, --vv-shift is already covering for it.
+    if (wasKeyboardUp && r && !r.keyboardUp && r.shift > 0) {
+      window.scrollTo(window.scrollX, window.scrollY);
+      requestAnimationFrame(() => syncBottomNavToViewport(vv));
+    }
+    wasKeyboardUp = !!r?.keyboardUp;
+  };
+  vv.addEventListener('resize', onChange);
+  vv.addEventListener('scroll', onChange);
+  window.addEventListener('orientationchange', onChange);
+  onChange();
+}
+
 // Pull the recent inbox + paint the badge. Piggybacks the same triggers as
 // the other badges (boot, the 5-min social poll, the realtime stream).
 // Put the inbox under the bell. It's a top-level element (the header's
@@ -1730,6 +1796,8 @@ function handleNotificationHash() {
 function wireEvents() {
   // Typed text is never lost to a stray backdrop tap (app-core).
   wireModalDraftGuard();
+  // The phone's bottom bar follows the visual viewport (iOS keyboard bug).
+  wireBottomNavViewport();
   // A notification tapped while the app is already open posts us the tab to
   // show (the SW can't navigate an existing client itself).
   if ('serviceWorker' in navigator) {
