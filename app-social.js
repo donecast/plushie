@@ -568,7 +568,11 @@ function renderFeed() {
     : `<p class="empty-note">The crypt is quiet. Make the first post, or
         <button class="linklike" data-soc-action="go-friends">find some friends</button> to follow.</p>`;
 
-  el.innerHTML = composer + `<div class="soc-feed-list">${posts}</div>`;
+  // Phones have no left rail, so the Stirrings ticker rides at the top of Home
+  // (CSS shows it only at ≤860px; empty unless the rails insider flag is on).
+  el.innerHTML = `<div id="home-stirrings" class="home-stirrings"></div>` + composer +
+    `<div class="soc-feed-list">${posts}</div>`;
+  if (typeof renderRailStirrings === 'function') renderRailStirrings();
 }
 
 // Facebook-style reaction set for comments — emoji + the name we show on the
