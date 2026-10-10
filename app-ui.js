@@ -1563,12 +1563,21 @@ function stirRow(e, meta) {
 // (Coming Soon). splitStirrings() does the classification + windowing.
 function renderRailStirrings() {
   const el = document.getElementById('rail-stirrings');
-  if (!el) return;
+  const homeEl = document.getElementById('home-stirrings');
+  if (!el && !homeEl) return;
   const { main, dev } = splitStirrings(state._stirrings || [], state.catalog || [], Date.now());
   const sig = main.map((e) => e.id).join(',') + '|' + dev.map((e) => `${e.id}:${e.devType}`).join(',');
-  if (el._sig === sig) return;   // no change — skip repaint
-  el._sig = sig;
-  if (!main.length && !dev.length) { el.innerHTML = ''; return; }
+  const html = stirringsHtml(main, dev);
+  for (const target of [el, homeEl]) {
+    if (!target || target._sig === sig) continue;   // no change — skip repaint
+    target._sig = sig;
+    target.innerHTML = html;
+  }
+}
+
+// Markup for both surfaces: the desktop left rail and the phone's Home card.
+function stirringsHtml(main, dev) {
+  if (!main.length && !dev.length) return '';
   const mainHtml = main.length ? `
     <div class="rail-stir-head">Stirrings 🕯️</div>
     <ul class="rail-stir-list">
@@ -1579,7 +1588,7 @@ function renderRailStirrings() {
     <ul class="rail-stir-list">
       ${dev.map((e) => stirRow(e, STIR_DEV_META[e.devType] || { icon: '•', label: e.devType })).join('')}
     </ul>` : '';
-  el.innerHTML = mainHtml + devHtml;
+  return mainHtml + devHtml;
 }
 
 // ─── Experimental "rails" layout (insider feature.side_rails) ────────

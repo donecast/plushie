@@ -3716,6 +3716,21 @@ body.rails-on .rail-right.rail-right--active { display: block; }
 }
 .rail-stir-kind { font-size: .68rem; color: var(--rose-2); }
 
+/* Stirrings on phones: the left rail is gone, so the same ticker sits atop Home
+   as a card with a capped, scrollable list. Hidden on wide layouts. */
+.home-stirrings { display: none; }
+@media (max-width: 860px) {
+  .home-stirrings:not(:empty) {
+    display: block; margin-bottom: 14px; padding: 12px;
+    max-height: 260px; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    background: var(--surface, #fff); border: 1px solid var(--border-rose-faint);
+    border-radius: 14px;
+  }
+  .home-stirrings .rail-stir { padding: 9px 8px; }
+  .home-stirrings .rail-stir-name { font-size: .9rem; }
+  .home-stirrings .rail-stir-kind { font-size: .75rem; }
+}
+
 /* Right rail — Crypt Vitals */
 .rail-head { font-size: .95rem; margin: 0 0 12px; color: var(--ink-2); }
 .vitals-card {
