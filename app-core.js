@@ -73,6 +73,8 @@ const state = {
   marketBrowse: [],           // others' live listings
   myListings: [],             // my listings (any status but removed)
   marketOffers: [],           // offers I'm part of, either side
+  marketOrders: [],           // paid-for deals I'm buyer or seller on (db/0107)
+  myPayouts: null,            // { started, ready } — my Stripe payouts setup
   saleFilter: 'shop',         // 'shop' | 'offers' | 'mine'
   sellDraft: null,
   marketOfferDraft: null,

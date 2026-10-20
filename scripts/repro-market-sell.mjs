@@ -76,6 +76,10 @@ await page.evaluate(() => {
     respondMarketOffer: async (...a) => { window._calls.push(['respond', ...a]); },
     withdrawMarketOffer: async (...a) => { window._calls.push(['withdraw', ...a]); },
     removeMarketListing: async (...a) => { window._calls.push(['remove', ...a]); },
+    listMarketOrders: async () => window._orders || [],
+    getMyPayouts: async () => window._payouts || { started: false, ready: false },
+    marketPayCall: async (body) => { window._calls.push(['pay', body]); return window._payReply || { ok: true }; },
+    marketReturnBase: () => location.origin + location.pathname,
     getFeedbackSummaryBatch: async () => ({}),
   };
 });

@@ -37,3 +37,31 @@ test("release needs delivery plus confirm or window", () => {
   assert.ok(!releaseDue({ status: "delivered", delivered_at: "2026-10-19T00:00:00Z" }, now));
   assert.ok(releaseDue({ status: "delivered", delivered_at: "2026-10-16T00:00:00Z" }, now));
 });
+
+import { stripeForm, cleanReturnBase, checkoutLineItems, sessionExpiresAt, computeOrderTotals as tot } from "../supabase/functions/market-checkout/rules.mjs";
+
+test("stripeForm nests objects and arrays the way Stripe expects", () => {
+  const f = stripeForm({ mode: "payment", line_items: [{ quantity: 1, price_data: { unit_amount: 500 } }], metadata: { order_id: "o1" }, skip: null, types: ["card"] });
+  assert.equal(f.toString(), "mode=payment&line_items%5B0%5D%5Bquantity%5D=1&line_items%5B0%5D%5Bprice_data%5D%5Bunit_amount%5D=500&metadata%5Border_id%5D=o1&types%5B0%5D=card");
+});
+test("return base keeps origin + path, refuses odd schemes", () => {
+  assert.equal(cleanReturnBase("https://plushcrypt.com/?x=1#trade"), "https://plushcrypt.com/");
+  assert.equal(cleanReturnBase("http://localhost:8080/index.html"), "http://localhost:8080/index.html");
+  assert.equal(cleanReturnBase("capacitor://localhost/"), "capacitor://localhost/");
+  assert.equal(cleanReturnBase("javascript:alert(1)"), null);
+  assert.equal(cleanReturnBase("http://evil.example/"), null);
+  assert.equal(cleanReturnBase("https://a:b@plushcrypt.com/"), null);
+});
+test("line items add up to the order total", () => {
+  const t = tot(4000, 600);
+  const items = checkoutLineItems(t, "Jellybun");
+  assert.equal(items.reduce((s, i) => s + i.price_data.unit_amount, 0), t.total_cents);
+  assert.equal(checkoutLineItems(tot(4000, 0), "x").length, 2);
+});
+test("session expiry stays inside Stripe's 30 min – 24 h window", () => {
+  const now = new Date("2026-10-20T00:00:00Z");
+  const s = now.getTime() / 1000;
+  assert.equal(sessionExpiresAt("2026-10-20T00:05:00Z", now), s + 31 * 60);
+  assert.equal(sessionExpiresAt("2026-10-21T12:00:00Z", now), s + 23.5 * 3600);
+  assert.equal(sessionExpiresAt("2026-10-20T06:00:00Z", now), s + 6 * 3600);
+});
