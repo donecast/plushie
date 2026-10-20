@@ -135,6 +135,9 @@ async function onCardClickInner(btn) {
   } else if (action === 'offer-trade') {
     const item = state.collection.find((x) => x.id === id);
     if (item) await markForTrade(item, 'offering');
+  } else if (action === 'sell-item') {
+    const item = state.collection.find((x) => x.id === id);
+    if (item) openSellModal(item, null);
   } else if (action === 'seek-trade') {
     const item = state.wishlist.find((x) => x.id === id);
     if (item) await markForTrade(item, 'seeking');
@@ -2407,6 +2410,34 @@ function wireEvents() {
     if (btn) setTradeListExtra(parseInt(btn.dataset.tlExtra, 10), btn.dataset.tlExtraVal === 'yes');
   });
   document.getElementById('tl-save').addEventListener('click', saveTradeList);
+
+  // For Sale: sell modal (list / edit) and offer modal (offer / counter).
+  document.querySelectorAll('[data-close-sell]').forEach((el) =>
+    el.addEventListener('click', closeSellModal)
+  );
+  document.getElementById('ms-add-photo').addEventListener('click', () =>
+    document.getElementById('ms-photo-input').click()
+  );
+  document.getElementById('ms-photo-input').addEventListener('change', async (e) => {
+    await onSellAddPhotos(e.target.files);
+    e.target.value = '';
+  });
+  document.getElementById('ms-photos').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-ms-remove]');
+    if (btn) removeSellPhoto(parseInt(btn.dataset.msRemove, 10));
+  });
+  document.getElementById('ms-extras').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-ms-extra]');
+    if (btn) setSellExtra(parseInt(btn.dataset.msExtra, 10), btn.dataset.msExtraVal === 'yes');
+  });
+  document.getElementById('ms-price').addEventListener('input', renderSellFees);
+  document.getElementById('ms-shipping').addEventListener('input', renderSellFees);
+  document.getElementById('ms-save').addEventListener('click', saveSellListing);
+  document.querySelectorAll('[data-close-moffer]').forEach((el) =>
+    el.addEventListener('click', closeMarketOfferModal)
+  );
+  document.getElementById('mo-amount').addEventListener('input', renderMarketOfferHint);
+  document.getElementById('mo-send').addEventListener('click', sendMarketOffer);
 
   // Feedback modal — three structured thumbs.
   document.querySelectorAll('[data-close-feedback]').forEach((el) =>

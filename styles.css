@@ -5491,3 +5491,21 @@ a.share-card:hover { border-color: var(--rose-1); }
 .share-list-modal #sl-link { width: 100%; }
 .share-list-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .share-list-footer { display: flex; justify-content: flex-end; }
+
+/* ─── For Sale market (db/0106) ─────────────────────────────────────── */
+.mkt-preview-banner {
+  margin: 8px 0 12px; padding: 8px 12px;
+  background: var(--gold-bg); border-left: 3px solid var(--gold);
+  border-radius: 4px; font-family: var(--sans); font-size: 0.85rem;
+}
+.mkt-price { font-weight: 700; font-size: 1.05rem; }
+.mkt-pd { font-size: 0.85rem; }
+.mkt-pd-capped { color: var(--negative-text); }
+.mkt-your-offer { font-weight: 600; }
+.mkt-seller { margin: 2px 0 4px; }
+.mkt-offer-amount { margin: 6px 0; }
+.mkt-history { font-size: 0.8rem; margin: 2px 0 6px; }
+.ms-rule { font-size: 0.85rem; margin: 0 0 10px; }
+.ms-price-row { display: flex; gap: 12px; }
+.ms-price-row .field { flex: 1; min-width: 0; }
+.ms-fees { font-size: 0.85rem; margin: -4px 0 10px; }

@@ -893,6 +893,11 @@ function cardActionsHtml(item, kind) {
     ? `<button data-action="assign-wearer" data-id="${item.id}" title="Attach this to the plush wearing it">🧥 Who's wearing this?</button>`
     : '';
 
+  // For Sale (db/0106) — insider-gated until payments ship.
+  const sellBtn = (kind === 'collection' && item.catalogId && typeof marketEnabled === 'function' && marketEnabled())
+    ? `<button data-action="sell-item" data-id="${item.id}" title="List this copy for sale">$ Sell</button>`
+    : '';
+
   const manualMode = cardManualMode(item, kind);
   const upAction = kind === 'wishlist' ? 'move-up-wish' : 'move-up';
   const downAction = kind === 'wishlist' ? 'move-down-wish' : 'move-down';
@@ -910,6 +915,7 @@ function cardActionsHtml(item, kind) {
       ${qtyControl}
       ${wearerBtn}
       ${tradeBtn}
+      ${sellBtn}
       <button class="btn-trash" data-action="delete" data-id="${item.id}" aria-label="Delete" title="Delete">🗑</button>
     `
     : `

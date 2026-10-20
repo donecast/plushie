@@ -66,9 +66,16 @@ const state = {
   blobUrls: new Map(),
 
   // ─── Trade state ──────────────────────────────────────────────────
-  tradeSubTab: 'browse',      // 'browse' | 'trades' | 'items'
+  tradeSubTab: 'browse',      // 'browse' | 'trades' | 'items' | 'sale'
   myTradeItems: [],
   tradeBrowse: [],
+  // For Sale market (db/0106).
+  marketBrowse: [],           // others' live listings
+  myListings: [],             // my listings (any status but removed)
+  marketOffers: [],           // offers I'm part of, either side
+  saleFilter: 'shop',         // 'shop' | 'offers' | 'mine'
+  sellDraft: null,
+  marketOfferDraft: null,
   trades: [],
   myFeedback: { good_count: 0, meh_count: 0, bad_count: 0, net_score: 0, total_count: 0 },
   partnerFeedback: new Map(), // userId → summary (cache shared by rep badges + ship-first banner)

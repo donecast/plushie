@@ -49,10 +49,13 @@ async function loadTradeData() {
   }
   if (myFbByTrade !== undefined) state.myFeedbackByTrade = myFbByTrade;
 
+  if (marketEnabled()) await step('market', () => loadMarketData());
+
   // Collect every user we'll show a badge for and pull their summaries in
   // one batch — browse list owners + trade partners. Best-effort.
   const uids = new Set();
   for (const it of state.tradeBrowse) uids.add(it.ownerId);
+  for (const l of state.marketBrowse) uids.add(l.sellerId);
   for (const t of state.trades) {
     const other = t.proposer_id === window.currentUser.id ? t.recipient_id : t.proposer_id;
     uids.add(other);
@@ -81,6 +84,7 @@ function setTradeSubTab(name) {
   document.getElementById('subtab-browse').classList.toggle('hidden', name !== 'browse');
   document.getElementById('subtab-trades').classList.toggle('hidden', name !== 'trades');
   document.getElementById('subtab-items').classList.toggle('hidden', name !== 'items');
+  document.getElementById('subtab-sale')?.classList.toggle('hidden', name !== 'sale');
   renderTrade();
 }
 
@@ -112,7 +116,13 @@ function activeTradeCount() {
 }
 
 function updateTradeBadge() {
-  const n = pendingForMeCount() + activeTradeCount();
+  const n = pendingForMeCount() + activeTradeCount() + marketTurnCount();
+  const sb2 = document.getElementById('subtab-sale-badge');
+  if (sb2) {
+    const m = marketTurnCount();
+    sb2.textContent = m;
+    sb2.classList.toggle('hidden', m === 0);
+  }
   const b = document.getElementById('trade-badge');
   if (n > 0) { b.textContent = n; b.classList.remove('hidden'); }
   else       { b.classList.add('hidden'); }
@@ -146,6 +156,10 @@ function tradeCountLabel() {
       const off = state.myTradeItems.filter((x) => x.kind === 'offering').length;
       const seek = state.myTradeItems.filter((x) => x.kind === 'seeking').length;
       return `Offering ${off} · Seeking ${seek}`;
+    }
+    case 'sale': {
+      const live = state.myListings.filter((l) => l.status === 'active').length;
+      return `${state.marketBrowse.length} for sale · ${marketTurnCount()} offer${marketTurnCount() === 1 ? '' : 's'} awaiting you · ${live} of yours live`;
     }
   }
   return '';
@@ -282,9 +296,15 @@ function renderTrade() {
   document.getElementById('subtab-browse').classList.toggle('hidden', state.tradeSubTab !== 'browse');
   document.getElementById('subtab-trades').classList.toggle('hidden', state.tradeSubTab !== 'trades');
   document.getElementById('subtab-items').classList.toggle('hidden', state.tradeSubTab !== 'items');
+  // For Sale is insider-gated; a non-insider who somehow lands on it falls back to Browse.
+  const saleOn = marketEnabled();
+  document.getElementById('subtab-sale-btn')?.classList.toggle('hidden', !saleOn);
+  if (!saleOn && state.tradeSubTab === 'sale') state.tradeSubTab = 'browse';
+  document.getElementById('subtab-sale')?.classList.toggle('hidden', state.tradeSubTab !== 'sale');
 
   if (state.tradeSubTab === 'browse')   renderBrowse();
   else if (state.tradeSubTab === 'trades') renderMyTrades();
+  else if (state.tradeSubTab === 'sale') renderSale();
   else                                  renderMyTradeItems();
 }
 
@@ -1529,3 +1549,525 @@ function shortDate(iso) {
 }
 function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s; }
 
+// ════════════════════════════════════════════════════════════════════
+// ─── For Sale market (db/0106) ───────────────────────────────────────
+// Buy/sell alongside trading. THE RULE: you can only list something Plushie
+// Dreadfuls isn't selling right now; if PD restocks it later, the listing
+// stays up only at or below PD's price (a restock pauses anything priced
+// above). Listings are written by the `market-listing` edge function, which
+// checks PD live — the client never decides stock. Offers go through RPCs.
+// Insider-gated (feature.market) until payments ship in phase 2, so an
+// accepted offer holds the item 48h but checkout isn't wired yet.
+// ════════════════════════════════════════════════════════════════════
+const MARKET_MAX_PHOTOS = 5;
+
+function marketEnabled() {
+  return !!window.currentUser && data.featureEnabled('feature.market', false);
+}
+function money(cents) {
+  return cents == null ? 'N/A' : `$${(cents / 100).toFixed(2)}`;
+}
+function dollarsToCents(v) {
+  const n = parseFloat(String(v ?? '').replace(/[$,\s]/g, ''));
+  return Number.isFinite(n) ? Math.round(n * 100) : NaN;
+}
+// A hold from an accepted offer only counts until its window lapses.
+function listingOnHold(l) {
+  return l.status === 'reserved' && l.reservedUntil && new Date(l.reservedUntil) > new Date();
+}
+function offerIsLive(o) {
+  return o.status === 'pending' && new Date(o.expiresAt) > new Date();
+}
+// It's my move on a pending offer when the OTHER side made it.
+function offerIsMyTurn(o) {
+  const uid = window.currentUser?.id;
+  if (!offerIsLive(o)) return false;
+  return (o.fromRole === 'buyer' && o.sellerId === uid) || (o.fromRole === 'seller' && o.buyerId === uid);
+}
+function marketTurnCount() {
+  return (state.marketOffers || []).filter(offerIsMyTurn).length;
+}
+
+async function loadMarketData() {
+  const [browse, mine, offers] = await Promise.all([
+    data.browseListings(),
+    data.listMyListings(),
+    data.listMarketOffers(),
+  ]);
+  state.marketBrowse = browse;
+  state.myListings = mine;
+  state.marketOffers = offers;
+}
+
+// Friendly text for the RPCs' raised codes.
+const MARKET_ERRORS = {
+  MARKET_NOT_ENABLED: "Selling isn't open to your account yet.",
+  MARKET_LISTING_NOT_FOUND: 'That listing is gone.',
+  MARKET_LISTING_UNAVAILABLE: "That listing isn't taking offers right now.",
+  MARKET_OWN_LISTING: "That's your own listing.",
+  MARKET_OFFER_TOO_LOW: 'Offers start at $1.00.',
+  MARKET_OFFER_ABOVE_PRICE: "An offer can't be more than the asking price.",
+  MARKET_NOT_YOUR_OFFER: "That offer isn't yours to answer.",
+  MARKET_OFFER_CLOSED: 'That offer has already been answered.',
+  MARKET_OFFER_EXPIRED: 'That offer expired.',
+  MARKET_LISTING_RESERVED: 'A buyer has this on hold — it can’t be taken down until the hold ends.',
+  MARKET_LISTING_SOLD: 'That one already sold.',
+};
+function marketErrorText(err) {
+  const code = /MARKET_[A-Z_]+/.exec(err?.message || '')?.[0];
+  return MARKET_ERRORS[code] || err?.message || 'Something went wrong.';
+}
+
+function pdStateLine(l) {
+  if (l.pdState === 'in_stock_capped') {
+    return `<li class="mkt-pd mkt-pd-capped">Back at Plushie Dreadfuls for ${money(l.pdPriceCents)} — priced at or under</li>`;
+  }
+  if (l.pdState === 'not_on_pd') return '<li class="mkt-pd">Not sold by Plushie Dreadfuls</li>';
+  return '<li class="mkt-pd">Sold out at Plushie Dreadfuls</li>';
+}
+
+function extrasLines(extras) {
+  if (!Array.isArray(extras) || !extras.length) return '';
+  const has = extras.filter((e) => e.included).map((e) => e.name);
+  const missing = extras.filter((e) => !e.included).map((e) => e.name);
+  return (has.length ? `<li>Includes: ${escapeHtml(has.join(', '))}</li>` : '')
+    + (missing.length ? `<li class="trade-offer-missing">Missing: ${escapeHtml(missing.join(', '))}</li>` : '');
+}
+
+// ─── For Sale: render ────────────────────────────────────────────────
+function renderSale() {
+  const el = document.getElementById('subtab-sale');
+  if (!el) return;
+  if (!state.ready.has('trade')) { el.innerHTML = loadingPlaceholder('Summoning the market…'); return; }
+  const f = state.saleFilter || 'shop';
+  const turn = marketTurnCount();
+  const pill = (key, label, count) =>
+    `<button class="chip chip-toggle ${f === key ? 'active' : ''}" data-action="mkt-filter" data-filter="${key}">${label}${count > 0 ? ` <span class="dim">${count}</span>` : ''}</button>`;
+  let body;
+  if (f === 'offers') body = renderSaleOffers();
+  else if (f === 'mine') body = renderSaleMine();
+  else body = renderSaleShop();
+  el.innerHTML = `
+    <div class="mkt-preview-banner">🕯 Insider preview — listings and offers are live; checkout arrives with payments. An accepted offer holds the item for 48 hours.</div>
+    <div class="filters trade-filters">
+      ${pill('shop', 'Shop', state.marketBrowse.length)}
+      ${pill('offers', 'Offers', turn)}
+      ${pill('mine', 'My listings', state.myListings.length)}
+    </div>
+    ${body}
+  `;
+}
+
+function renderSaleShop() {
+  const list = state.marketBrowse;
+  if (!list.length) {
+    return `<div class="empty"><div class="ghost">🕯</div><p>Nothing for sale yet. List something from your Crypt with “$ Sell”.</p></div>`;
+  }
+  return `<ul class="trade-offer-list">${list.map(renderListingCard).join('')}</ul>`;
+}
+
+function renderListingCard(l) {
+  const uid = window.currentUser.id;
+  const src = l.photo || catalogImageFor(l.catalogId);
+  const photo = src
+    ? `<img src="${escapeHtml(src)}" loading="lazy" data-action="zoom-trade" data-src="${escapeHtml(src)}" data-name="${escapeHtml(stripOutfitWord(l.name))}" />`
+    : `<span class="no-photo">🖤</span>`;
+  const mine = state.marketOffers.find((o) => o.listingId === l.id && o.buyerId === uid && offerIsLive(o));
+  const facts = [
+    `<li class="mkt-price">${money(l.priceCents)} <span class="dim">+ ${l.shippingCents ? money(l.shippingCents) + ' shipping' : 'free shipping'}</span></li>`,
+    pdStateLine(l),
+    extrasLines(l.extras),
+    l.notes ? `<li class="trade-offer-note">${escapeHtml(l.notes)}</li>` : '',
+    mine ? `<li class="mkt-your-offer">${mine.fromRole === 'buyer' ? 'Your offer' : 'Their counter'}: ${money(mine.amountCents)} · pending</li>` : '',
+  ].join('');
+  const held = listingOnHold(l);
+  const cta = held
+    ? `<button class="btn-primary trade-offer-cta" disabled>On hold for a buyer</button>`
+    : `<button class="btn-primary trade-offer-cta" data-action="mkt-offer" data-id="${l.id}">${mine ? 'Change offer' : 'Make offer'}</button>`;
+  return `
+    <li class="trade-offer-row">
+      <div class="trade-offer-photo">${photo}</div>
+      <div class="trade-offer-body">
+        <h3 class="trade-offer-name">${escapeHtml(stripOutfitWord(l.name))}</h3>
+        <div class="mkt-seller">${repBadge(l.sellerId, l.sellerUsername, state.partnerFeedback.get(l.sellerId))}</div>
+        <ul class="trade-offer-facts">${facts}</ul>
+        ${renderProofStrip({ name: l.name, photos: l.photos, kind: 'offering' })}
+      </div>
+      ${cta}
+    </li>
+  `;
+}
+
+// Offer threads: one per (listing, buyer); newest offer leads, earlier rounds
+// summarized underneath.
+function renderSaleOffers() {
+  const uid = window.currentUser.id;
+  const threads = new Map();
+  for (const o of state.marketOffers) {
+    const k = `${o.listingId}|${o.buyerId}`;
+    if (!threads.has(k)) threads.set(k, []);
+    threads.get(k).push(o);   // already newest-first
+  }
+  if (!threads.size) {
+    return `<div class="empty"><div class="ghost">📜</div><p>No offers yet.</p></div>`;
+  }
+  const rows = [...threads.values()]
+    .sort((a, b) => (offerIsMyTurn(b[0]) ? 1 : 0) - (offerIsMyTurn(a[0]) ? 1 : 0))
+    .map((offers) => {
+      const o = offers[0];
+      const iAmSeller = o.sellerId === uid;
+      const other = iAmSeller
+        ? repBadge(o.buyerId, o.buyerUsername, state.partnerFeedback.get(o.buyerId))
+        : repBadge(o.sellerId, o.sellerUsername, state.partnerFeedback.get(o.sellerId));
+      const byMe = (o.fromRole === 'seller') === iAmSeller;
+      const expired = o.status === 'pending' && !offerIsLive(o);
+      const statusText = expired ? 'Expired'
+        : o.status === 'pending' ? (byMe ? 'Waiting on them' : 'Your turn')
+        : o.status === 'accepted' ? 'Accepted' : capitalize(o.status);
+      let actions = '';
+      if (offerIsMyTurn(o)) {
+        actions = `
+          <button class="btn-primary" data-action="mkt-accept" data-id="${o.id}">Accept ${money(o.amountCents)}</button>
+          <button data-action="mkt-counter" data-id="${o.id}">Counter</button>
+          <button class="btn-danger" data-action="mkt-decline" data-id="${o.id}">Decline</button>`;
+      } else if (offerIsLive(o) && byMe) {
+        actions = `<button class="btn-ghost" data-action="mkt-withdraw" data-id="${o.id}">Withdraw</button>`;
+      }
+      const held = o.status === 'accepted' && o.listing?.reservedOfferId === o.id
+        && o.listing?.reservedUntil && new Date(o.listing.reservedUntil) > new Date();
+      const acceptedNote = o.status === 'accepted'
+        ? `<div class="ship-first-banner">${held
+            ? `Deal at ${money(o.amountCents)} — held until ${new Date(o.listing.reservedUntil).toLocaleString()}. Checkout arrives with payments.`
+            : `Deal at ${money(o.amountCents)} — the 48-hour hold has ended.`}</div>`
+        : '';
+      const history = offers.slice(1, 4).map((h) =>
+        `${money(h.amountCents)} (${((h.fromRole === 'seller') === iAmSeller) ? 'you' : 'them'})`).join(' ← ');
+      return `
+        <article class="trade-card">
+          <header class="trade-head"><div>
+            <span class="trade-with">${escapeHtml(stripOutfitWord(o.listing?.name || 'item'))} · ${iAmSeller ? 'buyer' : 'seller'} ${other}</span>
+            <span class="trade-status trade-status-${offerIsMyTurn(o) ? 'your' : (o.status === 'pending' && !expired ? 'their' : (o.status === 'accepted' ? 'done' : 'dead'))}">${statusText}</span>
+          </div></header>
+          <p class="mkt-offer-amount">${byMe ? 'You offered' : 'They offered'} <strong>${money(o.amountCents)}</strong> <span class="dim">· asking ${money(o.listing?.priceCents)}</span></p>
+          ${o.message ? `<p class="trade-message">“${escapeHtml(o.message)}”</p>` : ''}
+          ${history ? `<p class="dim mkt-history">Earlier: ${history}</p>` : ''}
+          ${acceptedNote}
+          ${actions ? `<div class="card-actions">${actions}</div>` : ''}
+        </article>`;
+    }).join('');
+  return `<div class="trade-list">${rows}</div>`;
+}
+
+function renderSaleMine() {
+  const list = state.myListings;
+  if (!list.length) {
+    return `<p class="empty-note">Nothing listed yet — tap “$ Sell” on an item in your Crypt.</p>`;
+  }
+  const statusLine = (l) => {
+    if (l.status === 'paused') {
+      return `<p class="trade-proof-warning">⏸ Paused — Plushie Dreadfuls ${l.pauseReason === 'pd_price_drop' ? 'dropped its price' : 'restocked this'}. Edit it to ${l.pdPriceCents != null ? money(l.pdPriceCents) : 'PD’s price'} or lower to relist.</p>`;
+    }
+    if (listingOnHold(l)) return `<p class="dim">On hold for a buyer until ${new Date(l.reservedUntil).toLocaleString()}</p>`;
+    if (l.status === 'sold') return `<p class="dim">Sold</p>`;
+    return `<p class="dim">Live · checked against PD ${shortDate(l.pdCheckedAt)}</p>`;
+  };
+  return `<div class="grid grid-tight">${list.map((l) => {
+    const src = l.photo || catalogImageFor(l.catalogId);
+    const photo = src ? `<img src="${escapeHtml(src)}" loading="lazy" />` : `<span class="no-photo">🖤</span>`;
+    const editable = l.status === 'active' || l.status === 'paused';
+    return `
+      <article class="card card-small">
+        <div class="card-photo">${photo}</div>
+        <div class="card-body">
+          <h3 class="card-name">${escapeHtml(stripOutfitWord(l.name))}</h3>
+          <div class="card-meta"><span>${money(l.priceCents)} + ${money(l.shippingCents)} ship</span></div>
+          ${statusLine(l)}
+        </div>
+        <div class="card-actions">
+          ${editable ? `<button data-action="mkt-edit" data-id="${l.id}">Edit</button>` : ''}
+          ${editable ? `<button class="btn-danger" data-action="mkt-remove" data-id="${l.id}">Remove</button>` : ''}
+        </div>
+      </article>`;
+  }).join('')}</div>`;
+}
+
+async function refreshMarket() {
+  await loadMarketData();
+  updateTradeBadge();
+  render();
+}
+
+// ─── For Sale: sell modal (list / edit) ──────────────────────────────
+// colItem: the collection row being listed (create), or null when editing.
+// listing: the existing listing (edit), or null when creating.
+function openSellModal(colItem, listing) {
+  if (!marketEnabled()) return;
+  const catalogId = listing?.catalogId || colItem?.catalogId;
+  if (!catalogId) { toast('Only catalog items can be sold.'); return; }
+  state.sellDraft = {
+    colItem,
+    listing,
+    catalogId,
+    photos: (listing?.photos || []).map((p) => ({ socialPath: p.socialPath, url: p.url })),
+    extras: buildTradeListExtras({ catalogId }, listing ? { extras: listing.extras } : null),
+    stockHash: null,
+    saving: false,
+  };
+  const name = listing?.name || colItem?.name || '';
+  document.getElementById('ms-title').textContent = listing ? 'Edit your listing' : 'Sell this';
+  document.getElementById('ms-name').textContent = stripOutfitWord(name);
+  document.getElementById('ms-price').value = listing ? (listing.priceCents / 100).toFixed(2) : '';
+  document.getElementById('ms-shipping').value = listing ? (listing.shippingCents / 100).toFixed(2) : '';
+  document.getElementById('ms-notes').value = listing?.notes || '';
+  document.getElementById('ms-save').textContent = listing ? 'Save & re-check' : 'List for sale';
+  hideEl('ms-error');
+  renderSellFees();
+  renderSellExtras();
+  renderSellPhotos();
+  showEl('market-sell-modal');
+  const stockUrl = catalogImageFor(catalogId);
+  if (stockUrl) {
+    perceptualHash(stockUrl)
+      .then((h) => { if (state.sellDraft?.catalogId === catalogId) state.sellDraft.stockHash = h; })
+      .catch(() => {});
+  }
+}
+
+function closeSellModal() {
+  hideEl('market-sell-modal');
+  const d = state.sellDraft;
+  if (d) for (const p of d.photos) { if (p.blob && p.url) URL.revokeObjectURL(p.url); }
+  state.sellDraft = null;
+}
+
+function msError(msg) {
+  const el = document.getElementById('ms-error');
+  el.textContent = msg;
+  showEl('ms-error');
+}
+
+// What the buyer pays and what the seller nets, from the settled 5%/5% fees.
+function renderSellFees() {
+  const el = document.getElementById('ms-fees');
+  if (!el) return;
+  const price = dollarsToCents(document.getElementById('ms-price').value);
+  const ship = dollarsToCents(document.getElementById('ms-shipping').value || '0');
+  if (!Number.isFinite(price) || price <= 0) { el.textContent = 'Fees: buyers pay 5% on top; you pay 5% of the item price. Shipping is fee-free.'; return; }
+  const s = Number.isFinite(ship) ? Math.max(0, ship) : 0;
+  const { buyerPct, sellerPct } = data.MARKET_FEES;
+  const buyerTotal = price + data.marketFeeCents(price, buyerPct) + s;
+  const net = price - data.marketFeeCents(price, sellerPct);
+  el.textContent = `Buyer pays ${money(buyerTotal)} (incl. ${buyerPct}% fee${s ? ' + shipping' : ''}). You get ${money(net)}${s ? ` + ${money(s)} for shipping` : ''} after the ${sellerPct}% seller fee.`;
+}
+
+function renderSellExtras() {
+  const field = document.getElementById('ms-extras-field');
+  const box = document.getElementById('ms-extras');
+  const extras = state.sellDraft?.extras || [];
+  if (!extras.length) { field.classList.add('hidden'); box.innerHTML = ''; return; }
+  box.innerHTML = extras.map((e, i) => `
+    <div class="tl-extra-row">
+      <span class="tl-extra-name">${escapeHtml(e.name)}</span>
+      <div class="tl-extra-choice" role="group" aria-label="Is ${escapeHtml(e.name)} included?">
+        <button type="button" class="tl-extra-btn${e.included === true ? ' tl-extra-yes' : ''}" data-ms-extra="${i}" data-ms-extra-val="yes">Yes</button>
+        <button type="button" class="tl-extra-btn${e.included === false ? ' tl-extra-no' : ''}" data-ms-extra="${i}" data-ms-extra-val="no">No</button>
+      </div>
+    </div>`).join('');
+  field.classList.remove('hidden');
+}
+
+function setSellExtra(idx, included) {
+  const row = state.sellDraft?.extras?.[idx];
+  if (!row) return;
+  row.included = included;
+  hideEl('ms-error');
+  renderSellExtras();
+}
+
+function renderSellPhotos() {
+  const d = state.sellDraft;
+  if (!d) return;
+  document.getElementById('ms-photos').innerHTML = d.photos.map((p, i) => `
+    <div class="tl-photo-cell">
+      <img src="${escapeHtml(p.url)}" alt="" />
+      <button type="button" class="tl-photo-remove" data-ms-remove="${i}" aria-label="Remove photo">×</button>
+    </div>`).join('') || '<p class="tl-photo-empty">No photos yet — add at least one real shot of the one you’re selling.</p>';
+  const addBtn = document.getElementById('ms-add-photo');
+  const atMax = d.photos.length >= MARKET_MAX_PHOTOS;
+  addBtn.disabled = atMax;
+  addBtn.textContent = atMax ? 'Maximum 5 photos' : `📷 Add photo (${d.photos.length}/${MARKET_MAX_PHOTOS})`;
+}
+
+async function onSellAddPhotos(fileList) {
+  const d = state.sellDraft;
+  if (!d) return;
+  hideEl('ms-error');
+  for (const file of [...(fileList || [])]) {
+    if (d.photos.length >= MARKET_MAX_PHOTOS) { msError('Up to 5 photos.'); break; }
+    let blob;
+    try { blob = await compressPickedPhoto(file); }
+    catch (err) { msError(err.message); continue; }
+    // Same stock-image guard as trade proof photos (fails open if unhashable).
+    const shotHash = await perceptualHash(blob);
+    if (hammingDistance(shotHash, d.stockHash) <= STOCK_MATCH_MAX_DISTANCE) {
+      msError('That looks like the stock catalog photo — snap a real one of the one you’re selling.');
+      continue;
+    }
+    d.photos.push({ blob, url: URL.createObjectURL(blob) });
+  }
+  renderSellPhotos();
+}
+
+function removeSellPhoto(idx) {
+  const d = state.sellDraft;
+  if (!d) return;
+  const [removed] = d.photos.splice(idx, 1);
+  if (removed?.blob && removed.url) URL.revokeObjectURL(removed.url);
+  renderSellPhotos();
+}
+
+async function saveSellListing() {
+  const d = state.sellDraft;
+  if (!d || d.saving) return;
+  const priceCents = dollarsToCents(document.getElementById('ms-price').value);
+  const shipRaw = document.getElementById('ms-shipping').value;
+  const shippingCents = shipRaw === '' ? 0 : dollarsToCents(shipRaw);
+  if (!Number.isFinite(priceCents) || priceCents < 100) { msError('Set a price of at least $1.00.'); return; }
+  if (!Number.isFinite(shippingCents) || shippingCents < 0) { msError('Shipping must be $0 or more.'); return; }
+  if (d.photos.length < 1) { msError('Add at least one real photo.'); return; }
+  const unanswered = (d.extras || []).find((e) => e.included === null);
+  if (unanswered) { msError(`Is "${unanswered.name}" included? Answer Yes or No for each extra.`); return; }
+
+  const btn = document.getElementById('ms-save');
+  d.saving = true;
+  btn.disabled = true;
+  btn.textContent = 'Checking Plushie Dreadfuls…';
+  try {
+    // Upload new shots once; remembering the path means a retry after a
+    // refusal (PD in stock, price cap) doesn't upload them again.
+    const photoPaths = [];
+    for (const p of d.photos) {
+      if (!p.socialPath) p.socialPath = await data.uploadSocialPhoto(p.blob);
+      photoPaths.push(p.socialPath);
+    }
+    const body = {
+      priceCents,
+      shippingCents,
+      notes: document.getElementById('ms-notes').value.trim() || null,
+      extras: (d.extras || []).length ? d.extras.map((e) => ({ name: e.name, included: e.included })) : null,
+      photoPaths,
+    };
+    if (d.listing) await data.marketListingCall({ action: 'update', listingId: d.listing.id, ...body });
+    else await data.marketListingCall({ action: 'create', plushieId: d.colItem.id, ...body });
+    toast(d.listing ? 'Listing updated.' : 'Listed for sale.');
+    closeSellModal();
+    state.saleFilter = 'mine';
+    await refreshMarket();
+  } catch (err) {
+    console.error('saveSellListing', err);
+    msError(err.message || 'Could not save the listing.');
+  } finally {
+    if (state.sellDraft === d) {
+      d.saving = false;
+      btn.disabled = false;
+      btn.textContent = d.listing ? 'Save & re-check' : 'List for sale';
+    }
+  }
+}
+
+// ─── For Sale: offer modal (offer / counter) ─────────────────────────
+function openMarketOfferModal({ mode, listingId, offerId, name, askCents, shippingCents, currentCents }) {
+  state.marketOfferDraft = { mode, listingId, offerId, askCents, shippingCents };
+  document.getElementById('mo-title').textContent = mode === 'counter' ? 'Counter offer' : 'Make an offer';
+  document.getElementById('mo-sub').textContent = `${stripOutfitWord(name)} · asking ${money(askCents)}`;
+  document.getElementById('mo-amount').value = currentCents ? (currentCents / 100).toFixed(2) : '';
+  document.getElementById('mo-amount').max = (askCents / 100).toFixed(2);
+  document.getElementById('mo-message').value = '';
+  hideEl('mo-error');
+  renderMarketOfferHint();
+  showEl('market-offer-modal');
+}
+
+function closeMarketOfferModal() {
+  hideEl('market-offer-modal');
+  state.marketOfferDraft = null;
+}
+
+function renderMarketOfferHint() {
+  const d = state.marketOfferDraft;
+  const el = document.getElementById('mo-hint');
+  if (!d || !el) return;
+  const amt = dollarsToCents(document.getElementById('mo-amount').value);
+  if (!Number.isFinite(amt) || amt <= 0) { el.textContent = `Up to the asking price of ${money(d.askCents)}.`; return; }
+  const fee = data.marketFeeCents(amt, data.MARKET_FEES.buyerPct);
+  el.textContent = `At checkout the buyer pays ${money(amt + fee + (d.shippingCents || 0))} (${money(amt)} + ${money(fee)} fee + ${money(d.shippingCents || 0)} shipping).`;
+}
+
+async function sendMarketOffer() {
+  const d = state.marketOfferDraft;
+  if (!d) return;
+  const amt = dollarsToCents(document.getElementById('mo-amount').value);
+  const show = (m) => { const e = document.getElementById('mo-error'); e.textContent = m; showEl('mo-error'); };
+  if (!Number.isFinite(amt) || amt < 100) { show('Offers start at $1.00.'); return; }
+  if (amt > d.askCents) { show(`That's over the asking price of ${money(d.askCents)}.`); return; }
+  const msg = document.getElementById('mo-message').value.trim() || null;
+  const btn = document.getElementById('mo-send');
+  btn.disabled = true;
+  try {
+    if (d.mode === 'counter') await data.respondMarketOffer(d.offerId, 'counter', amt, msg);
+    else await data.makeMarketOffer(d.listingId, amt, msg);
+    toast(d.mode === 'counter' ? 'Counter sent.' : 'Offer sent.');
+    closeMarketOfferModal();
+    state.saleFilter = 'offers';
+    await refreshMarket();
+  } catch (err) {
+    console.error('sendMarketOffer', err);
+    show(marketErrorText(err));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function marketRespond(offerId, action) {
+  const o = state.marketOffers.find((x) => x.id === offerId);
+  if (!o) return;
+  if (action === 'accept' && !confirm(`Accept ${money(o.amountCents)} for ${stripOutfitWord(o.listing?.name || 'this')}? It’s held for the buyer for 48 hours.`)) return;
+  if (action === 'decline' && !confirm('Decline this offer?')) return;
+  try {
+    if (action === 'withdraw') await data.withdrawMarketOffer(offerId);
+    else await data.respondMarketOffer(offerId, action);
+    toast({ accept: 'Offer accepted.', decline: 'Offer declined.', withdraw: 'Offer withdrawn.' }[action]);
+  } catch (err) {
+    console.error('marketRespond', action, err);
+    toast(marketErrorText(err));
+  }
+  await refreshMarket();
+}
+
+Object.assign(TRADE_ACTIONS, {
+  'mkt-filter': (b) => { state.saleFilter = b.dataset.filter; renderSale(); },
+  'mkt-offer': (b) => {
+    const l = state.marketBrowse.find((x) => x.id === b.dataset.id);
+    if (!l) return;
+    const mine = state.marketOffers.find((o) => o.listingId === l.id && o.buyerId === window.currentUser.id && offerIsLive(o) && o.fromRole === 'buyer');
+    openMarketOfferModal({ mode: 'offer', listingId: l.id, name: l.name, askCents: l.priceCents, shippingCents: l.shippingCents, currentCents: mine?.amountCents });
+  },
+  'mkt-counter': (b) => {
+    const o = state.marketOffers.find((x) => x.id === b.dataset.id);
+    if (!o) return;
+    openMarketOfferModal({ mode: 'counter', offerId: o.id, listingId: o.listingId, name: o.listing?.name || '', askCents: o.listing?.priceCents, shippingCents: o.listing?.shippingCents });
+  },
+  'mkt-accept':   (b) => marketRespond(b.dataset.id, 'accept'),
+  'mkt-decline':  (b) => marketRespond(b.dataset.id, 'decline'),
+  'mkt-withdraw': (b) => marketRespond(b.dataset.id, 'withdraw'),
+  'mkt-edit': (b) => {
+    const l = state.myListings.find((x) => x.id === b.dataset.id);
+    if (l) openSellModal(null, l);
+  },
+  'mkt-remove': async (b) => {
+    if (!confirm('Take this listing down? Any pending offers on it are declined.')) return;
+    try { await data.removeMarketListing(b.dataset.id); toast('Listing removed.'); }
+    catch (err) { toast(marketErrorText(err)); }
+    await refreshMarket();
+  },
+});
