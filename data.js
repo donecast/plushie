@@ -827,6 +827,149 @@ data.getPublicFeedback = async function (userId, limit = 8) {
   return rows;
 };
 
+// ─── For Sale market (db/0106) ─────────────────────────────────────
+// Listings are written ONLY by the `market-listing` edge function, which
+// checks Plushie Dreadfuls live (you can't list what PD sells right now; a PD
+// restock caps your price at PD's). Offers move through SECURITY DEFINER
+// RPCs. Insider-gated (feature.market) until payments ship.
+
+// Fees, in percent, settled 2026-10-19: buyer pays +5% at checkout, seller
+// gives up 5% of the item price. Shipping is passed through fee-free.
+data.MARKET_FEES = { buyerPct: 5, sellerPct: 5 };
+data.marketFeeCents = (priceCents, pct) => Math.round(priceCents * pct / 100);
+
+// Call the edge function; a refusal (PD in stock, price cap, not owned…)
+// comes back as a thrown Error carrying the server's code + message.
+data.marketListingCall = async function (body) {
+  const { data: out, error } = await sb.functions.invoke('market-listing', { body });
+  if (!error) return out;
+  let payload = null;
+  try { payload = await error.context?.json(); } catch { /* not JSON */ }
+  const err = new Error(payload?.message || error.message || 'Listing failed.');
+  err.code = payload?.error || 'UNKNOWN';
+  err.pdPriceCents = payload?.pdPriceCents ?? null;
+  throw err;
+};
+
+data._attachListingPhotos = async function (listings) {
+  const ids = listings.map((l) => l.id);
+  if (!ids.length) return listings;
+  const { data: rows, error } = await sb
+    .from('market_listing_photos')
+    .select('id, listing_id, social_path, position')
+    .in('listing_id', ids)
+    .order('position', { ascending: true });
+  if (error) throw error;
+  const byListing = new Map();
+  for (const r of rows) {
+    if (!byListing.has(r.listing_id)) byListing.set(r.listing_id, []);
+    byListing.get(r.listing_id).push(r);
+  }
+  await Promise.all(listings.map(async (l) => {
+    const ps = byListing.get(l.id) || [];
+    l.photos = await Promise.all(ps.map(async (p) => ({
+      id: p.id, socialPath: p.social_path, url: await data.socialPhotoUrl(p.social_path),
+    })));
+    l.photo = l.photos[0]?.url || null;
+  }));
+  return listings;
+};
+
+data._listingFromRow = (r) => ({
+  id: r.id,
+  sellerId: r.seller_id,
+  plushieId: r.plushie_id,
+  catalogId: r.catalog_id,
+  catalogHandle: r.catalog_handle,
+  name: r.name,
+  priceCents: r.price_cents,
+  shippingCents: r.shipping_cents,
+  notes: r.notes,
+  extras: r.extras,
+  status: r.status,
+  pauseReason: r.pause_reason,
+  reservedUntil: r.reserved_until,
+  reservedOfferId: r.reserved_offer_id,
+  pdState: r.pd_state,
+  pdPriceCents: r.pd_price_cents,
+  pdCheckedAt: r.pd_checked_at,
+  createdAt: r.created_at,
+});
+
+// Everyone else's live listings (RLS already hides paused ones, non-insiders,
+// and anyone you're blocked with).
+data.browseListings = async function () {
+  const { data: rows, error } = await sb
+    .from('market_listings')
+    .select('*')
+    .in('status', ['active', 'reserved'])
+    .neq('seller_id', window.currentUser.id)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  const listings = rows.map(data._listingFromRow);
+  const profs = await data._resolveProfiles(listings.map((l) => l.sellerId));
+  for (const l of listings) l.sellerUsername = profs.get(l.sellerId)?.username ?? 'unknown';
+  return data._attachListingPhotos(listings);
+};
+
+data.listMyListings = async function () {
+  const { data: rows, error } = await sb
+    .from('market_listings')
+    .select('*')
+    .eq('seller_id', window.currentUser.id)
+    .neq('status', 'removed')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data._attachListingPhotos(rows.map(data._listingFromRow));
+};
+
+// Every offer I'm part of — as buyer, or on my listings (RLS scopes it).
+// Joined to its listing so the thread can show what it's for.
+data.listMarketOffers = async function () {
+  const { data: rows, error } = await sb
+    .from('market_offers')
+    .select('id, listing_id, buyer_id, from_role, amount_cents, message, status, parent_offer_id, expires_at, responded_at, created_at, listing:market_listings(id, seller_id, name, price_cents, shipping_cents, status, reserved_until, reserved_offer_id, cover_path)')
+    .order('created_at', { ascending: false })
+    .limit(200);
+  if (error) throw error;
+  const profs = await data._resolveProfiles(rows.flatMap((r) => [r.buyer_id, r.listing?.seller_id]));
+  return Promise.all(rows.map(async (r) => ({
+    id: r.id,
+    listingId: r.listing_id,
+    buyerId: r.buyer_id,
+    buyerUsername: profs.get(r.buyer_id)?.username ?? 'unknown',
+    sellerId: r.listing?.seller_id,
+    sellerUsername: profs.get(r.listing?.seller_id)?.username ?? 'unknown',
+    fromRole: r.from_role,
+    amountCents: r.amount_cents,
+    message: r.message,
+    status: r.status,
+    expiresAt: r.expires_at,
+    createdAt: r.created_at,
+    listing: r.listing ? {
+      name: r.listing.name,
+      priceCents: r.listing.price_cents,
+      shippingCents: r.listing.shipping_cents,
+      status: r.listing.status,
+      reservedUntil: r.listing.reserved_until,
+      reservedOfferId: r.listing.reserved_offer_id,
+      photo: r.listing.cover_path ? await data.socialPhotoUrl(r.listing.cover_path) : null,
+    } : null,
+  })));
+};
+
+data._marketRpc = async function (fn, args) {
+  const { data: out, error } = await sb.rpc(fn, args);
+  if (error) throw error;
+  return out;
+};
+data.makeMarketOffer    = (listingId, amountCents, message) =>
+  data._marketRpc('market_make_offer', { p_listing: listingId, p_amount: amountCents, p_message: message || null });
+data.respondMarketOffer = (offerId, action, counterCents, message) =>
+  data._marketRpc('market_respond_offer', { p_offer: offerId, p_action: action, p_counter: counterCents ?? null, p_message: message || null });
+data.withdrawMarketOffer = (offerId) => data._marketRpc('market_withdraw_offer', { p_offer: offerId });
+data.removeMarketListing = (listingId) => data._marketRpc('market_remove_listing', { p_listing: listingId });
+
 // ─── Trades ────────────────────────────────────────────────────────
 data.listTrades = async function () {
   if (data.isGhosted()) return [];
@@ -2865,6 +3008,8 @@ data.loadAppSettings = async function () {
 // Usernames (lowercase) that are always granted gated features
 // regardless of their per-user flag — alongside admins. Kept tiny and
 // explicit; add a name here to comp someone before billing exists.
+// NB: market_allowed() in db/0106 hardcodes this list for the server-side
+// For Sale gate — keep the two in sync.
 data.ALWAYS_GRANTED_USERNAMES = ['redrambler'];
 
 // ─── Demo mode ───────────────────────────────────────────────────────
@@ -2930,6 +3075,15 @@ data.featureEnabled = function (key, defaultValue = true) {
   }
   // Insider prototype: the experimental 3-zone "rails" layout (left nav rail +
   // right contextual rail). Admin + allowlist only for now — no public toggle.
+  // For Sale market (db/0106): insiders only until payments ship. Demo mode
+  // hides it like any other not-yet-public feature. The server enforces the
+  // same gate (market_allowed) — this only decides what the UI shows.
+  if (key === 'feature.market') {
+    if (data.isDemoMode()) return false;
+    if (window.currentUser?.isAdmin) return true;
+    const uname = (window.currentUser?.username || '').toLowerCase();
+    return data.ALWAYS_GRANTED_USERNAMES.includes(uname);
+  }
   if (key === 'feature.side_rails') {
     if (window.currentUser?.isAdmin) return true;
     const uname = (window.currentUser?.username || '').toLowerCase();
