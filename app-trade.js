@@ -1585,18 +1585,65 @@ function offerIsMyTurn(o) {
   return (o.fromRole === 'buyer' && o.sellerId === uid) || (o.fromRole === 'seller' && o.buyerId === uid);
 }
 function marketTurnCount() {
-  return (state.marketOffers || []).filter(offerIsMyTurn).length;
+  return (state.marketOffers || []).filter(offerIsMyTurn).length + marketOrderTurnCount();
+}
+// Orders waiting on me: a seller has something to ship, a buyer has a
+// shipment to confirm or an accepted deal to pay for.
+function marketOrderTurnCount() {
+  const uid = window.currentUser?.id;
+  const orders = state.marketOrders || [];
+  const toShip = orders.filter((o) => o.sellerId === uid && o.status === 'paid').length;
+  const toConfirm = orders.filter((o) => o.buyerId === uid && o.status === 'shipped').length;
+  const toPay = (state.marketOffers || []).filter((o) => o.status === 'accepted' && o.buyerId === uid
+    && o.listing?.reservedOfferId === o.id && o.listing?.reservedUntil && new Date(o.listing.reservedUntil) > new Date()
+    && !orders.some((x) => x.offerId === o.id && x.status !== 'awaiting_payment')).length;
+  return toShip + toConfirm + toPay;
 }
 
 async function loadMarketData() {
-  const [browse, mine, offers] = await Promise.all([
+  const [browse, mine, offers, orders, payouts] = await Promise.all([
     data.browseListings(),
     data.listMyListings(),
     data.listMarketOffers(),
+    data.listMarketOrders(),
+    data.getMyPayouts(),
   ]);
   state.marketBrowse = browse;
   state.myListings = mine;
   state.marketOffers = offers;
+  state.marketOrders = orders;
+  state.myPayouts = payouts;
+  await consumeMarketReturn();
+}
+
+// Coming back from Stripe (?mkt=…): land on the right For Sale view, say what
+// happened, and strip the marker so a reload doesn't repeat it.
+async function consumeMarketReturn() {
+  const params = new URLSearchParams(window.location.search);
+  const mkt = params.get('mkt');
+  if (!mkt) return;
+  params.delete('mkt');
+  const qs = params.toString();
+  history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
+  state.tradeSubTab = 'sale';
+  if (mkt === 'paid') {
+    state.saleFilter = 'offers';
+    toast('Paid 🎉 The seller has been told to ship it.');
+    // Stripe's webhook can land a beat after the redirect; refresh once more.
+    setTimeout(() => { refreshMarket().catch(() => {}); }, 4000);
+  } else if (mkt === 'pay_cancelled') {
+    state.saleFilter = 'offers';
+    toast('Checkout cancelled — the deal is still held for you.');
+  } else if (mkt === 'payouts_done' || mkt === 'payouts_retry') {
+    state.saleFilter = 'mine';
+    try {
+      state.myPayouts = await data.marketPayCall({ action: 'payouts_status' });
+      toast(state.myPayouts.ready ? 'Payouts are set up — buyers can pay you now.' : 'Stripe still needs a few details before you can be paid.');
+    } catch (err) {
+      console.error('payouts_status', err);
+      toast(err.message);
+    }
+  }
 }
 
 // Friendly text for the RPCs' raised codes.
@@ -1648,7 +1695,7 @@ function renderSale() {
   else if (f === 'mine') body = renderSaleMine();
   else body = renderSaleShop();
   el.innerHTML = `
-    <div class="mkt-preview-banner">🕯 Insider preview — listings and offers are live; checkout arrives with payments. An accepted offer holds the item for 48 hours.</div>
+    <div class="mkt-preview-banner">🕯 Insider preview — payments run in Stripe <strong>test mode</strong>: no real money moves. Pay with card 4242 4242 4242 4242, any future date, any CVC. An accepted offer holds the item for 48 hours.</div>
     <div class="filters trade-filters">
       ${pill('shop', 'Shop', state.marketBrowse.length)}
       ${pill('offers', 'Offers', turn)}
@@ -1698,6 +1745,74 @@ function renderListingCard(l) {
   `;
 }
 
+// An accepted offer is a deal: before payment it shows the hold (and the
+// buyer's Pay button); after, the order's progress and whoever's move it is.
+function renderDealBlock(o, iAmSeller) {
+  const order = (state.marketOrders || []).find((x) => x.offerId === o.id && x.status !== 'cancelled')
+    || (state.marketOrders || []).find((x) => x.offerId === o.id);
+  const held = o.listing?.reservedOfferId === o.id && o.listing?.reservedUntil
+    && new Date(o.listing.reservedUntil) > new Date();
+  const until = held ? new Date(o.listing.reservedUntil).toLocaleString() : '';
+
+  if (!order || order.status === 'awaiting_payment') {
+    if (!held) return `<div class="ship-first-banner">Deal at ${money(o.amountCents)} — the hold ended before it was paid.</div>`;
+    const ship = o.listing?.shippingCents ?? 0;
+    const fee = data.marketFeeCents(o.amountCents, data.MARKET_FEES.buyerPct);
+    if (iAmSeller) {
+      const nudge = state.myPayouts?.ready ? ''
+        : ` <strong>Set up payouts (My listings) so they can pay.</strong>`;
+      return `<div class="ship-first-banner">Deal at ${money(o.amountCents)} — waiting for the buyer to pay (held until ${until}).${nudge}</div>`;
+    }
+    return `<div class="ship-first-banner mkt-deal">
+        <p>Deal at ${money(o.amountCents)} — held for you until ${until}.</p>
+        <p class="dim">${money(o.amountCents)} + ${money(ship)} shipping + ${money(fee)} buyer fee</p>
+        <div class="card-actions"><button class="btn-primary" data-action="mkt-pay" data-id="${o.id}">Pay ${money(o.amountCents + ship + fee)}</button></div>
+      </div>`;
+  }
+
+  const tracking = order.tracking ? `${escapeHtml(order.carrier || '')} ${escapeHtml(order.tracking)}` : '';
+  const addr = order.shipTo
+    ? [order.shipTo.name, order.shipTo.line1, order.shipTo.line2,
+       [order.shipTo.city, order.shipTo.state, order.shipTo.postal_code].filter(Boolean).join(' ')]
+        .filter(Boolean).map(escapeHtml).join('<br>')
+    : 'N/A';
+  switch (order.status) {
+    case 'paid':
+      if (iAmSeller) {
+        return `<div class="ship-first-banner mkt-deal">
+            <p><strong>Paid ${money(order.totalCents)}.</strong> Ship it to:</p>
+            <p class="mkt-ship-to">${addr}</p>
+            <div class="mkt-ship-form">
+              <input type="text" id="mkt-carrier-${order.id}" placeholder="Carrier (USPS, UPS…)" maxlength="40" />
+              <input type="text" id="mkt-tracking-${order.id}" placeholder="Tracking number" maxlength="80" />
+            </div>
+            <div class="card-actions">
+              <button class="btn-primary" data-action="mkt-ship" data-id="${order.id}">Mark shipped</button>
+              <button class="btn-danger" data-action="mkt-refund" data-id="${order.id}">Can’t ship — refund</button>
+            </div>
+            <p class="dim">You’ll get ${money(order.sellerPayoutCents)} once the buyer confirms it arrived.</p>
+          </div>`;
+      }
+      return `<div class="ship-first-banner">Paid ${money(order.totalCents)} — waiting for the seller to ship.</div>`;
+    case 'shipped':
+      if (iAmSeller) return `<div class="ship-first-banner">Shipped (${tracking}). You’re paid ${money(order.sellerPayoutCents)} when the buyer confirms it arrived.</div>`;
+      return `<div class="ship-first-banner mkt-deal">
+          <p>Shipped: ${tracking}</p>
+          <div class="card-actions"><button class="btn-primary" data-action="mkt-arrived" data-id="${order.id}">It arrived</button></div>
+          <p class="dim">Tapping this pays the seller. Only tap once it’s in your hands and it’s what was listed.</p>
+        </div>`;
+    case 'delivered':
+      return `<div class="ship-first-banner">Arrived — paying the seller…</div>`;
+    case 'released':
+      return `<div class="ship-first-banner">Done ✓ ${iAmSeller ? `${money(order.sellerPayoutCents)} sent to your payouts.` : 'The seller has been paid.'}</div>`;
+    case 'refunded':
+      return `<div class="ship-first-banner">Refunded — ${iAmSeller ? 'the buyer got their money back.' : `${money(order.totalCents)} is back on your card.`}</div>`;
+    case 'disputed':
+      return `<div class="ship-first-banner">Disputed with the card company — on hold while it’s reviewed.</div>`;
+  }
+  return '';
+}
+
 // Offer threads: one per (listing, buyer); newest offer leads, earlier rounds
 // summarized underneath.
 function renderSaleOffers() {
@@ -1733,13 +1848,7 @@ function renderSaleOffers() {
       } else if (offerIsLive(o) && byMe) {
         actions = `<button class="btn-ghost" data-action="mkt-withdraw" data-id="${o.id}">Withdraw</button>`;
       }
-      const held = o.status === 'accepted' && o.listing?.reservedOfferId === o.id
-        && o.listing?.reservedUntil && new Date(o.listing.reservedUntil) > new Date();
-      const acceptedNote = o.status === 'accepted'
-        ? `<div class="ship-first-banner">${held
-            ? `Deal at ${money(o.amountCents)} — held until ${new Date(o.listing.reservedUntil).toLocaleString()}. Checkout arrives with payments.`
-            : `Deal at ${money(o.amountCents)} — the 48-hour hold has ended.`}</div>`
-        : '';
+      const acceptedNote = o.status === 'accepted' ? renderDealBlock(o, iAmSeller) : '';
       const history = offers.slice(1, 4).map((h) =>
         `${money(h.amountCents)} (${((h.fromRole === 'seller') === iAmSeller) ? 'you' : 'them'})`).join(' ← ');
       return `
@@ -1758,10 +1867,21 @@ function renderSaleOffers() {
   return `<div class="trade-list">${rows}</div>`;
 }
 
+function renderPayoutsBanner() {
+  const p = state.myPayouts;
+  if (p?.ready) {
+    return `<div class="mkt-payouts mkt-payouts-ready">💸 Payouts are set up. <button class="btn-ghost" data-action="mkt-payouts-dash">Open my Stripe payouts</button></div>`;
+  }
+  return `<div class="mkt-payouts">
+      <p><strong>Set up payouts to get paid.</strong> Buyers can’t pay for your items until you do. Stripe handles it — it takes a few minutes and asks for your bank details.</p>
+      <button class="btn-primary" data-action="mkt-payouts">${p?.started ? 'Finish payout setup' : 'Set up payouts'}</button>
+    </div>`;
+}
+
 function renderSaleMine() {
   const list = state.myListings;
   if (!list.length) {
-    return `<p class="empty-note">Nothing listed yet — tap “$ Sell” on an item in your Crypt.</p>`;
+    return `${renderPayoutsBanner()}<p class="empty-note">Nothing listed yet — tap “$ Sell” on an item in your Crypt.</p>`;
   }
   const statusLine = (l) => {
     if (l.status === 'paused') {
@@ -1771,7 +1891,7 @@ function renderSaleMine() {
     if (l.status === 'sold') return `<p class="dim">Sold</p>`;
     return `<p class="dim">Live · checked against PD ${shortDate(l.pdCheckedAt)}</p>`;
   };
-  return `<div class="grid grid-tight">${list.map((l) => {
+  return `${renderPayoutsBanner()}<div class="grid grid-tight">${list.map((l) => {
     const src = l.photo || catalogImageFor(l.catalogId);
     const photo = src ? `<img src="${escapeHtml(src)}" loading="lazy" />` : `<span class="no-photo">🖤</span>`;
     const editable = l.status === 'active' || l.status === 'paused';
@@ -2056,6 +2176,70 @@ Object.assign(TRADE_ACTIONS, {
     const o = state.marketOffers.find((x) => x.id === b.dataset.id);
     if (!o) return;
     openMarketOfferModal({ mode: 'counter', offerId: o.id, listingId: o.listingId, name: o.listing?.name || '', askCents: o.listing?.priceCents, shippingCents: o.listing?.shippingCents });
+  },
+  'mkt-pay': async (b) => {
+    b.disabled = true;
+    try {
+      const out = await data.marketPayCall({ action: 'checkout', offerId: b.dataset.id, returnBase: data.marketReturnBase() });
+      window.location.assign(out.url);
+    } catch (err) {
+      console.error('mkt-pay', err);
+      toast(err.message);
+      b.disabled = false;
+      if (err.code === 'HOLD_ENDED' || err.code === 'ALREADY_PAID') await refreshMarket();
+    }
+  },
+  'mkt-payouts': async (b) => {
+    b.disabled = true;
+    try {
+      const out = await data.marketPayCall({ action: 'payouts_setup', returnBase: data.marketReturnBase() });
+      window.location.assign(out.url);
+    } catch (err) {
+      console.error('mkt-payouts', err);
+      toast(err.message);
+      b.disabled = false;
+    }
+  },
+  'mkt-payouts-dash': async (b) => {
+    // Open the tab synchronously so popup blockers allow it, then point it at Stripe.
+    const win = window.open('', '_blank');
+    try {
+      const out = await data.marketPayCall({ action: 'payouts_dashboard' });
+      if (win) win.location.href = out.url; else window.location.assign(out.url);
+    } catch (err) {
+      win?.close();
+      toast(err.message);
+    }
+  },
+  'mkt-ship': async (b) => {
+    const id = b.dataset.id;
+    const carrier = document.getElementById(`mkt-carrier-${id}`)?.value.trim();
+    const tracking = document.getElementById(`mkt-tracking-${id}`)?.value.trim();
+    if (!carrier || !tracking) { toast('Add the carrier and tracking number.'); return; }
+    b.disabled = true;
+    try {
+      await data.marketPayCall({ action: 'ship', orderId: id, carrier, tracking });
+      toast('Marked shipped — the buyer has the tracking number.');
+    } catch (err) { toast(err.message); }
+    await refreshMarket();
+  },
+  'mkt-arrived': async (b) => {
+    if (!confirm('Confirm it arrived and is what was listed? This pays the seller and can’t be undone.')) return;
+    b.disabled = true;
+    try {
+      await data.marketPayCall({ action: 'confirm', orderId: b.dataset.id });
+      toast('Thanks — the seller has been paid.');
+    } catch (err) { toast(err.message); }
+    await refreshMarket();
+  },
+  'mkt-refund': async (b) => {
+    if (!confirm('Refund the buyer in full and cancel this sale? The listing comes down; you can relist it later.')) return;
+    b.disabled = true;
+    try {
+      await data.marketPayCall({ action: 'refund', orderId: b.dataset.id });
+      toast('Refunded.');
+    } catch (err) { toast(err.message); }
+    await refreshMarket();
   },
   'mkt-accept':   (b) => marketRespond(b.dataset.id, 'accept'),
   'mkt-decline':  (b) => marketRespond(b.dataset.id, 'decline'),

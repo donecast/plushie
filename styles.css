@@ -5509,3 +5509,15 @@ a.share-card:hover { border-color: var(--rose-1); }
 .ms-price-row { display: flex; gap: 12px; }
 .ms-price-row .field { flex: 1; min-width: 0; }
 .ms-fees { font-size: 0.85rem; margin: -4px 0 10px; }
+/* Payments (db/0107) */
+.mkt-payouts {
+  margin: 8px 0 12px; padding: 10px 12px;
+  border: 1px solid var(--gold); border-radius: 6px;
+  font-family: var(--sans); font-size: 0.9rem;
+}
+.mkt-payouts p { margin: 0 0 8px; }
+.mkt-payouts-ready { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-color: var(--line, var(--gold)); }
+.mkt-deal p { margin: 0 0 6px; }
+.mkt-ship-to { font-family: var(--sans); line-height: 1.4; }
+.mkt-ship-form { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+.mkt-ship-form input { flex: 1 1 140px; min-width: 0; }

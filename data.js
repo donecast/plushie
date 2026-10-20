@@ -970,6 +970,46 @@ data.respondMarketOffer = (offerId, action, counterCents, message) =>
 data.withdrawMarketOffer = (offerId) => data._marketRpc('market_withdraw_offer', { p_offer: offerId });
 data.removeMarketListing = (listingId) => data._marketRpc('market_remove_listing', { p_listing: listingId });
 
+// ─── For Sale payments (db/0107) ───────────────────────────────────
+// Every money move goes through the `market-checkout` edge function (Stripe).
+// Refusals come back as a thrown Error carrying the server's code + message.
+data.marketPayCall = async function (body) {
+  const { data: out, error } = await sb.functions.invoke('market-checkout', { body });
+  if (!error) return out;
+  let payload = null;
+  try { payload = await error.context?.json(); } catch { /* not JSON */ }
+  const err = new Error(payload?.message || error.message || 'Payment step failed.');
+  err.code = payload?.error || 'UNKNOWN';
+  throw err;
+};
+// Where Stripe sends people back: this page, wherever the app is served from.
+data.marketReturnBase = () => window.location.origin + window.location.pathname;
+
+// My seller payouts row (null = never started). RLS: own row only.
+data.getMyPayouts = async function () {
+  const { data: row, error } = await sb.from('market_sellers')
+    .select('payouts_enabled, details_submitted')
+    .eq('user_id', window.currentUser.id).maybeSingle();
+  if (error) throw error;
+  return row ? { started: true, ready: row.payouts_enabled, detailsSubmitted: row.details_submitted } : { started: false, ready: false };
+};
+
+// Orders I'm the buyer or seller on (RLS scopes it).
+data.listMarketOrders = async function () {
+  const { data: rows, error } = await sb.from('market_orders')
+    .select('id, listing_id, offer_id, buyer_id, seller_id, item_cents, shipping_cents, buyer_fee_cents, seller_fee_cents, total_cents, seller_payout_cents, status, ship_to, tracking_carrier, tracking_number, paid_at, shipped_at, released_at, refunded_at, created_at')
+    .order('created_at', { ascending: false })
+    .limit(200);
+  if (error) throw error;
+  return rows.map((r) => ({
+    id: r.id, listingId: r.listing_id, offerId: r.offer_id, buyerId: r.buyer_id, sellerId: r.seller_id,
+    itemCents: r.item_cents, shippingCents: r.shipping_cents, buyerFeeCents: r.buyer_fee_cents,
+    sellerFeeCents: r.seller_fee_cents, totalCents: r.total_cents, sellerPayoutCents: r.seller_payout_cents,
+    status: r.status, shipTo: r.ship_to, carrier: r.tracking_carrier, tracking: r.tracking_number,
+    paidAt: r.paid_at, shippedAt: r.shipped_at, releasedAt: r.released_at, refundedAt: r.refunded_at,
+  }));
+};
+
 // ─── Trades ────────────────────────────────────────────────────────
 data.listTrades = async function () {
   if (data.isGhosted()) return [];
