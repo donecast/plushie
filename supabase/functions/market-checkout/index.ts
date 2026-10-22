@@ -88,6 +88,17 @@ async function stripeV2(method: "GET" | "POST", path: string, json?: unknown, id
   if (!res.ok) throw new StripeError(res.status, out);
   return out;
 }
+// Stripe-hosted onboarding (single-use URL) for a seller's v2 Account.
+const onboardingLink = (account: string, base: string) => stripeV2("POST", "core/account_links", {
+  account,
+  use_case: {
+    type: "account_onboarding",
+    account_onboarding: {
+      refresh_url: `${base}?mkt=payouts_retry#trade`,
+      return_url: `${base}?mkt=payouts_done#trade`,
+    },
+  },
+});
 const getAccount = (id: string) => stripeV2("GET", `core/accounts/${id}?include=configuration.recipient`);
 
 const db = createClient(SUPABASE_URL, SECRET_KEY, { auth: { persistSession: false } });
@@ -289,10 +300,25 @@ Deno.serve(async (req) => {
   if (!STRIPE_KEY) return fail(503, "NO_STRIPE_KEY", "Payments aren't configured (STRIPE_SECRET_KEY missing).");
 
   try {
-    // Health check (no auth, no data): can our key use Accounts v2?
-    if (new URL(req.url).searchParams.get("probe") === "v2") {
-      try { await stripeV2("GET", "core/accounts?limit=1"); return reply(200, { ok: true }); }
-      catch (e) { return reply(200, { ok: false, status: (e as any).status, code: (e as any).stripe?.error?.code, message: (e as Error).message }); }
+    // Health checks (no auth, nothing sensitive returned):
+    //   ?probe=v2   can our key use Accounts v2?
+    //   ?probe=link can we mint an onboarding link for the newest seller? (the
+    //               link itself is thrown away) + that seller's capability states
+    const probe = new URL(req.url).searchParams.get("probe");
+    if (probe) {
+      try {
+        if (probe === "v2") { await stripeV2("GET", "core/accounts?limit=1"); return reply(200, { ok: true }); }
+        if (probe === "link") {
+          const { data: s } = await db.from("market_sellers").select("stripe_account_id").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+          if (!s) return reply(200, { ok: false, message: "no sellers yet" });
+          await onboardingLink(s.stripe_account_id, "https://plushcrypt.com/");
+          const caps = (await getAccount(s.stripe_account_id)).configuration?.recipient?.capabilities?.stripe_balance ?? {};
+          return reply(200, { ok: true, transfers: caps.stripe_transfers?.status ?? null, payouts: caps.payouts?.status ?? null });
+        }
+        return reply(400, { ok: false, message: "unknown probe" });
+      } catch (e) {
+        return reply(200, { ok: false, status: (e as any).status, code: (e as any).stripe?.error?.code, message: (e as Error).message });
+      }
     }
     await ensureWebhooks();
     if (new URL(req.url).searchParams.get("hook") === "stripe") return await onStripeEvent(req);
@@ -344,17 +370,7 @@ async function onUser(req: Request) {
         if (error) return fail(500, "DB", error.message);
         seller = inserted;
       }
-      const link = await stripeV2("POST", "core/account_links", {
-        account: seller.stripe_account_id,
-        use_case: {
-          type: "account_onboarding",
-          account_onboarding: {
-            configurations: ["recipient"],
-            refresh_url: `${base}?mkt=payouts_retry#trade`,
-            return_url: `${base}?mkt=payouts_done#trade`,
-          },
-        },
-      });
+      const link = await onboardingLink(seller.stripe_account_id, base);
       return reply(200, { url: link.url });
     }
 
