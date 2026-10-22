@@ -8,7 +8,7 @@
 //
 // One function, two kinds of caller:
 //   • Signed-in users (Authorization: Bearer <user JWT>), body { action, ... }:
-//       payouts_setup  { returnBase }          → { url }  Stripe onboarding for the seller
+//       payouts_setup  { returnBase }          → { url }  Stripe onboarding for the seller (Accounts v2)
 //       payouts_status {}                      → { ready, detailsSubmitted, ... }
 //       payouts_dashboard {}                   → { url }  seller's Stripe Express dashboard
 //       checkout       { offerId, returnBase } → { url }  Stripe Checkout for an accepted offer
@@ -18,8 +18,8 @@
 //   • Stripe (?hook=stripe). No signing secret: we re-fetch the event from
 //     Stripe by id with our own key, so a forged body can't do anything.
 //
-// The function registers its own Stripe webhooks (payments + connected
-// accounts) the first time it runs, so there's no webhook secret to copy.
+// The function registers its own Stripe webhook the first time it runs, so
+// there's no webhook secret to copy.
 //
 // Deploy with JWT verification OFF (Stripe can't send a Supabase JWT); user
 // actions check the JWT themselves, same as market-listing does.
@@ -40,7 +40,6 @@ const WEBHOOK_EVENTS = [
   "checkout.session.expired",
   "charge.refunded",
   "charge.dispute.created",
-  "account.updated",
 ];
 
 const CORS = {
@@ -73,6 +72,24 @@ async function stripe(method: "GET" | "POST", path: string, params?: Record<stri
   return json;
 }
 
+// Connected accounts use Stripe's Accounts v2 API (JSON, versioned); new
+// platforms can't create v1 accounts. Everything else (Checkout, transfers,
+// refunds) is v1 and works with v2 account ids.
+const STRIPE_V2_VERSION = "2026-09-30.preview";
+async function stripeV2(method: "GET" | "POST", path: string, json?: unknown, idem?: string) {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${STRIPE_KEY}`,
+    "Stripe-Version": STRIPE_V2_VERSION,
+  };
+  if (json) headers["Content-Type"] = "application/json";
+  if (idem) headers["Idempotency-Key"] = idem;
+  const res = await fetch(`https://api.stripe.com/v2/${path}`, { method, headers, body: json ? JSON.stringify(json) : undefined });
+  const out = await res.json();
+  if (!res.ok) throw new StripeError(res.status, out);
+  return out;
+}
+const getAccount = (id: string) => stripeV2("GET", `core/accounts/${id}?include=configuration.recipient`);
+
 const db = createClient(SUPABASE_URL, SECRET_KEY, { auth: { persistSession: false } });
 const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
 
@@ -88,17 +105,22 @@ async function handle(uid: string) {
   return (data as string) || "Someone";
 }
 
-// Refresh our copy of a seller's Stripe status. "Ready" = Stripe will accept
+// Refresh our copy of a seller's Stripe status from a v2 Account (retrieved
+// with include=configuration.recipient). "Ready" = Stripe will accept
 // transfers to them and pay them out.
 async function syncSeller(acct: any) {
+  const caps = acct.configuration?.recipient?.capabilities?.stripe_balance ?? {};
+  const transfers = caps.stripe_transfers?.status === "active";
+  const payouts = caps.payouts?.status === "active";
   const row = {
-    charges_enabled: !!acct.charges_enabled,
-    payouts_enabled: !!acct.payouts_enabled,
-    details_submitted: !!acct.details_submitted,
+    charges_enabled: transfers,
+    payouts_enabled: payouts,
+    // Onboarding submitted = nothing is blocking the transfers capability.
+    details_submitted: transfers || (caps.stripe_transfers?.status_details ?? []).length === 0,
     updated_at: new Date().toISOString(),
   };
   await db.from("market_sellers").update(row).eq("stripe_account_id", acct.id);
-  return { ...row, transfers: acct.capabilities?.transfers === "active" };
+  return { ...row, transfers };
 }
 const sellerReady = (s: { payouts_enabled: boolean; transfers: boolean }) => s.payouts_enabled && s.transfers;
 
@@ -159,7 +181,7 @@ async function onStripeEvent(req: Request) {
   let claimed: any;
   try { claimed = await req.json(); } catch { return fail(400, "BODY", "Bad body."); }
   if (typeof claimed?.id !== "string" || !claimed.id.startsWith("evt_")) return fail(400, "BODY", "Not an event.");
-  // Connect events (account.updated) live on the connected account.
+  // Events that belong to a connected account carry its id; fetch them there.
   const acctHeader = typeof claimed.account === "string" ? claimed.account : null;
   let event: any;
   try {
@@ -192,8 +214,6 @@ async function onStripeEvent(req: Request) {
     } else if (event.type === "charge.dispute.created") {
       const order = await orderByIntent(obj.payment_intent);
       if (order) await moveOrder(order, "disputed");
-    } else if (event.type === "account.updated") {
-      await syncSeller(obj);
     }
   } catch (e) {
     await db.from("stripe_events").delete().eq("id", event.id);
@@ -241,8 +261,7 @@ async function onPaid(session: any) {
   await push(order.seller_id, `💰 ${await handle(order.buyer_id)} paid for ${sold.name} — ship it, then mark it shipped`, order.buyer_id, `market-order-${order.id}`);
 }
 
-// Make sure Stripe knows where to send events: one endpoint for platform
-// payments, one for connected-account (seller) updates. Idempotent; runs once
+// Make sure Stripe knows where to send payment events. Idempotent; runs once
 // per cold start. Endpoints are told apart by their description.
 const HOOK_URL = `${SUPABASE_URL}/functions/v1/market-checkout?hook=stripe`;
 let hooksReady: Promise<void> | null = null;
@@ -250,9 +269,10 @@ function ensureWebhooks() {
   hooksReady ??= (async () => {
     const existing = (await stripe("GET", "webhook_endpoints", { limit: 100 })).data
       .filter((w: any) => w.url === HOOK_URL && w.status === "enabled");
+    // Seller status isn't pushed to us; it's re-read from Stripe on return
+    // from onboarding and before every checkout.
     const wanted = [
-      { description: "Plush Crypt market: payments", enabled_events: WEBHOOK_EVENTS.filter((e) => e !== "account.updated") },
-      { description: "Plush Crypt market: seller accounts", enabled_events: ["account.updated"], connect: "true" },
+      { description: "Plush Crypt market: payments", enabled_events: WEBHOOK_EVENTS },
     ];
     for (const w of wanted) {
       if (existing.some((e: any) => e.description === w.description)) continue;
@@ -269,6 +289,11 @@ Deno.serve(async (req) => {
   if (!STRIPE_KEY) return fail(503, "NO_STRIPE_KEY", "Payments aren't configured (STRIPE_SECRET_KEY missing).");
 
   try {
+    // Health check (no auth, no data): can our key use Accounts v2?
+    if (new URL(req.url).searchParams.get("probe") === "v2") {
+      try { await stripeV2("GET", "core/accounts?limit=1"); return reply(200, { ok: true }); }
+      catch (e) { return reply(200, { ok: false, status: (e as any).status, code: (e as any).stripe?.error?.code, message: (e as Error).message }); }
+    }
     await ensureWebhooks();
     if (new URL(req.url).searchParams.get("hook") === "stripe") return await onStripeEvent(req);
     return await onUser(req);
@@ -303,25 +328,32 @@ async function onUser(req: Request) {
       if (!base) return fail(400, "RETURN_URL", "Bad return address.");
       let { data: seller } = await db.from("market_sellers").select("*").eq("user_id", uid).maybeSingle();
       if (!seller) {
-        const acct = await stripe("POST", "accounts", {
-          type: "express",
-          country: "US",
-          email: user.email,
-          capabilities: { transfers: { requested: true } },
-          business_type: "individual",
-          business_profile: { product_description: "Selling plush collectibles on The Plush Crypt" },
+        // Marketplace seller: recipient config (receives transfers), Express
+        // dashboard, platform carries fees + losses (required for this shape).
+        const acct = await stripeV2("POST", "core/accounts", {
+          contact_email: user.email,
+          display_name: (await handle(uid)).replace(/^@/, "") || "Plush Crypt seller",
+          dashboard: "express",
+          identity: { country: "us" },
+          defaults: { responsibilities: { fees_collector: "application", losses_collector: "application" } },
+          configuration: { recipient: { capabilities: { stripe_balance: { stripe_transfers: { requested: true } } } } },
           metadata: { user_id: uid },
-        }, `acct-${uid}`);
+        }, `acct2-${uid}`);
         const { data: inserted, error } = await db.from("market_sellers")
           .insert({ user_id: uid, stripe_account_id: acct.id }).select().single();
         if (error) return fail(500, "DB", error.message);
         seller = inserted;
       }
-      const link = await stripe("POST", "account_links", {
+      const link = await stripeV2("POST", "core/account_links", {
         account: seller.stripe_account_id,
-        type: "account_onboarding",
-        refresh_url: `${base}?mkt=payouts_retry#trade`,
-        return_url: `${base}?mkt=payouts_done#trade`,
+        use_case: {
+          type: "account_onboarding",
+          account_onboarding: {
+            configurations: ["recipient"],
+            refresh_url: `${base}?mkt=payouts_retry#trade`,
+            return_url: `${base}?mkt=payouts_done#trade`,
+          },
+        },
       });
       return reply(200, { url: link.url });
     }
@@ -329,7 +361,7 @@ async function onUser(req: Request) {
     case "payouts_status": {
       const { data: seller } = await db.from("market_sellers").select("*").eq("user_id", uid).maybeSingle();
       if (!seller) return reply(200, { started: false, ready: false });
-      const s = await syncSeller(await stripe("GET", `accounts/${seller.stripe_account_id}`));
+      const s = await syncSeller(await getAccount(seller.stripe_account_id));
       return reply(200, { started: true, ready: sellerReady(s), detailsSubmitted: s.details_submitted });
     }
 
@@ -352,7 +384,7 @@ async function onUser(req: Request) {
       if (!holdLive) return fail(409, "HOLD_ENDED", "The 48-hour hold on this deal has ended.");
 
       const { data: seller } = await db.from("market_sellers").select("*").eq("user_id", listing.seller_id).maybeSingle();
-      const ready = seller ? sellerReady(await syncSeller(await stripe("GET", `accounts/${seller.stripe_account_id}`))) : false;
+      const ready = seller ? sellerReady(await syncSeller(await getAccount(seller.stripe_account_id))) : false;
       if (!ready) {
         await push(listing.seller_id, `${await handle(uid)} is trying to pay for ${listing.name} — set up payouts in For Sale so they can`, uid, `market-payouts-${listing.seller_id}`);
         return fail(409, "SELLER_NOT_READY", "The seller hasn't finished setting up payouts yet. We've nudged them.");
