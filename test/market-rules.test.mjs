@@ -62,7 +62,8 @@ test('details validation', () => {
   const uid = 'u1';
   const ok = { priceCents: 2500, parcel: { preset: 'small', weightOz: 10 }, services: ['usps_ground'], notes: null, photoPaths: ['u1/a.jpg'] };
   assert.equal(validateDetails(uid, ok), null);
-  assert.match(validateDetails(uid, { ...ok, priceCents: 99 }), /Price/);
+  assert.match(validateDetails(uid, { ...ok, priceCents: 499 }), /\$5/);
+  assert.equal(validateDetails(uid, { ...ok, priceCents: 500 }), null);
   assert.match(validateDetails(uid, { ...ok, priceCents: 25.5 }), /Price/);
   assert.match(validateDetails(uid, { ...ok, parcel: null }), /package/);
   assert.match(validateDetails(uid, { ...ok, services: [] }), /shipping service/);

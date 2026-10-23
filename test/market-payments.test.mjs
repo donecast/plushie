@@ -10,7 +10,7 @@ test("totals: fees on item only; shipping is the real label cost and pays the la
   });
 });
 test("totals: rounding stays integer and the DB checks hold", () => {
-  for (const item of [100, 101, 999, 1234, 3333, 1000000]) {
+  for (const item of [500, 501, 999, 1234, 3333, 1000000]) {
     const t = computeOrderTotals(item, 475);
     assert.ok(Object.values(t).every(Number.isInteger));
     assert.equal(t.total_cents, t.item_cents + t.shipping_cents + t.buyer_fee_cents);
@@ -18,7 +18,7 @@ test("totals: rounding stays integer and the DB checks hold", () => {
   }
 });
 test("totals: rejects bad amounts", () => {
-  assert.throws(() => computeOrderTotals(99, 0), /BAD_AMOUNTS/);
+  assert.throws(() => computeOrderTotals(499, 0), /BAD_AMOUNTS/);   // $5 floor (db/0110)
   assert.throws(() => computeOrderTotals(1000, -1), /BAD_AMOUNTS/);
   assert.throws(() => computeOrderTotals(10.5, 0), /BAD_AMOUNTS/);
 });
@@ -28,7 +28,7 @@ test("seller fee is 5% with a $1 minimum, never more than the item", async () =>
   assert.equal(sellerFeeCents(500), 100);     // $5 item: 25¢ → $1 minimum
   assert.equal(sellerFeeCents(2000), 100);    // $20: exactly $1
   assert.equal(sellerFeeCents(4000), 200);    // $40: 5%
-  assert.equal(sellerFeeCents(100), 100);     // $1 item: fee = the item
+  assert.equal(sellerFeeCents(100), 100);     // fee never exceeds the item
   assert.equal(computeOrderTotals(500, 700).seller_payout_cents, 400);
   assert.equal(computeOrderTotals(500, 700).buyer_fee_cents, 25);   // buyer fee stays a plain 5%
 });
