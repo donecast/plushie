@@ -857,7 +857,7 @@
     <div class="modal-card modal-card-wide">
       <button class="modal-close" data-close-sterms aria-label="Close">×</button>
       <div id="st-body" class="st-body"></div>
-      <label class="st-agree"><input type="checkbox" id="st-check" /> I've read and agree to the Seller Agreement, including that my 5% seller fee is owed even if I cancel a paid order.</label>
+      <label class="st-agree"><input type="checkbox" id="st-check" /> I've read and agree to the Seller Agreement, including that my seller fee (5%, minimum $1) is owed even if I cancel a paid order.</label>
       <p id="st-error" class="auth-error hidden"></p>
       <div class="form-actions">
         <button type="button" class="btn-ghost" data-close-sterms>Not now</button>
@@ -1381,11 +1381,11 @@
 
       <section class="legal-section hidden" data-legal-section="seller">
         <h2>Seller Agreement</h2>
-        <p class="dim">Version 2026-10-22. This adds to the Terms of Use. You must accept it before you list anything or set up payouts. "We" means Chainsaw Enterprises, operator of The Plush Crypt.</p>
+        <p class="dim">Version 2026-10-22.2. This adds to the Terms of Use. You must accept it before you list anything or set up payouts. "We" means Chainsaw Enterprises, operator of The Plush Crypt.</p>
         <ul>
           <li><strong>Who can sell.</strong> You must be 18 or older and able to enter a binding agreement. Payouts go through Stripe: you'll verify your identity and bank details with them and agree to the <a href="https://stripe.com/legal/connect-account" target="_blank" rel="noopener">Stripe Connected Account Agreement</a>. We don't see or store your bank or ID details.</li>
           <li><strong>What you can list.</strong> Only items you own and have in hand, with at least one real photo of the actual item (not a stock image) and an honest description of its condition and what's included. No counterfeits or bootlegs. You can't list something Plushie Dreadfuls is selling right now; if they restock it, your listing must be priced at or below theirs or it's paused.</li>
-          <li><strong>Fees.</strong> Buyers pay a 5% fee on top. You pay a 5% seller fee on the item price, taken out before your payout. <strong>The seller fee is owed whether or not you fulfill the order.</strong> If you cancel a paid order, the buyer is refunded in full and your seller fee is withheld from your next payout(s) until it's covered.</li>
+          <li><strong>Fees.</strong> Buyers pay a 5% fee on top. You pay a seller fee of 5% of the item price (minimum $1), taken out before your payout. <strong>The seller fee is owed whether or not you fulfill the order.</strong> If you cancel a paid order, the buyer is refunded in full and your seller fee is withheld from your next payout(s) until it's covered.</li>
           <li><strong>Shipping.</strong> You must ship with the label we provide — no other carrier, label, or off-app arrangement. Pack and enter the weight and package size honestly; if the carrier charges more because the package was heavier or bigger than you said, that difference is yours and may be withheld from your payouts. Ship within 5 days of payment. If you don't, we may cancel the order and refund the buyer, and your seller fee still applies.</li>
           <li><strong>Getting paid.</strong> You're paid 3 days after the carrier shows delivery, or sooner if the buyer confirms it arrived. We may hold a payout while a problem or card dispute is open.</li>
           <li><strong>Problems and disputes.</strong> If a buyer reports a problem within 3 days of delivery, we'll look at the tracking, photos, and messages and decide. If the item wasn't as described, wasn't shipped, or was swapped, we may refund the buyer and recover the refund and any card-dispute fees from your future payouts.</li>
@@ -1405,7 +1405,7 @@
             <h3 class="changelog-date">October 22, 2026</h3>
             <ul>
               <li class="changelog-gated"><strong>Real shipping labels for For Sale. 📦</strong> Sellers set the package size, weight, and which services they'll ship with. Buyers enter their address, pick from live USPS/FedEx rates, and pay exactly that. We print the label for the seller, tracking updates on its own, and the seller is paid automatically 3 days after delivery. Shipping is fee-free.</li>
-              <li class="changelog-gated"><strong>Seller Agreement.</strong> Selling now starts with a short Seller Agreement (Legal → Seller Agreement): real photos, ship with our label within 5 days, and the 5% seller fee is owed even if you cancel a paid order — the buyer always gets every cent back.</li>
+              <li class="changelog-gated"><strong>Seller Agreement.</strong> Selling now starts with a short Seller Agreement (Legal → Seller Agreement): real photos, ship with our label within 5 days, and the seller fee (5%, minimum $1) is owed even if you cancel a paid order — the buyer always gets every cent back.</li>
               <li class="changelog-fixes">Misc bug fixes.</li>
             </ul>
           </div>
@@ -2302,18 +2302,18 @@
   <script src="./config.js?v=54"></script>
   <script src="./auth.js?v=66"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=126"></script>
+  <script src="./data.js?v=127"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=241"></script>
-  <script src="./app-catalog.js?v=241"></script>
-  <script src="./app-collection.js?v=241"></script>
-  <script src="./app-ui.js?v=241"></script>
-  <script src="./app-trade.js?v=241"></script>
-  <script src="./app-account.js?v=241"></script>
-  <script src="./app-admin.js?v=241"></script>
-  <script src="./app-admin-catalog.js?v=241"></script>
-  <script src="./app-social.js?v=241"></script>
+  <script src="./app-core.js?v=242"></script>
+  <script src="./app-catalog.js?v=242"></script>
+  <script src="./app-collection.js?v=242"></script>
+  <script src="./app-ui.js?v=242"></script>
+  <script src="./app-trade.js?v=242"></script>
+  <script src="./app-account.js?v=242"></script>
+  <script src="./app-admin.js?v=242"></script>
+  <script src="./app-admin-catalog.js?v=242"></script>
+  <script src="./app-social.js?v=242"></script>
 </body>
 </html>

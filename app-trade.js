@@ -2003,10 +2003,10 @@ function renderSellFees() {
   const el = document.getElementById('ms-fees');
   if (!el) return;
   const price = dollarsToCents(document.getElementById('ms-price').value);
-  if (!Number.isFinite(price) || price <= 0) { el.textContent = 'Fees: buyers pay 5% on top; you pay 5%. Shipping is fee-free — the buyer pays the real label cost.'; return; }
+  if (!Number.isFinite(price) || price <= 0) { el.textContent = 'Fees: buyers pay 5% on top; you pay 5% (minimum $1). Shipping is fee-free — the buyer pays the real label cost.'; return; }
   const { buyerPct, sellerPct } = data.MARKET_FEES;
   const t = data.marketTotals(price, 0);
-  el.textContent = `Buyer pays ${money(t.buyerTotal)} (incl. ${buyerPct}% fee) + shipping. You get ${money(t.sellerNet)} after the ${sellerPct}% seller fee — shipping never comes out of your pocket.`;
+  el.textContent = `Buyer pays ${money(t.buyerTotal)} (incl. ${buyerPct}% fee) + shipping. You get ${money(t.sellerNet)} after the ${money(t.sellerFee)} seller fee (${sellerPct}%, minimum $1) — shipping never comes out of your pocket.`;
 }
 
 // Services the buyer may choose from (checkboxes; at least one).

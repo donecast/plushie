@@ -2,8 +2,13 @@
 // Deno (edge functions) and Node's test runner (test/market-payments.test.mjs).
 // Keep FEES in sync with data.MARKET_FEES in data.js.
 
-export const FEES = { buyerPct: 5, sellerPct: 5 };
+// Seller fee: 5% of the item price, never less than $1 (so a cancelled cheap
+// sale still covers what Stripe keeps on the refund) and never more than the
+// item itself. Settled 2026-10-22.
+export const FEES = { buyerPct: 5, sellerPct: 5, sellerMinCents: 100 };
 export const feeCents = (cents, pct) => Math.round(cents * pct / 100);
+export const sellerFeeCents = (itemCents, fees = FEES) =>
+  Math.min(itemCents, Math.max(fees.sellerMinCents ?? 0, feeCents(itemCents, fees.sellerPct)));
 
 // Everything is integer cents. Shipping is the real carrier rate for a label
 // WE buy (EasyPost), so it can't be padded: fees apply to the item price only,
@@ -14,7 +19,7 @@ export function computeOrderTotals(itemCents, shippingCents, fees = FEES) {
     throw new Error("BAD_AMOUNTS");
   }
   const buyerFee = feeCents(itemCents, fees.buyerPct);
-  const sellerFee = feeCents(itemCents, fees.sellerPct);
+  const sellerFee = sellerFeeCents(itemCents, fees);
   return {
     item_cents: itemCents,
     shipping_cents: shippingCents,
