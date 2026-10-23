@@ -5,30 +5,32 @@
 export const FEES = { buyerPct: 5, sellerPct: 5 };
 export const feeCents = (cents, pct) => Math.round(cents * pct / 100);
 
-// Everything is integer cents. Both fees apply to item + shipping together, so
-// nobody can dodge them by pricing low and loading the shipping (settled
-// 2026-10-22).
+// Everything is integer cents. Shipping is the real carrier rate for a label
+// WE buy (EasyPost), so it can't be padded: fees apply to the item price only,
+// and the seller's payout is item minus their fee (the shipping money pays for
+// the label, not the seller). Settled 2026-10-22.
 export function computeOrderTotals(itemCents, shippingCents, fees = FEES) {
   if (![itemCents, shippingCents].every(Number.isInteger) || itemCents < 100 || shippingCents < 0) {
     throw new Error("BAD_AMOUNTS");
   }
-  const base = itemCents + shippingCents;
-  const buyerFee = feeCents(base, fees.buyerPct);
-  const sellerFee = feeCents(base, fees.sellerPct);
+  const buyerFee = feeCents(itemCents, fees.buyerPct);
+  const sellerFee = feeCents(itemCents, fees.sellerPct);
   return {
     item_cents: itemCents,
     shipping_cents: shippingCents,
     buyer_fee_cents: buyerFee,
     seller_fee_cents: sellerFee,
     total_cents: itemCents + shippingCents + buyerFee,
-    seller_payout_cents: itemCents + shippingCents - sellerFee,
+    seller_payout_cents: itemCents - sellerFee,
   };
 }
 
 // Allowed order moves. Anything else is a bug or a replayed event.
 const NEXT = {
   awaiting_payment: ["paid", "cancelled"],
-  paid: ["shipped", "refunded", "disputed"],
+  // paid → delivered happens when the carrier's first scan we hear about is
+  // already the delivery.
+  paid: ["shipped", "delivered", "refunded", "disputed"],
   shipped: ["delivered", "refunded", "disputed"],
   delivered: ["released", "refunded", "disputed"],
   released: ["disputed"],
@@ -42,7 +44,7 @@ export const canMove = (from, to) => (NEXT[from] || []).includes(to);
 // the buyer confirmed it or the auto-release window has passed.
 export function releaseDue(order, now = new Date(), autoDays = 3) {
   if (order.status !== "delivered" || !order.delivered_at) return false;
-  if (order.buyer_confirmed) return true;
+  if (order.buyer_confirmed_at) return true;
   return now - new Date(order.delivered_at) >= autoDays * 86_400_000;
 }
 
@@ -85,7 +87,7 @@ export function checkoutLineItems(totals, name) {
     price_data: { currency: "usd", unit_amount: cents, product_data: { name: label } },
   });
   const items = [line(name, totals.item_cents)];
-  if (totals.shipping_cents > 0) items.push(line("Shipping", totals.shipping_cents));
+  if (totals.shipping_cents > 0) items.push(line(totals.shipping_label ? `Shipping: ${totals.shipping_label}` : "Shipping", totals.shipping_cents));
   if (totals.buyer_fee_cents > 0) items.push(line(`Plush Crypt buyer fee (${FEES.buyerPct}%)`, totals.buyer_fee_cents));
   return items;
 }
@@ -99,3 +101,7 @@ export function sessionExpiresAt(holdUntil, now = new Date()) {
   const t = Math.min(max, Math.max(min, new Date(holdUntil).getTime()));
   return Math.floor(t / 1000);
 }
+
+// Shipping rules live in ./shipping.mjs — an identical copy sits next to
+// market-listing (each function deploys on its own); a test keeps them equal.
+export * from "./shipping.mjs";

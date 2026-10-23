@@ -2,25 +2,19 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { computeOrderTotals, canMove, releaseDue, feeCents } from "../supabase/functions/market-checkout/rules.mjs";
 
-test("totals: both 5% fees apply to item + shipping", () => {
+test("totals: fees on item only; shipping is the real label cost and pays the label, not the seller", () => {
   const t = computeOrderTotals(4000, 600);
   assert.deepEqual(t, {
-    item_cents: 4000, shipping_cents: 600, buyer_fee_cents: 230, seller_fee_cents: 230,
-    total_cents: 4830, seller_payout_cents: 4370,
+    item_cents: 4000, shipping_cents: 600, buyer_fee_cents: 200, seller_fee_cents: 200,
+    total_cents: 4800, seller_payout_cents: 3800,
   });
-});
-test("totals: loading the shipping doesn't dodge the fee", () => {
-  const cheapItem = computeOrderTotals(100, 4500);
-  const fairItem = computeOrderTotals(4500, 100);
-  assert.equal(cheapItem.buyer_fee_cents, fairItem.buyer_fee_cents);
-  assert.equal(cheapItem.seller_fee_cents, fairItem.seller_fee_cents);
 });
 test("totals: rounding stays integer and the DB checks hold", () => {
   for (const item of [100, 101, 999, 1234, 3333, 1000000]) {
     const t = computeOrderTotals(item, 475);
     assert.ok(Object.values(t).every(Number.isInteger));
     assert.equal(t.total_cents, t.item_cents + t.shipping_cents + t.buyer_fee_cents);
-    assert.equal(t.seller_payout_cents, t.item_cents + t.shipping_cents - t.seller_fee_cents);
+    assert.equal(t.seller_payout_cents, t.item_cents - t.seller_fee_cents);
   }
 });
 test("totals: rejects bad amounts", () => {
@@ -39,7 +33,7 @@ test("state machine", () => {
 test("release needs delivery plus confirm or window", () => {
   const now = new Date("2026-10-20T00:00:00Z");
   assert.ok(!releaseDue({ status: "shipped", delivered_at: null }, now));
-  assert.ok(releaseDue({ status: "delivered", delivered_at: "2026-10-19T00:00:00Z", buyer_confirmed: true }, now));
+  assert.ok(releaseDue({ status: "delivered", delivered_at: "2026-10-19T00:00:00Z", buyer_confirmed_at: "2026-10-19T01:00:00Z" }, now));
   assert.ok(!releaseDue({ status: "delivered", delivered_at: "2026-10-19T00:00:00Z" }, now));
   assert.ok(releaseDue({ status: "delivered", delivered_at: "2026-10-16T00:00:00Z" }, now));
 });
@@ -70,4 +64,47 @@ test("session expiry stays inside Stripe's 30 min – 24 h window", () => {
   assert.equal(sessionExpiresAt("2026-10-20T00:05:00Z", now), s + 31 * 60);
   assert.equal(sessionExpiresAt("2026-10-21T12:00:00Z", now), s + 23.5 * 3600);
   assert.equal(sessionExpiresAt("2026-10-20T06:00:00Z", now), s + 6 * 3600);
+});
+
+import { validateShipping, cleanAddress, pickRates, orderStatusForTracking, easypostParcel } from "../supabase/functions/market-checkout/rules.mjs";
+
+test("shipping setup is validated", () => {
+  assert.equal(validateShipping({ preset: "small", weightOz: 12 }, ["usps_ground"]), null);
+  assert.match(validateShipping({ preset: "huge", weightOz: 12 }, ["usps_ground"]), /package/);
+  assert.match(validateShipping({ preset: "small", weightOz: 0 }, ["usps_ground"]), /weight/);
+  assert.match(validateShipping({ preset: "small", weightOz: 12 }, []), /service/);
+  assert.match(validateShipping({ preset: "small", weightOz: 12 }, ["pony_express"]), /Unknown/);
+  assert.deepEqual(easypostParcel({ preset: "small", weightOz: 12 }), { length: 8, width: 6, height: 4, weight: 12 });
+});
+test("addresses are cleaned and checked", () => {
+  const ok = cleanAddress({ name: " Bat Ty ", street1: "1 Crypt Ln", city: "Salem", state: "ma", zip: "01970" });
+  assert.deepEqual(ok.address, { name: "Bat Ty", street1: "1 Crypt Ln", city: "Salem", state: "MA", zip: "01970", country: "US" });
+  assert.match(cleanAddress({ name: "x", street1: "y", city: "z", state: "Mass", zip: "01970" }).error, /2-letter/);
+  assert.match(cleanAddress({ name: "x", street1: "y", city: "z", state: "MA", zip: "1970" }).error, /ZIP/);
+});
+test("buyer sees the cheapest rate per allowed service, cheapest first", () => {
+  const rates = [
+    { id: "r1", carrier: "USPS", service: "Priority", rate: "9.85", delivery_days: 2 },
+    { id: "r2", carrier: "USPS", service: "GroundAdvantage", rate: "5.40", delivery_days: 4 },
+    { id: "r3", carrier: "USPS", service: "Express", rate: "31.00" },
+    { id: "r4", carrier: "FedExDefault", service: "FEDEX_GROUND", rate: "11.20" },
+    { id: "r5", carrier: "USPS", service: "GroundAdvantage", rate: "5.10" },
+  ];
+  const out = pickRates(rates, ["usps_ground", "usps_priority", "fedex_ground"]);
+  assert.deepEqual(out.map((o) => [o.rateId, o.cents]), [["r5", 510], ["r1", 985], ["r4", 1120]]);
+  assert.equal(pickRates(rates, ["usps_express"])[0].label, "USPS Priority Mail Express");
+});
+test("tracking statuses move orders forward only on real scans", () => {
+  assert.equal(orderStatusForTracking("pre_transit"), null);
+  assert.equal(orderStatusForTracking("in_transit"), "shipped");
+  assert.equal(orderStatusForTracking("delivered"), "delivered");
+  assert.equal(orderStatusForTracking("return_to_sender"), null);
+  assert.ok(canMove("paid", "delivered"));
+});
+
+import fs from "node:fs";
+test("the two shipping.mjs copies are identical", () => {
+  assert.equal(
+    fs.readFileSync(new URL("../supabase/functions/market-checkout/shipping.mjs", import.meta.url), "utf8"),
+    fs.readFileSync(new URL("../supabase/functions/market-listing/shipping.mjs", import.meta.url), "utf8"));
 });

@@ -1593,7 +1593,7 @@ function marketOrderTurnCount() {
   const uid = window.currentUser?.id;
   const orders = state.marketOrders || [];
   const toShip = orders.filter((o) => o.sellerId === uid && o.status === 'paid').length;
-  const toConfirm = orders.filter((o) => o.buyerId === uid && o.status === 'shipped').length;
+  const toConfirm = orders.filter((o) => o.buyerId === uid && o.status === 'delivered').length;
   const toPay = (state.marketOffers || []).filter((o) => o.status === 'accepted' && o.buyerId === uid
     && o.listing?.reservedOfferId === o.id && o.listing?.reservedUntil && new Date(o.listing.reservedUntil) > new Date()
     && !orders.some((x) => x.offerId === o.id && x.status !== 'awaiting_payment')).length;
@@ -1721,7 +1721,8 @@ function renderListingCard(l) {
     : `<span class="no-photo">🖤</span>`;
   const mine = state.marketOffers.find((o) => o.listingId === l.id && o.buyerId === uid && offerIsLive(o));
   const facts = [
-    `<li class="mkt-price">${money(l.priceCents)} <span class="dim">+ ${l.shippingCents ? money(l.shippingCents) + ' shipping' : 'free shipping'}</span></li>`,
+    `<li class="mkt-price">${money(l.priceCents)} <span class="dim">+ shipping at checkout</span></li>`,
+    l.shipServices?.length ? `<li class="dim">Ships ${escapeHtml(l.shipServices.map(data.shipServiceLabel).join(' · '))}</li>` : '',
     pdStateLine(l),
     extrasLines(l.extras),
     l.notes ? `<li class="trade-offer-note">${escapeHtml(l.notes)}</li>` : '',
@@ -1756,53 +1757,60 @@ function renderDealBlock(o, iAmSeller) {
 
   if (!order || order.status === 'awaiting_payment') {
     if (!held) return `<div class="ship-first-banner">Deal at ${money(o.amountCents)} — the hold ended before it was paid.</div>`;
-    const ship = o.listing?.shippingCents ?? 0;
-    const fee = data.marketTotals(o.amountCents, ship).buyerFee;
+    const fee = data.marketTotals(o.amountCents, 0).buyerFee;
     if (iAmSeller) {
       const nudge = state.myPayouts?.ready ? ''
         : ` <strong>Set up payouts (My listings) so they can pay.</strong>`;
       return `<div class="ship-first-banner">Deal at ${money(o.amountCents)} — waiting for the buyer to pay (held until ${until}).${nudge}</div>`;
     }
+    const svcs = (o.listing?.shipServices || []).map(data.shipServiceLabel).join(' · ');
     return `<div class="ship-first-banner mkt-deal">
         <p>Deal at ${money(o.amountCents)} — held for you until ${until}.</p>
-        <p class="dim">${money(o.amountCents)} + ${money(ship)} shipping + ${money(fee)} buyer fee</p>
-        <div class="card-actions"><button class="btn-primary" data-action="mkt-pay" data-id="${o.id}">Pay ${money(o.amountCents + ship + fee)}</button></div>
+        <p class="dim">${money(o.amountCents)} + ${money(fee)} buyer fee + shipping${svcs ? ` (${escapeHtml(svcs)})` : ''}</p>
+        <div class="card-actions"><button class="btn-primary" data-action="mkt-pay" data-id="${o.id}">Checkout</button></div>
       </div>`;
   }
 
   const tracking = order.tracking ? `${escapeHtml(order.carrier || '')} ${escapeHtml(order.tracking)}` : '';
-  const addr = order.shipTo
-    ? [order.shipTo.name, order.shipTo.line1, order.shipTo.line2,
-       [order.shipTo.city, order.shipTo.state, order.shipTo.postal_code].filter(Boolean).join(' ')]
-        .filter(Boolean).map(escapeHtml).join('<br>')
-    : 'N/A';
+  const svc = order.shipService ? escapeHtml(data.shipServiceLabel(order.shipService)) : 'Shipping';
+  const statusWord = {
+    pre_transit: 'label made, not scanned yet', in_transit: 'in transit', out_for_delivery: 'out for delivery',
+    available_for_pickup: 'ready for pickup', delivered: 'delivered', return_to_sender: 'returning to sender',
+    failure: 'carrier problem', error: 'carrier problem',
+  }[order.trackingStatus] || '';
+  const trackLine = tracking ? `<p class="dim">${svc}: ${tracking}${statusWord ? ` · ${statusWord}` : ''}</p>` : '';
   switch (order.status) {
     case 'paid':
       if (iAmSeller) {
+        const label = order.labelUrl
+          ? `<a class="btn-primary" href="${escapeHtml(order.labelUrl)}" target="_blank" rel="noopener">🖨 Print shipping label</a>`
+          : order.labelError
+            ? `<p class="trade-proof-warning">We couldn't buy the label yet.</p><button class="btn-primary" data-action="mkt-label-retry" data-id="${order.id}">Try the label again</button>`
+            : `<p class="dim">Getting your label…</p>`;
         return `<div class="ship-first-banner mkt-deal">
-            <p><strong>Paid ${money(order.totalCents)}.</strong> Ship it to:</p>
-            <p class="mkt-ship-to">${addr}</p>
-            <div class="mkt-ship-form">
-              <input type="text" id="mkt-carrier-${order.id}" placeholder="Carrier (USPS, UPS…)" maxlength="40" />
-              <input type="text" id="mkt-tracking-${order.id}" placeholder="Tracking number" maxlength="80" />
-            </div>
-            <div class="card-actions">
-              <button class="btn-primary" data-action="mkt-ship" data-id="${order.id}">Mark shipped</button>
+            <p><strong>Paid ${money(order.totalCents)}.</strong> Print the label, tape it on, and drop it off — tracking updates the buyer automatically.</p>
+            <div class="card-actions">${label}
               <button class="btn-danger" data-action="mkt-refund" data-id="${order.id}">Can’t ship — refund</button>
             </div>
-            <p class="dim">You’ll get ${money(order.sellerPayoutCents)} once the buyer confirms it arrived.</p>
+            ${trackLine}
+            <p class="dim">You’ll get ${money(order.sellerPayoutCents)} 3 days after it’s delivered (or sooner if the buyer confirms).</p>
           </div>`;
       }
-      return `<div class="ship-first-banner">Paid ${money(order.totalCents)} — waiting for the seller to ship.</div>`;
+      return `<div class="ship-first-banner mkt-deal"><p>Paid ${money(order.totalCents)} — waiting for the seller to drop it off.</p>${trackLine}</div>`;
     case 'shipped':
-      if (iAmSeller) return `<div class="ship-first-banner">Shipped (${tracking}). You’re paid ${money(order.sellerPayoutCents)} when the buyer confirms it arrived.</div>`;
+      if (iAmSeller) return `<div class="ship-first-banner">On its way. ${trackLine}You’re paid ${money(order.sellerPayoutCents)} 3 days after delivery.</div>`;
       return `<div class="ship-first-banner mkt-deal">
-          <p>Shipped: ${tracking}</p>
+          <p>On its way!</p>${trackLine}
           <div class="card-actions"><button class="btn-primary" data-action="mkt-arrived" data-id="${order.id}">It arrived</button></div>
-          <p class="dim">Tapping this pays the seller. Only tap once it’s in your hands and it’s what was listed.</p>
+          <p class="dim">Tapping this pays the seller right away. Otherwise they’re paid 3 days after delivery.</p>
         </div>`;
     case 'delivered':
-      return `<div class="ship-first-banner">Arrived — paying the seller…</div>`;
+      if (iAmSeller) return `<div class="ship-first-banner">Delivered. You’re paid ${money(order.sellerPayoutCents)} 3 days after delivery, or sooner if the buyer confirms.</div>`;
+      return `<div class="ship-first-banner mkt-deal">
+          <p>Delivered 📬</p>${trackLine}
+          <div class="card-actions"><button class="btn-primary" data-action="mkt-arrived" data-id="${order.id}">All good — pay the seller</button></div>
+          <p class="dim">Something wrong with it? Tell us within 3 days of delivery, before the seller is paid.</p>
+        </div>`;
     case 'released':
       return `<div class="ship-first-banner">Done ✓ ${iAmSeller ? `${money(order.sellerPayoutCents)} sent to your payouts.` : 'The seller has been paid.'}</div>`;
     case 'refunded':
@@ -1900,7 +1908,7 @@ function renderSaleMine() {
         <div class="card-photo">${photo}</div>
         <div class="card-body">
           <h3 class="card-name">${escapeHtml(stripOutfitWord(l.name))}</h3>
-          <div class="card-meta"><span>${money(l.priceCents)} + ${money(l.shippingCents)} ship</span></div>
+          <div class="card-meta"><span>${money(l.priceCents)} + shipping</span></div>
           ${statusLine(l)}
         </div>
         <div class="card-actions">
@@ -1932,19 +1940,35 @@ function openSellModal(colItem, listing) {
     extras: buildTradeListExtras({ catalogId }, listing ? { extras: listing.extras } : null),
     stockHash: null,
     saving: false,
+    // Shipping: package + services ride on the listing; the ship-from address
+    // is per seller (loaded below; null until known, false = none saved).
+    services: listing?.shipServices?.length ? [...listing.shipServices] : ['usps_ground'],
+    shipFrom: null,
+    editShipFrom: false,
   };
   const name = listing?.name || colItem?.name || '';
   document.getElementById('ms-title').textContent = listing ? 'Edit your listing' : 'Sell this';
   document.getElementById('ms-name').textContent = stripOutfitWord(name);
   document.getElementById('ms-price').value = listing ? (listing.priceCents / 100).toFixed(2) : '';
-  document.getElementById('ms-shipping').value = listing ? (listing.shippingCents / 100).toFixed(2) : '';
+  const parcelSel = document.getElementById('ms-parcel');
+  parcelSel.innerHTML = data.PARCEL_PRESETS.map((p) => `<option value="${p.key}">${escapeHtml(p.label)}</option>`).join('');
+  parcelSel.value = listing?.parcel?.preset || 'mailer';
+  const oz = listing?.parcel?.weightOz;
+  document.getElementById('ms-weight-lb').value = oz ? Math.floor(oz / 16) : '';
+  document.getElementById('ms-weight-oz').value = oz ? oz % 16 : '';
   document.getElementById('ms-notes').value = listing?.notes || '';
   document.getElementById('ms-save').textContent = listing ? 'Save & re-check' : 'List for sale';
   hideEl('ms-error');
   renderSellFees();
   renderSellExtras();
   renderSellPhotos();
+  renderSellServices();
+  renderSellShipFrom();
   showEl('market-sell-modal');
+  const draft = state.sellDraft;
+  data.getMyShipFrom()
+    .then((row) => { if (state.sellDraft === draft) { draft.shipFrom = row || false; renderSellShipFrom(); } })
+    .catch((err) => { console.error('getMyShipFrom', err); if (state.sellDraft === draft) { draft.shipFrom = false; renderSellShipFrom(); } });
   const stockUrl = catalogImageFor(catalogId);
   if (stockUrl) {
     perceptualHash(stockUrl)
@@ -1971,12 +1995,66 @@ function renderSellFees() {
   const el = document.getElementById('ms-fees');
   if (!el) return;
   const price = dollarsToCents(document.getElementById('ms-price').value);
-  const ship = dollarsToCents(document.getElementById('ms-shipping').value || '0');
-  if (!Number.isFinite(price) || price <= 0) { el.textContent = 'Fees: buyers pay 5% on top; you pay 5%. Both fees count the price plus shipping.'; return; }
-  const s = Number.isFinite(ship) ? Math.max(0, ship) : 0;
+  if (!Number.isFinite(price) || price <= 0) { el.textContent = 'Fees: buyers pay 5% on top; you pay 5%. Shipping is fee-free — the buyer pays the real label cost.'; return; }
   const { buyerPct, sellerPct } = data.MARKET_FEES;
-  const t = data.marketTotals(price, s);
-  el.textContent = `Buyer pays ${money(t.buyerTotal)} (incl. ${buyerPct}% fee${s ? ' + shipping' : ''}). You get ${money(t.sellerNet)} after the ${sellerPct}% seller fee${s ? ' (fees count price + shipping)' : ''}.`;
+  const t = data.marketTotals(price, 0);
+  el.textContent = `Buyer pays ${money(t.buyerTotal)} (incl. ${buyerPct}% fee) + shipping. You get ${money(t.sellerNet)} after the ${sellerPct}% seller fee — shipping never comes out of your pocket.`;
+}
+
+// Services the buyer may choose from (checkboxes; at least one).
+function renderSellServices() {
+  const d = state.sellDraft;
+  document.getElementById('ms-services').innerHTML = data.SHIP_SERVICES.map((svc) => `
+    <label class="ms-service">
+      <input type="checkbox" data-ms-service="${svc.key}" ${d?.services.includes(svc.key) ? 'checked' : ''} />
+      ${escapeHtml(svc.label)}
+    </label>`).join('');
+}
+function toggleSellService(key, on) {
+  const d = state.sellDraft;
+  if (!d) return;
+  d.services = on ? [...new Set([...d.services, key])] : d.services.filter((k) => k !== key);
+}
+
+// The seller's ship-from address: a one-line summary once saved, a form the
+// first time (or when they tap Change). Private to them.
+function renderSellShipFrom() {
+  const d = state.sellDraft;
+  const box = document.getElementById('ms-shipfrom');
+  if (!d || !box) return;
+  if (d.shipFrom === null) { box.innerHTML = '<p class="dim">Loading your ship-from address…</p>'; return; }
+  if (d.shipFrom && !d.editShipFrom) {
+    const a = d.shipFrom;
+    box.innerHTML = `<p class="dim">Ships from ${escapeHtml(a.name)}, ${escapeHtml(a.city)}, ${escapeHtml(a.state)} ${escapeHtml(a.zip)} · <button type="button" class="link-btn" data-action="ms-shipfrom-edit">Change</button></p>`;
+    return;
+  }
+  const a = d.shipFrom || {};
+  const f = (id, label, val, extra = '') => `<label class="field"><span>${label}</span><input type="text" id="${id}" value="${escapeHtml(val || '')}" ${extra} /></label>`;
+  box.innerHTML = `
+    <p class="dim">Your ship-from address goes on the label. Only you (and the label) see it.</p>
+    ${f('msf-name', 'Name', a.name, 'maxlength="80" autocomplete="name"')}
+    ${f('msf-street1', 'Street', a.street1, 'maxlength="100" autocomplete="address-line1"')}
+    ${f('msf-street2', 'Apt / unit (optional)', a.street2, 'maxlength="100" autocomplete="address-line2"')}
+    <div class="ms-price-row">
+      ${f('msf-city', 'City', a.city, 'maxlength="60" autocomplete="address-level2"')}
+      ${f('msf-state', 'State', a.state, 'maxlength="2" placeholder="MA" autocomplete="address-level1"')}
+      ${f('msf-zip', 'ZIP', a.zip, 'maxlength="10" inputmode="numeric" autocomplete="postal-code"')}
+    </div>`;
+}
+function editSellShipFrom() {
+  const d = state.sellDraft;
+  if (!d) return;
+  d.editShipFrom = true;
+  renderSellShipFrom();
+}
+// Read + check an address form (ids prefixed `pre`). Returns { address } or { error }.
+function readAddressForm(pre) {
+  const v = (k) => (document.getElementById(`${pre}-${k}`)?.value || '').trim();
+  const a = { name: v('name'), street1: v('street1'), street2: v('street2'), city: v('city'), state: v('state').toUpperCase(), zip: v('zip') };
+  if (!a.name || !a.street1 || !a.city) return { error: 'Fill in name, street and city.' };
+  if (!/^[A-Z]{2}$/.test(a.state)) return { error: 'Use the 2-letter state code (e.g. MA).' };
+  if (!/^\d{5}(-\d{4})?$/.test(a.zip)) return { error: 'Enter a 5-digit ZIP code.' };
+  return { address: a };
 }
 
 function renderSellExtras() {
@@ -2049,10 +2127,18 @@ async function saveSellListing() {
   const d = state.sellDraft;
   if (!d || d.saving) return;
   const priceCents = dollarsToCents(document.getElementById('ms-price').value);
-  const shipRaw = document.getElementById('ms-shipping').value;
-  const shippingCents = shipRaw === '' ? 0 : dollarsToCents(shipRaw);
   if (!Number.isFinite(priceCents) || priceCents < 100) { msError('Set a price of at least $1.00.'); return; }
-  if (!Number.isFinite(shippingCents) || shippingCents < 0) { msError('Shipping must be $0 or more.'); return; }
+  const lb = parseInt(document.getElementById('ms-weight-lb').value || '0', 10);
+  const oz = parseInt(document.getElementById('ms-weight-oz').value || '0', 10);
+  const weightOz = (Number.isFinite(lb) ? lb : 0) * 16 + (Number.isFinite(oz) ? oz : 0);
+  if (weightOz < 1) { msError('Enter the packed weight — it sets the shipping price.'); return; }
+  if (!d.services.length) { msError('Pick at least one shipping service.'); return; }
+  let newShipFrom = null;
+  if (!d.shipFrom || d.editShipFrom) {
+    const r = readAddressForm('msf');
+    if (r.error) { msError(`Ship-from address: ${r.error}`); return; }
+    newShipFrom = r.address;
+  }
   if (d.photos.length < 1) { msError('Add at least one real photo.'); return; }
   const unanswered = (d.extras || []).find((e) => e.included === null);
   if (unanswered) { msError(`Is "${unanswered.name}" included? Answer Yes or No for each extra.`); return; }
@@ -2062,6 +2148,12 @@ async function saveSellListing() {
   btn.disabled = true;
   btn.textContent = 'Checking Plushie Dreadfuls…';
   try {
+    if (newShipFrom) {
+      await data.saveMyShipFrom(newShipFrom);
+      d.shipFrom = newShipFrom;
+      d.editShipFrom = false;
+      renderSellShipFrom();
+    }
     // Upload new shots once; remembering the path means a retry after a
     // refusal (PD in stock, price cap) doesn't upload them again.
     const photoPaths = [];
@@ -2071,7 +2163,8 @@ async function saveSellListing() {
     }
     const body = {
       priceCents,
-      shippingCents,
+      parcel: { preset: document.getElementById('ms-parcel').value, weightOz },
+      services: d.services,
       notes: document.getElementById('ms-notes').value.trim() || null,
       extras: (d.extras || []).length ? d.extras.map((e) => ({ name: e.name, included: e.included })) : null,
       photoPaths,
@@ -2118,8 +2211,8 @@ function renderMarketOfferHint() {
   if (!d || !el) return;
   const amt = dollarsToCents(document.getElementById('mo-amount').value);
   if (!Number.isFinite(amt) || amt <= 0) { el.textContent = `Up to the asking price of ${money(d.askCents)}.`; return; }
-  const t = data.marketTotals(amt, d.shippingCents || 0);
-  el.textContent = `At checkout the buyer pays ${money(t.buyerTotal)} (${money(amt)} + ${money(d.shippingCents || 0)} shipping + ${money(t.buyerFee)} fee).`;
+  const t = data.marketTotals(amt, 0);
+  el.textContent = `At checkout the buyer pays ${money(t.buyerTotal)} (${money(amt)} + ${money(t.buyerFee)} fee) plus shipping, picked from the seller's options.`;
 }
 
 async function sendMarketOffer() {
@@ -2144,6 +2237,111 @@ async function sendMarketOffer() {
     show(marketErrorText(err));
   } finally {
     btn.disabled = false;
+  }
+}
+
+// ─── For Sale: checkout modal (address → live rates → Stripe) ─────────
+const SHIP_TO_KEY = 'pc.market.shipTo';   // last address used, for convenience
+
+function openMarketPayModal(offerId) {
+  const o = state.marketOffers.find((x) => x.id === offerId);
+  if (!o) return;
+  state.marketPayDraft = { offerId, amountCents: o.amountCents, shipmentId: null, options: [], rateId: null, busy: false };
+  document.getElementById('mp-sub').textContent = `${stripOutfitWord(o.listing?.name || '')} · ${money(o.amountCents)}`;
+  let last = {};
+  try { last = JSON.parse(localStorage.getItem(SHIP_TO_KEY) || '{}'); } catch { /* ignore */ }
+  for (const k of ['name', 'street1', 'street2', 'city', 'state', 'zip']) {
+    document.getElementById(`mp-${k}`).value = last[k] || '';
+  }
+  clearMarketRates();
+  showEl('market-pay-modal');
+}
+function closeMarketPayModal() {
+  hideEl('market-pay-modal');
+  state.marketPayDraft = null;
+}
+function mpError(msg) {
+  const el = document.getElementById('mp-error');
+  if (!msg) { hideEl('mp-error'); return; }
+  el.textContent = msg;
+  showEl('mp-error');
+}
+// Any address edit invalidates the rates shown.
+function clearMarketRates() {
+  const d = state.marketPayDraft;
+  if (d) { d.shipmentId = null; d.options = []; d.rateId = null; }
+  document.getElementById('mp-options').innerHTML = '';
+  mpError('');
+  renderMarketPayTotal();
+}
+async function fetchMarketRates() {
+  const d = state.marketPayDraft;
+  if (!d || d.busy) return;
+  const r = readAddressForm('mp');
+  if (r.error) { mpError(r.error); return; }
+  const btn = document.getElementById('mp-rates');
+  d.busy = true; btn.disabled = true; btn.textContent = 'Checking the address…';
+  try {
+    const out = await data.marketPayCall({ action: 'quote', offerId: d.offerId, address: r.address });
+    if (state.marketPayDraft !== d) return;
+    try { localStorage.setItem(SHIP_TO_KEY, JSON.stringify(r.address)); } catch { /* ignore */ }
+    d.shipmentId = out.shipmentId;
+    d.options = out.options;
+    d.rateId = out.options[0]?.rateId || null;   // cheapest first
+    mpError('');
+    renderMarketRates();
+  } catch (err) {
+    console.error('quote', err);
+    mpError(err.message);
+  } finally {
+    d.busy = false; btn.disabled = false; btn.textContent = 'Get shipping options';
+  }
+}
+function renderMarketRates() {
+  const d = state.marketPayDraft;
+  document.getElementById('mp-options').innerHTML = (d?.options || []).map((o) => `
+    <label class="mp-option">
+      <input type="radio" name="mp-rate" data-mp-rate="${escapeHtml(o.rateId)}" ${o.rateId === d.rateId ? 'checked' : ''} />
+      <span>${escapeHtml(o.label)}${o.days ? ` <span class="dim">· ~${o.days} day${o.days === 1 ? '' : 's'}</span>` : ''}</span>
+      <strong>${money(o.cents)}</strong>
+    </label>`).join('');
+  renderMarketPayTotal();
+}
+function chooseMarketRate(rateId) {
+  const d = state.marketPayDraft;
+  if (!d) return;
+  d.rateId = rateId;
+  renderMarketPayTotal();
+}
+function renderMarketPayTotal() {
+  const d = state.marketPayDraft;
+  const el = document.getElementById('mp-total');
+  const pay = document.getElementById('mp-pay');
+  const opt = d?.options.find((o) => o.rateId === d.rateId);
+  if (!d || !opt) {
+    el.textContent = d ? `${money(d.amountCents)} + ${money(data.marketTotals(d.amountCents, 0).buyerFee)} buyer fee + shipping` : '';
+    pay.disabled = true; pay.textContent = 'Pay';
+    return;
+  }
+  const t = data.marketTotals(d.amountCents, opt.cents);
+  el.textContent = `${money(d.amountCents)} + ${money(opt.cents)} shipping + ${money(t.buyerFee)} buyer fee`;
+  pay.disabled = false;
+  pay.textContent = `Pay ${money(t.buyerTotal)}`;
+}
+async function payMarketOrder() {
+  const d = state.marketPayDraft;
+  if (!d || !d.rateId || d.busy) return;
+  const btn = document.getElementById('mp-pay');
+  d.busy = true; btn.disabled = true; btn.textContent = 'Opening checkout…';
+  try {
+    const out = await data.marketPayCall({ action: 'checkout', offerId: d.offerId, shipmentId: d.shipmentId, rateId: d.rateId, returnBase: data.marketReturnBase() });
+    window.location.assign(out.url);
+  } catch (err) {
+    console.error('checkout', err);
+    mpError(err.message);
+    d.busy = false;
+    renderMarketPayTotal();
+    if (err.code === 'HOLD_ENDED' || err.code === 'ALREADY_PAID') { closeMarketPayModal(); await refreshMarket(); }
   }
 }
 
@@ -2176,17 +2374,14 @@ Object.assign(TRADE_ACTIONS, {
     if (!o) return;
     openMarketOfferModal({ mode: 'counter', offerId: o.id, listingId: o.listingId, name: o.listing?.name || '', askCents: o.listing?.priceCents, shippingCents: o.listing?.shippingCents });
   },
-  'mkt-pay': async (b) => {
+  'mkt-pay': (b) => openMarketPayModal(b.dataset.id),
+  'mkt-label-retry': async (b) => {
     b.disabled = true;
     try {
-      const out = await data.marketPayCall({ action: 'checkout', offerId: b.dataset.id, returnBase: data.marketReturnBase() });
-      window.location.assign(out.url);
-    } catch (err) {
-      console.error('mkt-pay', err);
-      toast(err.message);
-      b.disabled = false;
-      if (err.code === 'HOLD_ENDED' || err.code === 'ALREADY_PAID') await refreshMarket();
-    }
+      await data.marketPayCall({ action: 'label_retry', orderId: b.dataset.id });
+      toast('Label ready — print it from the order.');
+    } catch (err) { toast(err.message); }
+    await refreshMarket();
   },
   'mkt-payouts': async (b) => {
     b.disabled = true;
@@ -2210,20 +2405,8 @@ Object.assign(TRADE_ACTIONS, {
       toast(err.message);
     }
   },
-  'mkt-ship': async (b) => {
-    const id = b.dataset.id;
-    const carrier = document.getElementById(`mkt-carrier-${id}`)?.value.trim();
-    const tracking = document.getElementById(`mkt-tracking-${id}`)?.value.trim();
-    if (!carrier || !tracking) { toast('Add the carrier and tracking number.'); return; }
-    b.disabled = true;
-    try {
-      await data.marketPayCall({ action: 'ship', orderId: id, carrier, tracking });
-      toast('Marked shipped — the buyer has the tracking number.');
-    } catch (err) { toast(err.message); }
-    await refreshMarket();
-  },
   'mkt-arrived': async (b) => {
-    if (!confirm('Confirm it arrived and is what was listed? This pays the seller and can’t be undone.')) return;
+    if (!confirm('Confirm it arrived and is what was listed? This pays the seller now and can’t be undone.')) return;
     b.disabled = true;
     try {
       await data.marketPayCall({ action: 'confirm', orderId: b.dataset.id });

@@ -6,6 +6,8 @@
 // — but only at or below PD's current price. Every price/detail edit re-runs
 // the check.
 
+import { validateShipping } from "./shipping.mjs";
+
 // Interpret PD's /products/<handle>.js payload (prices in cents). A null
 // product means PD returned 404 — the item isn't on the store at all. With a
 // variantId we judge that exact variant; otherwise the product is in stock if
@@ -61,9 +63,10 @@ export function validateDetails(uid, d) {
   if (!isInt(d.priceCents) || d.priceCents < LIMITS.minPriceCents || d.priceCents > LIMITS.maxPriceCents) {
     return "Price must be between $1 and $10,000.";
   }
-  if (!isInt(d.shippingCents) || d.shippingCents < 0 || d.shippingCents > LIMITS.maxShippingCents) {
-    return "Shipping must be between $0 and $200.";
-  }
+  // Shipping is a real label bought at checkout: the seller sets the package
+  // and the services they'll use, not a price.
+  const shipErr = validateShipping(d.parcel, d.services);
+  if (shipErr) return shipErr;
   if (d.notes != null && (typeof d.notes !== "string" || d.notes.length > LIMITS.maxNotes)) {
     return `Notes must be under ${LIMITS.maxNotes} characters.`;
   }
