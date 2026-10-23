@@ -12,8 +12,10 @@
 // SUPABASE_SERVICE_ROLE_KEY. SUPABASE_URL / SUPABASE_ANON_KEY are injected.
 //
 // Body:
-//   { action: 'create', plushieId, priceCents, shippingCents, notes?, extras?, photoPaths[] }
-//   { action: 'update', listingId, priceCents, shippingCents, notes?, extras?, photoPaths[] }
+//   { action: 'create', plushieId, priceCents, parcel, services[], notes?, extras?, photoPaths[] }
+//   { action: 'update', listingId, priceCents, parcel, services[], notes?, extras?, photoPaths[] }
+// parcel = { preset, weightOz }; services = shipping.mjs SHIP_SERVICES keys.
+// The seller must have saved a ship-from address (market_ship_from) first.
 // 'update' re-runs the PD check and un-pauses a restock-paused listing that
 // now passes.
 // Errors: { error: CODE, message, pdPriceCents? } with a 4xx/5xx status.
@@ -77,12 +79,18 @@ Deno.serve(async (req) => {
 
   const details = {
     priceCents: body.priceCents,
-    shippingCents: body.shippingCents,
+    parcel: body.parcel && typeof body.parcel === "object"
+      ? { preset: (body.parcel as any).preset, weightOz: (body.parcel as any).weightOz }
+      : null,
+    services: Array.isArray(body.services) ? [...new Set(body.services as string[])] : null,
     notes: typeof body.notes === "string" ? body.notes.trim() || null : null,
     photoPaths: body.photoPaths,
   };
   const invalid = validateDetails(uid, details);
   if (invalid) return fail(400, "INVALID", invalid);
+  const { data: shipFrom, error: sfErr } = await db.from("market_ship_from").select("user_id").eq("user_id", uid).maybeSingle();
+  if (sfErr) return fail(500, "DB", sfErr.message);
+  if (!shipFrom) return fail(400, "NO_SHIP_FROM", "Add the address you'll ship from first.");
   const extras = Array.isArray(body.extras)
     ? (body.extras as { name: unknown; included: unknown }[])
         .filter((e) => typeof e?.name === "string")
@@ -145,7 +153,9 @@ Deno.serve(async (req) => {
   const photoPaths = details.photoPaths as string[];
   const row = {
     price_cents: details.priceCents,
-    shipping_cents: details.shippingCents,
+    shipping_cents: 0,                 // real rate is picked by the buyer at checkout
+    parcel: details.parcel,
+    ship_services: details.services,
     notes: details.notes,
     extras,
     cover_path: photoPaths[0],

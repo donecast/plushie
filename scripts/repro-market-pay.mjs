@@ -62,7 +62,12 @@ await page.evaluate(() => {
     featureEnabled: (k) => (k === 'feature.market' ? window._marketOn : false),
     MARKET_FEES: { buyerPct: 5, sellerPct: 5 },
     marketFeeCents: (p, pct) => Math.round(p * pct / 100),
-    marketTotals: (i, s) => { const b = i + (s || 0); const f = Math.round(b * 5 / 100); return { buyerFee: f, sellerFee: f, buyerTotal: b + f, sellerNet: b - f }; },
+    marketTotals: (i, s) => { const f = Math.round(i * 5 / 100); return { buyerFee: f, sellerFee: f, buyerTotal: i + (s || 0) + f, sellerNet: i - f }; },
+    SHIP_SERVICES: [{ key: 'usps_ground', label: 'USPS Ground Advantage' }, { key: 'usps_priority', label: 'USPS Priority Mail' }, { key: 'usps_express', label: 'USPS Priority Mail Express' }, { key: 'fedex_ground', label: 'FedEx Ground' }],
+    PARCEL_PRESETS: [{ key: 'mailer', label: 'Poly mailer (10×13)' }, { key: 'small', label: 'Small box (8×6×4)' }],
+    shipServiceLabel: (k) => ({ usps_ground: 'USPS Ground Advantage', usps_priority: 'USPS Priority Mail' }[k] || k),
+    getMyShipFrom: async () => window._shipFrom ?? null,
+    saveMyShipFrom: async (a) => { window._calls.push(['shipFrom', a]); },
     uploadSocialPhoto: async () => { window._calls.push(['upload']); return `me/photo-${window._calls.length}.jpg`; },
     socialPhotoUrl: async (p) => p,
     marketListingCall: async (body) => {
@@ -80,7 +85,7 @@ await page.evaluate(() => {
     removeMarketListing: async (...a) => { window._calls.push(['remove', ...a]); },
     listMarketOrders: async () => window._orders || [],
     getMyPayouts: async () => window._payouts || { started: false, ready: false },
-    marketPayCall: async (body) => { window._calls.push(['pay', body]); return window._payReply || { ok: true }; },
+    marketPayCall: async (body) => { window._calls.push(['pay', body]); const r = window._payReply; return typeof r === 'function' ? r(body) : (r || { ok: true }); },
     marketReturnBase: () => location.origin + location.pathname,
     getFeedbackSummaryBatch: async () => ({}),
   };
@@ -103,7 +108,7 @@ const out = await page.evaluate(async (soon) => {
   document.querySelectorAll('.view').forEach((v) => v.classList.add('hidden'));
   document.getElementById('trade-view').classList.remove('hidden');
   state.catalog = [{ id: 'c-bun', handle: 'bun', name: 'Skelly Bun', type: 'Plush', price: 30, accessories: [], images: [], tags: [] }];
-  const listing = (id, extra = {}) => ({ name: 'Skelly Bun', priceCents: 4500, shippingCents: 600, status: 'reserved',
+  const listing = (id, extra = {}) => ({ name: 'Skelly Bun', priceCents: 4500, shippingCents: 0, shipServices: ['usps_ground', 'usps_priority'], status: 'reserved',
     reservedOfferId: id, reservedUntil: soon, ...extra });
   window._offers = [
     // I'm the buyer on an accepted, held deal (not paid yet).
@@ -112,15 +117,20 @@ const out = await page.evaluate(async (soon) => {
     // I'm the seller; buyer paid → I must ship.
     { id: 'OS', listingId: 'L2', buyerId: 'b2', buyerUsername: 'batty', sellerId: 'me', sellerUsername: 'redrambler',
       fromRole: 'buyer', amountCents: 2000, status: 'accepted', expiresAt: soon, listing: listing('OS', { status: 'sold' }) },
-    // I'm the buyer; seller shipped → I confirm.
+    // I'm the seller on a second paid deal whose label purchase failed.
+    { id: 'OS2', listingId: 'L4', buyerId: 'b4', buyerUsername: 'ghast', sellerId: 'me', sellerUsername: 'redrambler',
+      fromRole: 'buyer', amountCents: 1500, status: 'accepted', expiresAt: soon, listing: listing('OS2', { status: 'sold' }) },
+    // I'm the buyer; it was delivered → I can pay the seller now.
     { id: 'OC', listingId: 'L3', buyerId: 'me', buyerUsername: 'redrambler', sellerId: 's3', sellerUsername: 'mothman',
       fromRole: 'buyer', amountCents: 3000, status: 'accepted', expiresAt: soon, listing: listing('OC', { status: 'sold' }) },
   ];
   window._orders = [
-    { id: 'R-S', offerId: 'OS', listingId: 'L2', buyerId: 'b2', sellerId: 'me', status: 'paid', totalCents: 2700, sellerPayoutCents: 2500,
-      shipTo: { name: 'Bat Ty', line1: '1 Crypt Ln', city: 'Salem', state: 'MA', postal_code: '01970', country: 'US' } },
-    { id: 'R-C', offerId: 'OC', listingId: 'L3', buyerId: 'me', sellerId: 's3', status: 'shipped', totalCents: 3750, sellerPayoutCents: 3450,
-      carrier: 'USPS', tracking: '9400111' },
+    { id: 'R-S', offerId: 'OS', listingId: 'L2', buyerId: 'b2', sellerId: 'me', status: 'paid', totalCents: 2610, sellerPayoutCents: 1900,
+      shipService: 'usps_ground', labelUrl: 'https://easypost.example/label.png', carrier: 'USPS', tracking: '9400111', trackingStatus: 'pre_transit' },
+    { id: 'R-S2', offerId: 'OS2', listingId: 'L4', buyerId: 'b4', sellerId: 'me', status: 'paid', totalCents: 2085, sellerPayoutCents: 1425,
+      shipService: 'usps_ground', labelError: 'rate expired' },
+    { id: 'R-C', offerId: 'OC', listingId: 'L3', buyerId: 'me', sellerId: 's3', status: 'delivered', totalCents: 3660, sellerPayoutCents: 2850,
+      shipService: 'usps_priority', carrier: 'USPS', tracking: '9400222', trackingStatus: 'delivered' },
   ];
   window._payouts = { started: false, ready: false };
   state.tab = 'trade'; state.ready.add('trade'); state.tradeSubTab = 'browse';
@@ -135,24 +145,53 @@ const out = await page.evaluate(async (soon) => {
   return o;
 }, soon);
 
-// Buyer pays: Pay button → checkout call with the offer + return base, then Stripe redirect.
-await page.evaluate((port) => { window._payReply = { url: `http://localhost:${port}/shell#stripe-checkout` }; }, port);
+// Buyer checks out: modal → address → live rates → pick → Stripe.
+await page.evaluate((port) => {
+  window._payReply = (body) => body.action === 'quote'
+    ? { shipmentId: 'shp_1', options: [
+        { rateId: 'rate_g', key: 'usps_ground', label: 'USPS Ground Advantage', cents: 510, days: 4 },
+        { rateId: 'rate_p', key: 'usps_priority', label: 'USPS Priority Mail', cents: 985, days: 2 }] }
+    : body.action === 'checkout' ? { url: `http://localhost:${port}/shell#stripe-checkout` } : { ok: true };
+}, port);
 await page.click('#subtab-sale [data-action="mkt-pay"]');
-await page.waitForFunction(() => location.hash === '#stripe-checkout', null, { timeout: 5000 });
+out.payModalOpens = await page.isVisible('#market-pay-modal');
+out.payDisabledBeforeRates = await page.isDisabled('#mp-pay');
+await page.click('#mp-rates');
+out.badAddressError = await page.textContent('#mp-error');
+await page.fill('#mp-name', 'Red Rambler');
+await page.fill('#mp-street1', '13 Hollow Rd');
+await page.fill('#mp-city', 'Sleepy Hollow');
+await page.fill('#mp-state', 'ny');
+await page.fill('#mp-zip', '10591');
+await page.click('#mp-rates');
+await page.waitForSelector('#mp-options [data-mp-rate]');
 let calls = await page.evaluate(() => window._calls);
+out.quoteCall = calls.filter((c) => c[0] === 'pay').at(-1)?.[1];
+out.optionsText = (await page.textContent('#mp-options')).replace(/\s+/g, ' ');
+out.payLabelCheapest = await page.textContent('#mp-pay');
+await page.check('#mp-options [data-mp-rate="rate_p"]');
+out.payLabelPriority = await page.textContent('#mp-pay');
+await page.locator('#market-pay-modal .modal-card').screenshot({ path: '/tmp/market-checkout-modal.png' });
+// Editing the address throws the rates away.
+await page.fill('#mp-zip', '10592');
+out.ratesClearedOnEdit = (await page.locator('#mp-options [data-mp-rate]').count()) === 0 && await page.isDisabled('#mp-pay');
+await page.fill('#mp-zip', '10591');
+await page.click('#mp-rates');
+await page.waitForSelector('#mp-options [data-mp-rate]');
+await page.check('#mp-options [data-mp-rate="rate_p"]');
+await page.click('#mp-pay');
+await page.waitForFunction(() => location.hash === '#stripe-checkout', null, { timeout: 5000 });
+calls = await page.evaluate(() => window._calls);
 out.payCall = calls.filter((c) => c[0] === 'pay').at(-1)?.[1];
+await page.evaluate(() => closeMarketPayModal());
 
-// Seller ships: empty fields refused locally, then the call carries both.
-await page.click('#subtab-sale [data-action="mkt-ship"]');
-out.shipEmptyToast = await page.evaluate(() => window._toasts.at(-1));
-await page.fill('#mkt-carrier-R-S', 'USPS');
-await page.fill('#mkt-tracking-R-S', '9400 1234');
-await page.click('#subtab-sale [data-action="mkt-ship"]');
+// Seller whose label failed retries it.
+await page.click('#subtab-sale [data-action="mkt-label-retry"]');
 await page.waitForTimeout(150);
 calls = await page.evaluate(() => window._calls);
-out.shipCall = calls.filter((c) => c[0] === 'pay').at(-1)?.[1];
+out.retryCall = calls.filter((c) => c[0] === 'pay').at(-1)?.[1];
 
-// Buyer confirms arrival.
+// Buyer of a delivered order pays the seller early.
 await page.click('#subtab-sale [data-action="mkt-arrived"]');
 await page.waitForTimeout(150);
 calls = await page.evaluate(() => window._calls);
@@ -180,15 +219,22 @@ const checks = [
   ['return from Stripe lands on For Sale → Offers', out.returnLanded],
   ['…with a paid toast', /Paid/.test(out.returnToast)],
   ['…and strips ?mkt from the URL', out.urlCleaned],
-  ['badge counts pay + ship + confirm', out.badge === '3'],
-  ['buyer sees Pay with the full total ($40 + $6 ship + 5% of $46 = $48.30)', /Pay \$48\.30/.test(out.offersText)],
-  ['seller sees the ship-to address', /1 Crypt Ln/.test(out.offersText) && /Salem MA 01970/.test(out.offersText)],
-  ['seller sees what they will be paid', /You’ll get \$25\.00/.test(out.offersText)],
-  ['buyer sees tracking + It arrived', /USPS 9400111/.test(out.offersText) && /It arrived/.test(out.offersText)],
-  ['Pay calls checkout with offer + return base', out.payCall?.action === 'checkout' && out.payCall?.offerId === 'OB' && /\/shell$/.test(out.payCall?.returnBase)],
-  ['empty tracking refused locally', /carrier and tracking/.test(out.shipEmptyToast)],
-  ['Mark shipped sends carrier + tracking', out.shipCall?.action === 'ship' && out.shipCall?.orderId === 'R-S' && out.shipCall?.carrier === 'USPS' && out.shipCall?.tracking === '9400 1234'],
-  ['It arrived sends confirm', out.confirmCall?.action === 'confirm' && out.confirmCall?.orderId === 'R-C'],
+  ['badge counts pay + 2 to ship + confirm', out.badge === '4'],
+  ['buyer sees Checkout with price + fee + shipping services', /Checkout/.test(out.offersText) && /\$40\.00 \+ \$2\.00 buyer fee \+ shipping \(USPS Ground Advantage · USPS Priority Mail\)/.test(out.offersText)],
+  ['seller with a label sees Print shipping label', /Print shipping label/.test(out.offersText)],
+  ['seller sees payout (item − fee, shipping excluded)', /You’ll get \$19\.00 3 days after it’s delivered/.test(out.offersText)],
+  ['seller with a failed label sees Try again', /Try the label again/.test(out.offersText)],
+  ['buyer of a delivered order sees tracking + pay-now button', /USPS 9400222/.test(out.offersText) && /All good — pay the seller/.test(out.offersText)],
+  ['Checkout opens the modal with Pay disabled', out.payModalOpens && out.payDisabledBeforeRates],
+  ['incomplete address refused locally', /name, street and city/.test(out.badAddressError)],
+  ['quote sends offer + cleaned address', out.quoteCall?.action === 'quote' && out.quoteCall?.offerId === 'OB' && out.quoteCall?.address?.state === 'NY' && out.quoteCall?.address?.zip === '10591'],
+  ['rates listed cheapest first with prices', /USPS Ground Advantage.*\$5\.10.*USPS Priority Mail.*\$9\.85/.test(out.optionsText)],
+  ['cheapest preselected: Pay $47.10 ($40 + $5.10 + $2)', /Pay \$47\.10/.test(out.payLabelCheapest)],
+  ['picking Priority updates Pay to $51.85', /Pay \$51\.85/.test(out.payLabelPriority)],
+  ['editing the address clears the rates', out.ratesClearedOnEdit],
+  ['Pay sends shipment + chosen rate + return base', out.payCall?.action === 'checkout' && out.payCall?.shipmentId === 'shp_1' && out.payCall?.rateId === 'rate_p' && /\/shell$/.test(out.payCall?.returnBase)],
+  ['label retry calls label_retry', out.retryCall?.action === 'label_retry' && out.retryCall?.orderId === 'R-S2'],
+  ['pay-now sends confirm', out.confirmCall?.action === 'confirm' && out.confirmCall?.orderId === 'R-C'],
   ['My listings shows Set up payouts', /Set up payouts to get paid/.test(out.mineText)],
   ['Set up payouts calls payouts_setup', out.payoutsCall?.action === 'payouts_setup'],
   ['ready seller sees the payouts dashboard link', out.readyBanner === 1],

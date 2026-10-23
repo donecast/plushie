@@ -2431,7 +2431,23 @@ function wireEvents() {
     if (btn) setSellExtra(parseInt(btn.dataset.msExtra, 10), btn.dataset.msExtraVal === 'yes');
   });
   document.getElementById('ms-price').addEventListener('input', renderSellFees);
-  document.getElementById('ms-shipping').addEventListener('input', renderSellFees);
+  document.getElementById('ms-services').addEventListener('change', (e) => {
+    const box = e.target.closest('[data-ms-service]');
+    if (box) toggleSellService(box.dataset.msService, box.checked);
+  });
+  document.getElementById('ms-shipfrom').addEventListener('click', (e) => {
+    if (e.target.closest('[data-action="ms-shipfrom-edit"]')) editSellShipFrom();
+  });
+  document.querySelectorAll('[data-close-mpay]').forEach((el) =>
+    el.addEventListener('click', closeMarketPayModal)
+  );
+  document.getElementById('mp-rates').addEventListener('click', fetchMarketRates);
+  document.getElementById('mp-options').addEventListener('change', (e) => {
+    const r = e.target.closest('[data-mp-rate]');
+    if (r) chooseMarketRate(r.dataset.mpRate);
+  });
+  document.querySelector('#market-pay-modal .mp-address').addEventListener('input', clearMarketRates);
+  document.getElementById('mp-pay').addEventListener('click', payMarketOrder);
   document.getElementById('ms-save').addEventListener('click', saveSellListing);
   document.querySelectorAll('[data-close-moffer]').forEach((el) =>
     el.addEventListener('click', closeMarketOfferModal)

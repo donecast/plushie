@@ -61,7 +61,12 @@ await page.evaluate(() => {
     featureEnabled: (k) => (k === 'feature.market' ? window._marketOn : false),
     MARKET_FEES: { buyerPct: 5, sellerPct: 5 },
     marketFeeCents: (p, pct) => Math.round(p * pct / 100),
-    marketTotals: (i, s) => { const b = i + (s || 0); const f = Math.round(b * 5 / 100); return { buyerFee: f, sellerFee: f, buyerTotal: b + f, sellerNet: b - f }; },
+    marketTotals: (i, s) => { const f = Math.round(i * 5 / 100); return { buyerFee: f, sellerFee: f, buyerTotal: i + (s || 0) + f, sellerNet: i - f }; },
+    SHIP_SERVICES: [{ key: 'usps_ground', label: 'USPS Ground Advantage' }, { key: 'usps_priority', label: 'USPS Priority Mail' }, { key: 'usps_express', label: 'USPS Priority Mail Express' }, { key: 'fedex_ground', label: 'FedEx Ground' }],
+    PARCEL_PRESETS: [{ key: 'mailer', label: 'Poly mailer (10×13)' }, { key: 'small', label: 'Small box (8×6×4)' }],
+    shipServiceLabel: (k) => ({ usps_ground: 'USPS Ground Advantage', usps_priority: 'USPS Priority Mail' }[k] || k),
+    getMyShipFrom: async () => window._shipFrom ?? null,
+    saveMyShipFrom: async (a) => { window._calls.push(['shipFrom', a]); },
     uploadSocialPhoto: async () => { window._calls.push(['upload']); return `me/photo-${window._calls.length}.jpg`; },
     socialPhotoUrl: async (p) => p,
     marketListingCall: async (body) => {
@@ -131,8 +136,25 @@ out.sellModalOpens = await page.isVisible('#market-sell-modal');
 out.sellModalName = await page.textContent('#ms-name');
 
 await page.fill('#ms-price', '40');
-await page.fill('#ms-shipping', '6');
 out.feeText = await page.textContent('#ms-fees');
+out.servicesShown = await page.locator('#ms-services [data-ms-service]').count();
+await page.waitForSelector('#msf-name');               // no ship-from saved → form
+
+// No weight yet → refused locally.
+await page.click('#ms-save');
+out.noWeightError = await page.textContent('#ms-error');
+await page.fill('#ms-weight-lb', '1');
+await page.fill('#ms-weight-oz', '4');
+// Bad ship-from → refused locally.
+await page.click('#ms-save');
+out.noShipFromError = await page.textContent('#ms-error');
+await page.fill('#msf-name', 'Red Rambler');
+await page.fill('#msf-street1', '13 Hollow Rd');
+await page.fill('#msf-city', 'Sleepy Hollow');
+await page.fill('#msf-state', 'ny');
+await page.fill('#msf-zip', '10591');
+await page.check('#ms-services [data-ms-service="usps_priority"]');
+await page.locator('#market-sell-modal .modal-card').screenshot({ path: '/tmp/market-sell-modal.png' });
 
 // No photo yet → refused locally, nothing sent.
 await page.click('#ms-save');
@@ -160,6 +182,7 @@ const calls = await page.evaluate(() => window._calls);
 out.uploadsTotal = calls.filter((c) => c[0] === 'upload').length;
 const lastListing = calls.filter((c) => c[0] === 'listing').at(-1)?.[1];
 out.createBody = lastListing;
+out.shipFromCall = calls.filter((c) => c[0] === 'shipFrom').at(-1)?.[1];
 out.listingCalls = calls.filter((c) => c[0] === 'listing').length;   // refusal + success only
 
 // ── For Sale tab ──
@@ -167,11 +190,11 @@ await page.evaluate(async () => {
   const soon = new Date(Date.now() + 3600e3).toISOString();
   window._browse = [{
     id: 'L1', sellerId: 'seller1', sellerUsername: 'ghoulfriend', catalogId: 'c-bun', name: 'Skelly Bun',
-    priceCents: 4500, shippingCents: 600, notes: 'Tag attached', extras: [{ name: 'Bag', included: true }],
+    priceCents: 4500, shippingCents: 0, shipServices: ['usps_ground', 'usps_priority'], notes: 'Tag attached', extras: [{ name: 'Bag', included: true }],
     status: 'active', pdState: 'sold_out', pdPriceCents: 3000, photos: [{ url: 'me/x.jpg' }], photo: 'me/x.jpg',
   }];
   window._mine = [{
-    id: 'L9', sellerId: 'me', catalogId: 'c-bun', name: 'Skelly Bun', priceCents: 5000, shippingCents: 0,
+    id: 'L9', sellerId: 'me', catalogId: 'c-bun', name: 'Skelly Bun', priceCents: 5000, shippingCents: 0, shipServices: ['usps_ground'],
     status: 'paused', pauseReason: 'pd_restocked', pdState: 'in_stock_capped', pdPriceCents: 3000, photos: [],
   }];
   window._offers = [{
@@ -230,20 +253,28 @@ const checks = [
   ['gate on: $ Sell button on a catalog card', out.gateOnSellBtn],
   ['clicking $ Sell opens the sell modal', out.sellModalOpens],
   ['…named for the item', out.sellModalName === 'Skelly Bun'],
-  ['fee preview: fees count price + shipping (buyer $48.30, seller nets $43.70)', /Buyer pays \$48\.30/.test(out.feeText) && /You get \$43\.70/.test(out.feeText)],
+  ['fee preview: fee on price only, shipping separate (buyer $42.00 + shipping, seller nets $38.00)', /Buyer pays \$42\.00/.test(out.feeText) && /\+ shipping/.test(out.feeText) && /You get \$38\.00/.test(out.feeText)],
+  ['all 4 shipping services offered as checkboxes', out.servicesShown === 4],
+  ['no weight → local error', /weight/.test(out.noWeightError)],
+  ['incomplete ship-from → local error', /Ship-from address/.test(out.noShipFromError)],
+  ['ship-from saved (state upper-cased) before listing', out.shipFromCall?.state === 'NY' && out.shipFromCall?.zip === '10591' && out.shipFromCall?.name === 'Red Rambler'],
   ['no photo → local error, nothing sent', /photo/i.test(out.noPhotoError) && out.listingCalls === 2],
   ['picked photo shows in the grid', out.photoShown === 1],
   ['PD-in-stock refusal shown in the modal', /selling this right now/.test(out.pdRefusalShown)],
   ['…and the modal stays open', out.modalStillOpenAfterRefusal],
   ['retry does not re-upload the photo', out.uploadsTotal === 1],
   ['create call carries plushie + cents + photo', out.createBody?.action === 'create' && out.createBody?.plushieId === 'p1'
-    && out.createBody?.priceCents === 4000 && out.createBody?.shippingCents === 600 && out.createBody?.photoPaths?.length === 1],
+    && out.createBody?.priceCents === 4000 && out.createBody?.photoPaths?.length === 1
+    && out.createBody?.parcel?.preset === 'mailer' && out.createBody?.parcel?.weightOz === 20
+    && JSON.stringify(out.createBody?.services) === JSON.stringify(['usps_ground', 'usps_priority'])
+    && !('shippingCents' in (out.createBody || {}))],
   ['badge counts the offer awaiting me', out.saleBadge === '1'],
-  ['shop card shows price, shipping, PD state, seller', /\$45\.00/.test(out.shopCardText) && /\$6\.00 shipping/.test(out.shopCardText)
+  ['shop card shows price, shipping-at-checkout + services, PD state, seller', /\$45\.00/.test(out.shopCardText) && /shipping at checkout/.test(out.shopCardText)
+    && /Ships USPS Ground Advantage · USPS Priority Mail/.test(out.shopCardText)
     && /Sold out at Plushie Dreadfuls/.test(out.shopCardText) && /ghoulfriend/.test(out.shopCardText)],
   ['Make offer opens the offer modal', out.offerModalOpens],
   ['offer over asking is refused locally', /over the asking price/.test(out.overAskError)],
-  ['offer hint shows the buyer total incl. fee on price + shipping', /\$46\.73/.test(out.offerHint)],
+  ['offer hint shows price + 5% fee, plus shipping at checkout', /\$40\.43/.test(out.offerHint) && /plus shipping/.test(out.offerHint)],
   ['offer RPC called with cents', JSON.stringify(out.offerCall) === JSON.stringify(['offer', 'L1', 3850, null])],
   ['after sending, lands on Offers', out.landedOnOffers === 'offers'],
   ['offers view shows the incoming $40 offer', /They offered \$40\.00/.test(out.offersViewText) && /Your turn/.test(out.offersViewText)],

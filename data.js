@@ -834,16 +834,47 @@ data.getPublicFeedback = async function (userId, limit = 8) {
 // RPCs. Insider-gated (feature.market) until payments ship.
 
 // Fees, in percent, settled 2026-10-19: buyer pays +5% at checkout, seller
-// gives up 5%. Both apply to item + shipping together (2026-10-22), so a low
-// price with padded shipping can't dodge them. Mirrors computeOrderTotals in
-// supabase/functions/market-checkout/rules.mjs — keep the two in sync.
+// gives up 5%. Shipping is the real label rate we buy (db/0108), so it can't
+// be padded: fees apply to the item only, and the shipping money pays for the
+// label. Mirrors computeOrderTotals in supabase/functions/market-checkout/
+// rules.mjs — keep the two in sync.
 data.MARKET_FEES = { buyerPct: 5, sellerPct: 5 };
 data.marketFeeCents = (priceCents, pct) => Math.round(priceCents * pct / 100);
 data.marketTotals = (itemCents, shippingCents) => {
-  const base = itemCents + (shippingCents || 0);
-  const buyerFee = data.marketFeeCents(base, data.MARKET_FEES.buyerPct);
-  const sellerFee = data.marketFeeCents(base, data.MARKET_FEES.sellerPct);
-  return { buyerFee, sellerFee, buyerTotal: base + buyerFee, sellerNet: base - sellerFee };
+  const buyerFee = data.marketFeeCents(itemCents, data.MARKET_FEES.buyerPct);
+  const sellerFee = data.marketFeeCents(itemCents, data.MARKET_FEES.sellerPct);
+  return { buyerFee, sellerFee, buyerTotal: itemCents + (shippingCents || 0) + buyerFee, sellerNet: itemCents - sellerFee };
+};
+// Shipping choices — keys/labels mirror supabase/functions/market-checkout/
+// shipping.mjs (SHIP_SERVICES, PARCEL_PRESETS); the server validates.
+data.SHIP_SERVICES = [
+  { key: 'usps_ground', label: 'USPS Ground Advantage' },
+  { key: 'usps_priority', label: 'USPS Priority Mail' },
+  { key: 'usps_express', label: 'USPS Priority Mail Express' },
+  { key: 'fedex_ground', label: 'FedEx Ground' },
+];
+data.PARCEL_PRESETS = [
+  { key: 'mailer', label: 'Poly mailer (10×13)' },
+  { key: 'small', label: 'Small box (8×6×4)' },
+  { key: 'medium', label: 'Medium box (12×10×6)' },
+  { key: 'large', label: 'Large box (14×12×10)' },
+];
+data.shipServiceLabel = (key) => data.SHIP_SERVICES.find((s) => s.key === key)?.label || key;
+
+// Where I ship from (private; RLS own row only). null = not set yet.
+data.getMyShipFrom = async function () {
+  const { data: row, error } = await sb.from('market_ship_from')
+    .select('name, street1, street2, city, state, zip')
+    .eq('user_id', window.currentUser.id).maybeSingle();
+  if (error) throw error;
+  return row;
+};
+data.saveMyShipFrom = async function (a) {
+  const { error } = await sb.from('market_ship_from').upsert({
+    user_id: window.currentUser.id, name: a.name, street1: a.street1, street2: a.street2 || null,
+    city: a.city, state: a.state, zip: a.zip, updated_at: new Date().toISOString(),
+  });
+  if (error) throw error;
 };
 
 // Call the edge function; a refusal (PD in stock, price cap, not owned…)
@@ -892,6 +923,8 @@ data._listingFromRow = (r) => ({
   name: r.name,
   priceCents: r.price_cents,
   shippingCents: r.shipping_cents,
+  parcel: r.parcel,
+  shipServices: r.ship_services || [],
   notes: r.notes,
   extras: r.extras,
   status: r.status,
@@ -936,7 +969,7 @@ data.listMyListings = async function () {
 data.listMarketOffers = async function () {
   const { data: rows, error } = await sb
     .from('market_offers')
-    .select('id, listing_id, buyer_id, from_role, amount_cents, message, status, parent_offer_id, expires_at, responded_at, created_at, listing:market_listings(id, seller_id, name, price_cents, shipping_cents, status, reserved_until, reserved_offer_id, cover_path)')
+    .select('id, listing_id, buyer_id, from_role, amount_cents, message, status, parent_offer_id, expires_at, responded_at, created_at, listing:market_listings(id, seller_id, name, price_cents, shipping_cents, ship_services, status, reserved_until, reserved_offer_id, cover_path)')
     .order('created_at', { ascending: false })
     .limit(200);
   if (error) throw error;
@@ -958,6 +991,7 @@ data.listMarketOffers = async function () {
       name: r.listing.name,
       priceCents: r.listing.price_cents,
       shippingCents: r.listing.shipping_cents,
+      shipServices: r.listing.ship_services || [],
       status: r.listing.status,
       reservedUntil: r.listing.reserved_until,
       reservedOfferId: r.listing.reserved_offer_id,
@@ -1005,7 +1039,7 @@ data.getMyPayouts = async function () {
 // Orders I'm the buyer or seller on (RLS scopes it).
 data.listMarketOrders = async function () {
   const { data: rows, error } = await sb.from('market_orders')
-    .select('id, listing_id, offer_id, buyer_id, seller_id, item_cents, shipping_cents, buyer_fee_cents, seller_fee_cents, total_cents, seller_payout_cents, status, ship_to, tracking_carrier, tracking_number, paid_at, shipped_at, released_at, refunded_at, created_at')
+    .select('id, listing_id, offer_id, buyer_id, seller_id, item_cents, shipping_cents, buyer_fee_cents, seller_fee_cents, total_cents, seller_payout_cents, status, ship_to, ship_service, label_url, label_error, tracking_carrier, tracking_number, tracking_status, paid_at, shipped_at, delivered_at, released_at, refunded_at, created_at')
     .order('created_at', { ascending: false })
     .limit(200);
   if (error) throw error;
@@ -1013,8 +1047,11 @@ data.listMarketOrders = async function () {
     id: r.id, listingId: r.listing_id, offerId: r.offer_id, buyerId: r.buyer_id, sellerId: r.seller_id,
     itemCents: r.item_cents, shippingCents: r.shipping_cents, buyerFeeCents: r.buyer_fee_cents,
     sellerFeeCents: r.seller_fee_cents, totalCents: r.total_cents, sellerPayoutCents: r.seller_payout_cents,
-    status: r.status, shipTo: r.ship_to, carrier: r.tracking_carrier, tracking: r.tracking_number,
-    paidAt: r.paid_at, shippedAt: r.shipped_at, releasedAt: r.released_at, refundedAt: r.refunded_at,
+    status: r.status, shipTo: r.ship_to, shipService: r.ship_service, labelUrl: r.label_url,
+    labelError: r.label_error, carrier: r.tracking_carrier, tracking: r.tracking_number,
+    trackingStatus: r.tracking_status,
+    paidAt: r.paid_at, shippedAt: r.shipped_at, deliveredAt: r.delivered_at,
+    releasedAt: r.released_at, refundedAt: r.refunded_at,
   }));
 };
 

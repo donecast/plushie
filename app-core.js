@@ -78,6 +78,7 @@ const state = {
   saleFilter: 'shop',         // 'shop' | 'offers' | 'mine'
   sellDraft: null,
   marketOfferDraft: null,
+  marketPayDraft: null,       // checkout modal: { offerId, shipmentId, options, rateId }
   trades: [],
   myFeedback: { good_count: 0, meh_count: 0, bad_count: 0, net_score: 0, total_count: 0 },
   partnerFeedback: new Map(), // userId → summary (cache shared by rep badges + ship-first banner)

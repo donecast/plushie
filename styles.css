@@ -5521,3 +5521,19 @@ a.share-card:hover { border-color: var(--rose-1); }
 .mkt-ship-to { font-family: var(--sans); line-height: 1.4; }
 .mkt-ship-form { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
 .mkt-ship-form input { flex: 1 1 140px; min-width: 0; }
+/* Shipping on our labels (db/0108) */
+.ms-ship { margin-top: 4px; }
+.ms-weight { display: flex; align-items: center; gap: 6px; font-family: var(--sans); }
+.ms-weight input { width: 4.5em; }
+.ms-services { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 6px 0 4px; font-family: var(--sans); font-size: 0.9rem; }
+.ms-service { display: inline-flex; align-items: center; gap: 6px; width: auto; text-transform: none; letter-spacing: normal; font-weight: 400; }
+.ms-service input[type="checkbox"] { width: auto; height: auto; min-height: 0; padding: 0; margin: 0; flex: none; box-shadow: none; }
+.ms-shipfrom { margin-top: 6px; }
+.mp-address .ms-price-row .mp-state { flex: 0 0 4.5em; }
+.mp-address .ms-price-row .mp-zip { flex: 0 0 7em; }
+.mp-options { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.mp-option {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border: 1px solid var(--line, var(--gold)); border-radius: 6px; font-family: var(--sans); cursor: pointer;
+}
+.mp-option span { flex: 1; }
