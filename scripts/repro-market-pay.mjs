@@ -62,6 +62,7 @@ await page.evaluate(() => {
     featureEnabled: (k) => (k === 'feature.market' ? window._marketOn : false),
     MARKET_FEES: { buyerPct: 5, sellerPct: 5 },
     marketFeeCents: (p, pct) => Math.round(p * pct / 100),
+    marketTotals: (i, s) => { const b = i + (s || 0); const f = Math.round(b * 5 / 100); return { buyerFee: f, sellerFee: f, buyerTotal: b + f, sellerNet: b - f }; },
     uploadSocialPhoto: async () => { window._calls.push(['upload']); return `me/photo-${window._calls.length}.jpg`; },
     socialPhotoUrl: async (p) => p,
     marketListingCall: async (body) => {
@@ -180,7 +181,7 @@ const checks = [
   ['…with a paid toast', /Paid/.test(out.returnToast)],
   ['…and strips ?mkt from the URL', out.urlCleaned],
   ['badge counts pay + ship + confirm', out.badge === '3'],
-  ['buyer sees Pay with the full total ($40 + $6 ship + $2 fee = $48)', /Pay \$48\.00/.test(out.offersText)],
+  ['buyer sees Pay with the full total ($40 + $6 ship + 5% of $46 = $48.30)', /Pay \$48\.30/.test(out.offersText)],
   ['seller sees the ship-to address', /1 Crypt Ln/.test(out.offersText) && /Salem MA 01970/.test(out.offersText)],
   ['seller sees what they will be paid', /You’ll get \$25\.00/.test(out.offersText)],
   ['buyer sees tracking + It arrived', /USPS 9400111/.test(out.offersText) && /It arrived/.test(out.offersText)],

@@ -5,14 +5,16 @@
 export const FEES = { buyerPct: 5, sellerPct: 5 };
 export const feeCents = (cents, pct) => Math.round(cents * pct / 100);
 
-// Everything is integer cents. Shipping is passed through fee-free; fees apply
-// to the agreed item price only.
+// Everything is integer cents. Both fees apply to item + shipping together, so
+// nobody can dodge them by pricing low and loading the shipping (settled
+// 2026-10-22).
 export function computeOrderTotals(itemCents, shippingCents, fees = FEES) {
   if (![itemCents, shippingCents].every(Number.isInteger) || itemCents < 100 || shippingCents < 0) {
     throw new Error("BAD_AMOUNTS");
   }
-  const buyerFee = feeCents(itemCents, fees.buyerPct);
-  const sellerFee = feeCents(itemCents, fees.sellerPct);
+  const base = itemCents + shippingCents;
+  const buyerFee = feeCents(base, fees.buyerPct);
+  const sellerFee = feeCents(base, fees.sellerPct);
   return {
     item_cents: itemCents,
     shipping_cents: shippingCents,

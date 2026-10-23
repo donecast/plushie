@@ -1757,7 +1757,7 @@ function renderDealBlock(o, iAmSeller) {
   if (!order || order.status === 'awaiting_payment') {
     if (!held) return `<div class="ship-first-banner">Deal at ${money(o.amountCents)} — the hold ended before it was paid.</div>`;
     const ship = o.listing?.shippingCents ?? 0;
-    const fee = data.marketFeeCents(o.amountCents, data.MARKET_FEES.buyerPct);
+    const fee = data.marketTotals(o.amountCents, ship).buyerFee;
     if (iAmSeller) {
       const nudge = state.myPayouts?.ready ? ''
         : ` <strong>Set up payouts (My listings) so they can pay.</strong>`;
@@ -1972,12 +1972,11 @@ function renderSellFees() {
   if (!el) return;
   const price = dollarsToCents(document.getElementById('ms-price').value);
   const ship = dollarsToCents(document.getElementById('ms-shipping').value || '0');
-  if (!Number.isFinite(price) || price <= 0) { el.textContent = 'Fees: buyers pay 5% on top; you pay 5% of the item price. Shipping is fee-free.'; return; }
+  if (!Number.isFinite(price) || price <= 0) { el.textContent = 'Fees: buyers pay 5% on top; you pay 5%. Both fees count the price plus shipping.'; return; }
   const s = Number.isFinite(ship) ? Math.max(0, ship) : 0;
   const { buyerPct, sellerPct } = data.MARKET_FEES;
-  const buyerTotal = price + data.marketFeeCents(price, buyerPct) + s;
-  const net = price - data.marketFeeCents(price, sellerPct);
-  el.textContent = `Buyer pays ${money(buyerTotal)} (incl. ${buyerPct}% fee${s ? ' + shipping' : ''}). You get ${money(net)}${s ? ` + ${money(s)} for shipping` : ''} after the ${sellerPct}% seller fee.`;
+  const t = data.marketTotals(price, s);
+  el.textContent = `Buyer pays ${money(t.buyerTotal)} (incl. ${buyerPct}% fee${s ? ' + shipping' : ''}). You get ${money(t.sellerNet)} after the ${sellerPct}% seller fee${s ? ' (fees count price + shipping)' : ''}.`;
 }
 
 function renderSellExtras() {
@@ -2119,8 +2118,8 @@ function renderMarketOfferHint() {
   if (!d || !el) return;
   const amt = dollarsToCents(document.getElementById('mo-amount').value);
   if (!Number.isFinite(amt) || amt <= 0) { el.textContent = `Up to the asking price of ${money(d.askCents)}.`; return; }
-  const fee = data.marketFeeCents(amt, data.MARKET_FEES.buyerPct);
-  el.textContent = `At checkout the buyer pays ${money(amt + fee + (d.shippingCents || 0))} (${money(amt)} + ${money(fee)} fee + ${money(d.shippingCents || 0)} shipping).`;
+  const t = data.marketTotals(amt, d.shippingCents || 0);
+  el.textContent = `At checkout the buyer pays ${money(t.buyerTotal)} (${money(amt)} + ${money(d.shippingCents || 0)} shipping + ${money(t.buyerFee)} fee).`;
 }
 
 async function sendMarketOffer() {

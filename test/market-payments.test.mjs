@@ -2,12 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { computeOrderTotals, canMove, releaseDue, feeCents } from "../supabase/functions/market-checkout/rules.mjs";
 
-test("totals: fees on item only, shipping passes through", () => {
+test("totals: both 5% fees apply to item + shipping", () => {
   const t = computeOrderTotals(4000, 600);
   assert.deepEqual(t, {
-    item_cents: 4000, shipping_cents: 600, buyer_fee_cents: 200, seller_fee_cents: 200,
-    total_cents: 4800, seller_payout_cents: 4400,
+    item_cents: 4000, shipping_cents: 600, buyer_fee_cents: 230, seller_fee_cents: 230,
+    total_cents: 4830, seller_payout_cents: 4370,
   });
+});
+test("totals: loading the shipping doesn't dodge the fee", () => {
+  const cheapItem = computeOrderTotals(100, 4500);
+  const fairItem = computeOrderTotals(4500, 100);
+  assert.equal(cheapItem.buyer_fee_cents, fairItem.buyer_fee_cents);
+  assert.equal(cheapItem.seller_fee_cents, fairItem.seller_fee_cents);
 });
 test("totals: rounding stays integer and the DB checks hold", () => {
   for (const item of [100, 101, 999, 1234, 3333, 1000000]) {
