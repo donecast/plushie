@@ -5537,3 +5537,6 @@ a.share-card:hover { border-color: var(--rose-1); }
   border: 1px solid var(--line, var(--gold)); border-radius: 6px; font-family: var(--sans); cursor: pointer;
 }
 .mp-option span { flex: 1; }
+.st-body { max-height: 50vh; overflow-y: auto; }
+.st-agree { display: flex; gap: 8px; align-items: flex-start; margin: 12px 0 4px; font-family: var(--sans); font-size: 0.9rem; text-transform: none; letter-spacing: normal; font-weight: 400; }
+.st-agree input[type="checkbox"] { width: auto; height: auto; min-height: 0; padding: 0; margin: 3px 0 0; flex: none; box-shadow: none; }

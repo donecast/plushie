@@ -66,6 +66,9 @@ await page.evaluate(() => {
     PARCEL_PRESETS: [{ key: 'mailer', label: 'Poly mailer (10×13)' }, { key: 'small', label: 'Small box (8×6×4)' }],
     shipServiceLabel: (k) => ({ usps_ground: 'USPS Ground Advantage', usps_priority: 'USPS Priority Mail' }[k] || k),
     getMyShipFrom: async () => window._shipFrom ?? null,
+    hasAcceptedSellerTerms: async () => !!window._termsOk,
+    acceptSellerTerms: async () => { window._calls.push(['acceptTerms']); window._termsOk = true; },
+    getMySellerOwedCents: async () => window._owed || 0,
     saveMyShipFrom: async (a) => { window._calls.push(['shipFrom', a]); },
     uploadSocialPhoto: async () => { window._calls.push(['upload']); return `me/photo-${window._calls.length}.jpg`; },
     socialPhotoUrl: async (p) => p,
@@ -132,7 +135,16 @@ await page.evaluate(() => {
 });
 await page.click('#test-card-host [data-action="sell-item"]');
 await page.waitForTimeout(100);
-out.sellModalOpens = await page.isVisible('#market-sell-modal');
+// First time: the Seller Agreement comes first, and Accept needs the checkbox.
+out.termsShownFirst = await page.isVisible('#seller-terms-modal') && !(await page.isVisible('#market-sell-modal'));
+out.termsHasFeeRule = /owed whether or not you fulfill the order/.test(await page.textContent('#st-body'));
+out.acceptDisabledUntilChecked = await page.isDisabled('#st-accept');
+await page.locator('#seller-terms-modal .modal-card').screenshot({ path: '/tmp/seller-terms-modal.png' });
+await page.check('#st-check');
+await page.click('#st-accept');
+await page.waitForTimeout(150);
+out.termsAccepted = (await page.evaluate(() => window._calls)).some((c) => c[0] === 'acceptTerms');
+out.sellModalOpens = await page.isVisible('#market-sell-modal') && !(await page.isVisible('#seller-terms-modal'));
 out.sellModalName = await page.textContent('#ms-name');
 
 await page.fill('#ms-price', '40');
@@ -251,7 +263,10 @@ const checks = [
   ['gate off: a stale sale sub-tab falls back to Browse', out.gateOffFallsBackToBrowse],
   ['gate on: For Sale sub-tab shown', out.gateOnTabShown],
   ['gate on: $ Sell button on a catalog card', out.gateOnSellBtn],
-  ['clicking $ Sell opens the sell modal', out.sellModalOpens],
+  ['first Sell shows the Seller Agreement first', out.termsShownFirst],
+  ['…which states the seller fee is owed either way', out.termsHasFeeRule],
+  ['…Accept is disabled until the box is checked', out.acceptDisabledUntilChecked],
+  ['…accepting records it, then the sell modal opens', out.termsAccepted && out.sellModalOpens],
   ['…named for the item', out.sellModalName === 'Skelly Bun'],
   ['fee preview: fee on price only, shipping separate (buyer $42.00 + shipping, seller nets $38.00)', /Buyer pays \$42\.00/.test(out.feeText) && /\+ shipping/.test(out.feeText) && /You get \$38\.00/.test(out.feeText)],
   ['all 4 shipping services offered as checkboxes', out.servicesShown === 4],

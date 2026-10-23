@@ -48,6 +48,13 @@ export function releaseDue(order, now = new Date(), autoDays = 3) {
   return now - new Date(order.delivered_at) >= autoDays * 86_400_000;
 }
 
+// What a seller owes (from cancelled sales) comes out of their next payout
+// first. Returns how much to withhold and how much to actually transfer.
+export function splitPayout(payoutCents, owedCents) {
+  const withheld = Math.max(0, Math.min(payoutCents, owedCents));
+  return { withheld, transfer: payoutCents - withheld };
+}
+
 // Stripe's REST API takes form encoding with bracketed nesting:
 // { a: { b: [ { c: 1 } ] } } → a[b][0][c]=1. Null/undefined are skipped.
 export function stripeForm(obj, prefix = "", out = new URLSearchParams()) {

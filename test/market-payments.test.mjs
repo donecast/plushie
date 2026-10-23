@@ -108,3 +108,15 @@ test("the two shipping.mjs copies are identical", () => {
     fs.readFileSync(new URL("../supabase/functions/market-checkout/shipping.mjs", import.meta.url), "utf8"),
     fs.readFileSync(new URL("../supabase/functions/market-listing/shipping.mjs", import.meta.url), "utf8"));
 });
+
+import { splitPayout, SELLER_TERMS_VERSION } from "../supabase/functions/market-checkout/rules.mjs";
+test("owed seller fees come out of the next payout first", () => {
+  assert.deepEqual(splitPayout(3800, 0), { withheld: 0, transfer: 3800 });
+  assert.deepEqual(splitPayout(3800, 200), { withheld: 200, transfer: 3600 });
+  assert.deepEqual(splitPayout(150, 200), { withheld: 150, transfer: 0 });   // rest carries to the next sale
+  assert.deepEqual(splitPayout(3800, -50), { withheld: 0, transfer: 3800 });  // credit never inflates a payout
+});
+test("seller terms version is mirrored in data.js", () => {
+  const dataJs = fs.readFileSync(new URL("../data.js", import.meta.url), "utf8");
+  assert.ok(dataJs.includes(`data.SELLER_TERMS_VERSION = '${SELLER_TERMS_VERSION}'`));
+});

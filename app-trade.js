@@ -1601,13 +1601,17 @@ function marketOrderTurnCount() {
 }
 
 async function loadMarketData() {
-  const [browse, mine, offers, orders, payouts] = await Promise.all([
+  const [browse, mine, offers, orders, payouts, termsOk, owed] = await Promise.all([
     data.browseListings(),
     data.listMyListings(),
     data.listMarketOffers(),
     data.listMarketOrders(),
     data.getMyPayouts(),
+    data.hasAcceptedSellerTerms(),
+    data.getMySellerOwedCents(),
   ]);
+  state.sellerTermsOk = termsOk;
+  state.myOwedCents = owed;
   state.marketBrowse = browse;
   state.myListings = mine;
   state.marketOffers = offers;
@@ -1877,13 +1881,16 @@ function renderSaleOffers() {
 
 function renderPayoutsBanner() {
   const p = state.myPayouts;
+  const owed = state.myOwedCents > 0
+    ? `<p class="trade-proof-warning">You owe ${money(state.myOwedCents)} in seller fees from a cancelled sale — it comes out of your next payout.</p>`
+    : '';
   if (p?.ready) {
-    return `<div class="mkt-payouts mkt-payouts-ready">💸 Payouts are set up. <button class="btn-ghost" data-action="mkt-payouts-dash">Open my Stripe payouts</button></div>`;
+    return `<div class="mkt-payouts mkt-payouts-ready">💸 Payouts are set up. <button class="btn-ghost" data-action="mkt-payouts-dash">Open my Stripe payouts</button></div>${owed}`;
   }
   return `<div class="mkt-payouts">
       <p><strong>Set up payouts to get paid.</strong> Buyers can’t pay for your items until you do. Stripe handles it — it takes a few minutes and asks for your bank details.</p>
       <button class="btn-primary" data-action="mkt-payouts">${p?.started ? 'Finish payout setup' : 'Set up payouts'}</button>
-    </div>`;
+    </div>${owed}`;
 }
 
 function renderSaleMine() {
@@ -1930,6 +1937,7 @@ async function refreshMarket() {
 // listing: the existing listing (edit), or null when creating.
 function openSellModal(colItem, listing) {
   if (!marketEnabled()) return;
+  if (!state.sellerTermsOk) { requireSellerTerms(() => openSellModal(colItem, listing)); return; }
   const catalogId = listing?.catalogId || colItem?.catalogId;
   if (!catalogId) { toast('Only catalog items can be sold.'); return; }
   state.sellDraft = {
@@ -2240,6 +2248,41 @@ async function sendMarketOffer() {
   }
 }
 
+// ─── For Sale: Seller Agreement gate (db/0109) ──────────────────────
+// First listing / payout setup: show the agreement (copied from the Legal
+// modal's Seller Agreement section), require the checkbox, record acceptance,
+// then carry on with what the seller was doing.
+function requireSellerTerms(next) {
+  state.sellerTermsNext = next;
+  const src = document.querySelector('#legal-modal [data-legal-section="seller"]');
+  document.getElementById('st-body').innerHTML = src ? src.innerHTML : '';
+  document.getElementById('st-check').checked = false;
+  document.getElementById('st-accept').disabled = true;
+  hideEl('st-error');
+  showEl('seller-terms-modal');
+}
+function closeSellerTerms() {
+  hideEl('seller-terms-modal');
+  state.sellerTermsNext = null;
+}
+async function acceptSellerTerms() {
+  const btn = document.getElementById('st-accept');
+  btn.disabled = true;
+  try {
+    await data.acceptSellerTerms();
+    state.sellerTermsOk = true;
+    const next = state.sellerTermsNext;
+    closeSellerTerms();
+    next?.();
+  } catch (err) {
+    console.error('acceptSellerTerms', err);
+    const el = document.getElementById('st-error');
+    el.textContent = err.message || 'Could not save that — try again.';
+    showEl('st-error');
+    btn.disabled = false;
+  }
+}
+
 // ─── For Sale: checkout modal (address → live rates → Stripe) ─────────
 const SHIP_TO_KEY = 'pc.market.shipTo';   // last address used, for convenience
 
@@ -2384,6 +2427,7 @@ Object.assign(TRADE_ACTIONS, {
     await refreshMarket();
   },
   'mkt-payouts': async (b) => {
+    if (!state.sellerTermsOk) { requireSellerTerms(() => TRADE_ACTIONS['mkt-payouts'](b)); return; }
     b.disabled = true;
     try {
       const out = await data.marketPayCall({ action: 'payouts_setup', returnBase: data.marketReturnBase() });
@@ -2415,7 +2459,9 @@ Object.assign(TRADE_ACTIONS, {
     await refreshMarket();
   },
   'mkt-refund': async (b) => {
-    if (!confirm('Refund the buyer in full and cancel this sale? The listing comes down; you can relist it later.')) return;
+    const o = (state.marketOrders || []).find((x) => x.id === b.dataset.id);
+    const fee = o && o.sellerId === window.currentUser.id ? o.sellerFeeCents : 0;
+    if (!confirm(`Cancel this sale and refund the buyer in full?${fee ? ` Your ${money(fee)} seller fee still applies — it comes out of your next payout.` : ''} The listing comes down; you can relist it later.`)) return;
     b.disabled = true;
     try {
       await data.marketPayCall({ action: 'refund', orderId: b.dataset.id });

@@ -861,6 +861,29 @@ data.PARCEL_PRESETS = [
 ];
 data.shipServiceLabel = (key) => data.SHIP_SERVICES.find((s) => s.key === key)?.label || key;
 
+// Seller Agreement (db/0109). Mirrors SELLER_TERMS_VERSION in supabase/
+// functions/*/shipping.mjs (a test checks); bump both when the agreement text
+// in index.html changes, and everyone re-accepts.
+data.SELLER_TERMS_VERSION = '2026-10-22';
+data.hasAcceptedSellerTerms = async function () {
+  const { data: row, error } = await sb.from('market_seller_terms').select('accepted_at')
+    .eq('user_id', window.currentUser.id).eq('version', data.SELLER_TERMS_VERSION).maybeSingle();
+  if (error) throw error;
+  return !!row;
+};
+data.acceptSellerTerms = async function () {
+  const { error } = await sb.from('market_seller_terms')
+    .insert({ user_id: window.currentUser.id, version: data.SELLER_TERMS_VERSION });
+  if (error && error.code !== '23505') throw error;   // already accepted is fine
+};
+// Seller fees I owe from cancelled sales (withheld from my next payout).
+data.getMySellerOwedCents = async function () {
+  const { data: rows, error } = await sb.from('market_seller_ledger').select('amount_cents')
+    .eq('seller_id', window.currentUser.id);
+  if (error) throw error;
+  return rows.reduce((sum, r) => sum + r.amount_cents, 0);
+};
+
 // Where I ship from (private; RLS own row only). null = not set yet.
 data.getMyShipFrom = async function () {
   const { data: row, error } = await sb.from('market_ship_from')
