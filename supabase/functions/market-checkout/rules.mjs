@@ -15,7 +15,7 @@ export const sellerFeeCents = (itemCents, fees = FEES) =>
 // and the seller's payout is item minus their fee (the shipping money pays for
 // the label, not the seller). Settled 2026-10-22.
 export function computeOrderTotals(itemCents, shippingCents, fees = FEES) {
-  if (![itemCents, shippingCents].every(Number.isInteger) || itemCents < 100 || shippingCents < 0) {
+  if (![itemCents, shippingCents].every(Number.isInteger) || itemCents < 500 || shippingCents < 0) {
     throw new Error("BAD_AMOUNTS");
   }
   const buyerFee = feeCents(itemCents, fees.buyerPct);

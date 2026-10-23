@@ -47,7 +47,7 @@ export function decideListing(mode, check, priceCents) {
 }
 
 export const LIMITS = {
-  minPriceCents: 100,
+  minPriceCents: 500,                // $5 floor (db/0110)
   maxPriceCents: 1_000_000,
   maxShippingCents: 20_000,
   maxNotes: 500,
@@ -61,7 +61,7 @@ export const LIMITS = {
 export function validateDetails(uid, d) {
   const isInt = (n) => typeof n === "number" && Number.isInteger(n);
   if (!isInt(d.priceCents) || d.priceCents < LIMITS.minPriceCents || d.priceCents > LIMITS.maxPriceCents) {
-    return "Price must be between $1 and $10,000.";
+    return "Price must be between $5 and $10,000.";
   }
   // Shipping is a real label bought at checkout: the seller sets the package
   // and the services they'll use, not a price.

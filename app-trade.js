@@ -1656,7 +1656,7 @@ const MARKET_ERRORS = {
   MARKET_LISTING_NOT_FOUND: 'That listing is gone.',
   MARKET_LISTING_UNAVAILABLE: "That listing isn't taking offers right now.",
   MARKET_OWN_LISTING: "That's your own listing.",
-  MARKET_OFFER_TOO_LOW: 'Offers start at $1.00.',
+  MARKET_OFFER_TOO_LOW: 'Offers start at $5.00.',
   MARKET_OFFER_ABOVE_PRICE: "An offer can't be more than the asking price.",
   MARKET_NOT_YOUR_OFFER: "That offer isn't yours to answer.",
   MARKET_OFFER_CLOSED: 'That offer has already been answered.',
@@ -2135,7 +2135,7 @@ async function saveSellListing() {
   const d = state.sellDraft;
   if (!d || d.saving) return;
   const priceCents = dollarsToCents(document.getElementById('ms-price').value);
-  if (!Number.isFinite(priceCents) || priceCents < 100) { msError('Set a price of at least $1.00.'); return; }
+  if (!Number.isFinite(priceCents) || priceCents < 500) { msError('Set a price of at least $5.00.'); return; }
   const lb = parseInt(document.getElementById('ms-weight-lb').value || '0', 10);
   const oz = parseInt(document.getElementById('ms-weight-oz').value || '0', 10);
   const weightOz = (Number.isFinite(lb) ? lb : 0) * 16 + (Number.isFinite(oz) ? oz : 0);
@@ -2228,7 +2228,7 @@ async function sendMarketOffer() {
   if (!d) return;
   const amt = dollarsToCents(document.getElementById('mo-amount').value);
   const show = (m) => { const e = document.getElementById('mo-error'); e.textContent = m; showEl('mo-error'); };
-  if (!Number.isFinite(amt) || amt < 100) { show('Offers start at $1.00.'); return; }
+  if (!Number.isFinite(amt) || amt < 500) { show('Offers start at $5.00.'); return; }
   if (amt > d.askCents) { show(`That's over the asking price of ${money(d.askCents)}.`); return; }
   const msg = document.getElementById('mo-message').value.trim() || null;
   const btn = document.getElementById('mo-send');
