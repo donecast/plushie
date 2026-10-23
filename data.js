@@ -834,9 +834,17 @@ data.getPublicFeedback = async function (userId, limit = 8) {
 // RPCs. Insider-gated (feature.market) until payments ship.
 
 // Fees, in percent, settled 2026-10-19: buyer pays +5% at checkout, seller
-// gives up 5% of the item price. Shipping is passed through fee-free.
+// gives up 5%. Both apply to item + shipping together (2026-10-22), so a low
+// price with padded shipping can't dodge them. Mirrors computeOrderTotals in
+// supabase/functions/market-checkout/rules.mjs — keep the two in sync.
 data.MARKET_FEES = { buyerPct: 5, sellerPct: 5 };
 data.marketFeeCents = (priceCents, pct) => Math.round(priceCents * pct / 100);
+data.marketTotals = (itemCents, shippingCents) => {
+  const base = itemCents + (shippingCents || 0);
+  const buyerFee = data.marketFeeCents(base, data.MARKET_FEES.buyerPct);
+  const sellerFee = data.marketFeeCents(base, data.MARKET_FEES.sellerPct);
+  return { buyerFee, sellerFee, buyerTotal: base + buyerFee, sellerNet: base - sellerFee };
+};
 
 // Call the edge function; a refusal (PD in stock, price cap, not owned…)
 // comes back as a thrown Error carrying the server's code + message.
