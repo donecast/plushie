@@ -2438,6 +2438,13 @@ function wireEvents() {
   document.getElementById('ms-shipfrom').addEventListener('click', (e) => {
     if (e.target.closest('[data-action="ms-shipfrom-edit"]')) editSellShipFrom();
   });
+  document.querySelectorAll('[data-close-sterms]').forEach((el) =>
+    el.addEventListener('click', closeSellerTerms)
+  );
+  document.getElementById('st-check').addEventListener('change', (e) => {
+    document.getElementById('st-accept').disabled = !e.target.checked;
+  });
+  document.getElementById('st-accept').addEventListener('click', acceptSellerTerms);
   document.querySelectorAll('[data-close-mpay]').forEach((el) =>
     el.addEventListener('click', closeMarketPayModal)
   );

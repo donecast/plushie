@@ -1,4 +1,5 @@
-// Shipping rules for the For Sale market (EasyPost labels). Pure, no I/O.
+// Shared For Sale rules: shipping (EasyPost labels) + the Seller Agreement
+// version. Pure, no I/O.
 // THIS FILE EXISTS TWICE, byte-identical: supabase/functions/market-checkout/
 // and supabase/functions/market-listing/ (each edge function deploys alone).
 // test/market-payments.test.mjs fails if they drift — edit both.
@@ -76,3 +77,8 @@ export function orderStatusForTracking(status) {
   if (status === "delivered") return "delivered";
   return null;
 }
+
+// The Seller Agreement version sellers must have accepted (db/0109). Bump it
+// when the agreement text in index.html (Legal → Seller Agreement) changes;
+// everyone re-accepts. Mirrored by data.SELLER_TERMS_VERSION in data.js.
+export const SELLER_TERMS_VERSION = "2026-10-22";

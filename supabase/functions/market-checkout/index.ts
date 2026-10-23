@@ -39,7 +39,8 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
   canMove, checkoutLineItems, cleanAddress, cleanReturnBase, computeOrderTotals, easypostParcel,
-  orderStatusForTracking, pickRates, releaseDue, serviceForRate, sessionExpiresAt, stripeForm,
+  orderStatusForTracking, pickRates, releaseDue, SELLER_TERMS_VERSION, serviceForRate, sessionExpiresAt,
+  splitPayout, stripeForm,
 } from "./rules.mjs";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -176,25 +177,60 @@ async function moveOrder(order: any, to: string, extra: Record<string, unknown> 
   return data;
 }
 
-// Pay the seller. The transfer is tied to the buyer's charge
+// What a seller currently owes (seller fees from cancelled sales, minus what
+// has already been withheld). Positive = owed.
+async function sellerOwes(sellerId: string) {
+  const { data, error } = await db.from("market_seller_ledger").select("amount_cents").eq("seller_id", sellerId);
+  if (error) throw new Error(error.message);
+  return (data ?? []).reduce((sum: number, r: any) => sum + r.amount_cents, 0);
+}
+
+// Pay the seller, minus anything they owe. The withholding is recorded once
+// per order (so a retried release transfers the same amount, which Stripe's
+// idempotency key requires). The transfer is tied to the buyer's charge
 // (source_transaction), so it works even before those funds settle.
 async function release(order: any) {
   const { data: seller } = await db.from("market_sellers").select("stripe_account_id").eq("user_id", order.seller_id).single();
-  const transfer = await stripe("POST", "transfers", {
-    amount: order.seller_payout_cents,
-    currency: "usd",
-    destination: seller.stripe_account_id,
-    source_transaction: order.stripe_charge_id,
-    transfer_group: order.id,
-    metadata: { order_id: order.id },
-  }, `release-${order.id}`);
+  const { data: prior } = await db.from("market_seller_ledger").select("amount_cents")
+    .eq("order_id", order.id).eq("kind", "withheld_from_payout").maybeSingle();
+  let withheld = prior ? -prior.amount_cents : 0;
+  if (!prior) {
+    withheld = splitPayout(order.seller_payout_cents, await sellerOwes(order.seller_id)).withheld;
+    if (withheld > 0) {
+      const { error } = await db.from("market_seller_ledger").insert({
+        seller_id: order.seller_id, order_id: order.id, amount_cents: -withheld, kind: "withheld_from_payout",
+        note: "Seller fees owed from a cancelled sale",
+      });
+      if (error) throw new Error(error.message);
+    }
+  }
+  const amount = order.seller_payout_cents - withheld;
+  let transferId: string | null = null;
+  if (amount > 0) {
+    const transfer = await stripe("POST", "transfers", {
+      amount,
+      currency: "usd",
+      destination: seller.stripe_account_id,
+      source_transaction: order.stripe_charge_id,
+      transfer_group: order.id,
+      metadata: { order_id: order.id, withheld_cents: String(withheld) },
+    }, `release-${order.id}`);
+    transferId = transfer.id;
+  }
   const moved = await moveOrder(order, "released", {
-    stripe_transfer_id: transfer.id, released_at: new Date().toISOString(),
+    stripe_transfer_id: transferId, released_at: new Date().toISOString(),
   });
-  if (moved) await push(order.seller_id, `💸 ${dollars(order.seller_payout_cents)} is on its way to your bank for ${await listingName(order.listing_id)}`, order.buyer_id, `market-order-${order.id}`);
+  if (moved) {
+    const name = await listingName(order.listing_id);
+    await push(order.seller_id, withheld
+      ? `💸 ${dollars(amount)} is on its way to your bank for ${name} (${dollars(withheld)} covered seller fees you owed from a cancelled sale)`
+      : `💸 ${dollars(amount)} is on its way to your bank for ${name}`, order.buyer_id, `market-order-${order.id}`);
+  }
   return moved;
 }
 
+// Refund the buyer in full. When the SELLER cancels, their seller fee is still
+// owed (Seller Agreement): it's recorded and withheld from their next payout.
 async function refund(order: any, why: string) {
   // An unused label gets its postage back (only before the carrier scans it).
   if (order.label_url && !order.label_refunded && order.status === "paid") {
@@ -208,6 +244,13 @@ async function refund(order: any, why: string) {
     metadata: { order_id: order.id, why },
   }, `refund-${order.id}`);
   const moved = await moveOrder(order, "refunded", { refunded_at: new Date().toISOString() });
+  if (why === "seller_cancelled" && order.seller_fee_cents > 0) {
+    const { error } = await db.from("market_seller_ledger").insert({
+      seller_id: order.seller_id, order_id: order.id, amount_cents: order.seller_fee_cents, kind: "cancel_fee",
+      note: "Seller fee on a sale the seller cancelled",
+    });
+    if (error && !/duplicate/i.test(error.message)) console.error("cancel fee not recorded", order.id, error.message);
+  }
   // The listing comes down: the seller decides whether to relist.
   await db.from("market_listings").update({ status: "removed", reserved_offer_id: null, reserved_until: null, updated_at: new Date().toISOString() })
     .eq("id", order.listing_id).in("status", ["sold", "reserved"]);
@@ -508,6 +551,9 @@ async function onUser(req: Request) {
     case "payouts_setup": {
       const base = cleanReturnBase(body.returnBase);
       if (!base) return fail(400, "RETURN_URL", "Bad return address.");
+      const { data: terms } = await db.from("market_seller_terms").select("user_id")
+        .eq("user_id", uid).eq("version", SELLER_TERMS_VERSION).maybeSingle();
+      if (!terms) return fail(403, "SELLER_TERMS", "Accept the Seller Agreement first.");
       let { data: seller } = await db.from("market_sellers").select("*").eq("user_id", uid).maybeSingle();
       if (!seller) {
         // Marketplace seller: recipient config (receives transfers), Express
@@ -692,7 +738,10 @@ async function onUser(req: Request) {
       const sellerCanRefund = order.seller_id === uid && order.status === "paid";
       const adminCanRefund = !!isAdmin?.is_admin && canMove(order.status, "refunded");
       if (!sellerCanRefund && !adminCanRefund) return fail(403, "REFUND", "You can't refund this order.");
-      await refund(order, order.seller_id === uid ? "seller_cancelled" : "admin");
+      // An admin refund only charges the seller's fee when the admin says the
+      // seller was at fault (body.sellerAtFault).
+      const why = order.seller_id === uid || (adminCanRefund && body.sellerAtFault === true) ? "seller_cancelled" : "admin";
+      await refund(order, why);
       await push(order.buyer_id, `Your payment for ${await listingName(order.listing_id)} was refunded in full.`, uid, `market-order-${order.id}`);
       return reply(200, { ok: true });
     }

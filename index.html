@@ -42,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=171" />
+  <link rel="stylesheet" href="./styles.css?v=172" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -849,6 +849,23 @@
   </div>
 
   <!-- For Sale: make / counter an offer. -->
+  <!-- Seller Agreement acceptance (db/0109): shown before a first listing or
+       payout setup. The text is copied in from the Legal → Seller Agreement
+       section so there's one source of truth. -->
+  <div id="seller-terms-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-sterms></div>
+    <div class="modal-card modal-card-wide">
+      <button class="modal-close" data-close-sterms aria-label="Close">×</button>
+      <div id="st-body" class="st-body"></div>
+      <label class="st-agree"><input type="checkbox" id="st-check" /> I've read and agree to the Seller Agreement, including that my 5% seller fee is owed even if I cancel a paid order.</label>
+      <p id="st-error" class="auth-error hidden"></p>
+      <div class="form-actions">
+        <button type="button" class="btn-ghost" data-close-sterms>Not now</button>
+        <button type="button" class="btn-primary" id="st-accept" disabled>Accept &amp; continue</button>
+      </div>
+    </div>
+  </div>
+
   <!-- For Sale checkout: the buyer's address → live label rates for the
        services the seller allows → Stripe Checkout (db/0108). -->
   <div id="market-pay-modal" class="modal hidden" role="dialog" aria-modal="true">
@@ -1311,6 +1328,7 @@
       <nav class="subtabs">
         <button class="subtab active" data-legal-tab="terms">Terms</button>
         <button class="subtab" data-legal-tab="privacy">Privacy</button>
+        <button class="subtab" data-legal-tab="seller">Seller Agreement</button>
         <button class="subtab" data-legal-tab="changelog">Change Log</button>
         <button class="subtab" data-legal-tab="about">About</button>
         <button class="subtab" data-legal-tab="operator">Legal</button>
@@ -1326,6 +1344,8 @@
           <li><strong>Your content stays yours.</strong> You own what you add — collection notes, photos, posts, comments, your bio, your Top 8 Buns. By posting it, you grant us a non-exclusive, worldwide, royalty-free license to store and display it <em>within the app, to the people your visibility settings allow</em>, so we can run the service. Delete it any time to revoke that going forward; stray copies may linger briefly in backups or caches.</li>
           <li><strong>Be decent.</strong> No harassment, hate, threats, or doxxing. No sexual content involving minors. No spam, scams, counterfeit listings, posting other people's private information, or anything illegal to post or ship to or from your jurisdiction. We may remove content and suspend or delete accounts that break this — with or without notice.</li>
           <li><strong>Your audience is your choice.</strong> Posts and collection items can be Public, Coven (friends), Castle Crew, or Coffin Buddies. <strong>Public means every signed-in user can see it.</strong> Pick the tier you're comfortable with, and assume anyone who can see something could screenshot or re-share it.</li>
+          <li><strong>Buying in the For Sale market.</strong> Payments are processed by Stripe; we never see your full card number. You pay the agreed price, the real shipping cost for the service you pick, and a 5% buyer fee on the item price. Shipping labels are bought through our shipping provider (EasyPost) and tracked. The seller is paid 3 days after delivery, or sooner if you confirm the item arrived — tell us about a problem within those 3 days. If a seller can't ship, you're refunded in full. Card disputes are handled through Stripe; we use tracking and photos as evidence.</li>
+          <li><strong>Selling</strong> requires accepting the <button type="button" class="inline-link" data-open-legal="seller">Seller Agreement</button> and setting up payouts with Stripe.</li>
           <li><strong>Trades are between you and the other person.</strong> We don't escrow, mediate, verify identity, or guarantee anything. Use the feedback system and the ship-first guidance to manage risk.</li>
           <li><strong>You're responsible for the addresses you share.</strong> Only enter a real shipping address when you trust the other party enough.</li>
           <li><strong>Reporting &amp; enforcement.</strong> See something abusive? Email <a href="mailto:support@plushcrypt.com">support@plushcrypt.com</a>. We moderate by hand and may remove content or suspend accounts at our discretion.</li>
@@ -1347,13 +1367,31 @@
           <li><strong>Photos:</strong> stored in our cloud storage. <strong>Note, and a change from before:</strong> photos on <em>social posts</em> and <em>trade offerings</em> are viewable by any signed-in user (that's how the feed and Browse work). For those, your visibility tier protects the post text, but the image itself is shielded only by an unguessable link — treat social/trade photos as effectively shareable. Photos kept inside your private collection stay scoped to you and anyone you've shared a collection with.</li>
           <li><strong>Trade offerings:</strong> publicly browsable by other signed-in users (that's the point — they need to see what you're willing to trade).</li>
           <li><strong>Shipping addresses:</strong> stored as structured fields; revealed only to the other party of an accepted trade, and only after they've also entered theirs.</li>
+          <li><strong>For Sale purchases:</strong> the address you enter at checkout is verified and sent to our shipping provider (EasyPost) to buy the label, and appears on the label the seller prints. A seller's ship-from address is private to them and appears only on their labels. We keep each order's address, totals, and tracking so we can resolve problems.</li>
+          <li><strong>Payments &amp; payouts:</strong> card payments are processed by Stripe — we store order amounts and Stripe IDs, never card numbers. Sellers verify their identity and bank details directly with Stripe for payouts; Stripe, not us, holds that information.</li>
           <li><strong>Feedback:</strong> the ratings (communication / shipping / accuracy, plus comments) you give or receive are visible to other signed-in users via your profile. You can edit your own feedback for 7 days.</li>
           <li><strong>Notifications:</strong> today these fire in your browser while the app is open. If we ship native apps, we'll store a device push token to deliver them.</li>
           <li><strong>Blocking &amp; reporting:</strong> you can block another collector — you'll be hidden from each other, any friendship is removed, and neither of you can friend or trade with the other. You can also report a post, comment, or collector to the admins. Reports are private (only you and the admins see them), and we never tell someone they've been blocked or reported.</li>
           <li><strong>Admins</strong> can read collection / wish list / trade data and remove social content for moderation. Currently the only admin is the site operator.</li>
           <li><strong>Usage analytics:</strong> we record our own lightweight, first-party usage events — for example that the app was opened, or which tab you viewed — so we can see whether features are useful and worth building on. These are stored in our own database, are not tied to any third-party ad or tracking network, and set no advertising cookies. We keep them non-identifying (counts and which screens, not the content of your collection or messages), and only the operator can read them.</li>
-          <li><strong>Third parties:</strong> auth, database, and storage run on Supabase; magic-link emails send via our SMTP provider (Resend); image proxying, photo storage, and hosting run on Cloudflare; catalog data is fetched from plushiedreadfuls.com. We don't sell your data, and we don't use third-party advertising or analytics trackers.</li>
+          <li><strong>Third parties:</strong> auth, database, and storage run on Supabase; magic-link emails send via our SMTP provider (Resend); image proxying, photo storage, and hosting run on Cloudflare; payments and seller payouts run on Stripe; shipping labels, address checks, and tracking run on EasyPost; catalog data is fetched from plushiedreadfuls.com. We don't sell your data, and we don't use third-party advertising or analytics trackers.</li>
           <li><strong>Deletion:</strong> email <a href="mailto:support@plushcrypt.com">support@plushcrypt.com</a> from your account address and we'll wipe your rows and photos (backups age out afterward).</li>
+        </ul>
+      </section>
+
+      <section class="legal-section hidden" data-legal-section="seller">
+        <h2>Seller Agreement</h2>
+        <p class="dim">Version 2026-10-22. This adds to the Terms of Use. You must accept it before you list anything or set up payouts. "We" means Chainsaw Enterprises, operator of The Plush Crypt.</p>
+        <ul>
+          <li><strong>Who can sell.</strong> You must be 18 or older and able to enter a binding agreement. Payouts go through Stripe: you'll verify your identity and bank details with them and agree to the <a href="https://stripe.com/legal/connect-account" target="_blank" rel="noopener">Stripe Connected Account Agreement</a>. We don't see or store your bank or ID details.</li>
+          <li><strong>What you can list.</strong> Only items you own and have in hand, with at least one real photo of the actual item (not a stock image) and an honest description of its condition and what's included. No counterfeits or bootlegs. You can't list something Plushie Dreadfuls is selling right now; if they restock it, your listing must be priced at or below theirs or it's paused.</li>
+          <li><strong>Fees.</strong> Buyers pay a 5% fee on top. You pay a 5% seller fee on the item price, taken out before your payout. <strong>The seller fee is owed whether or not you fulfill the order.</strong> If you cancel a paid order, the buyer is refunded in full and your seller fee is withheld from your next payout(s) until it's covered.</li>
+          <li><strong>Shipping.</strong> You must ship with the label we provide — no other carrier, label, or off-app arrangement. Pack and enter the weight and package size honestly; if the carrier charges more because the package was heavier or bigger than you said, that difference is yours and may be withheld from your payouts. Ship within 5 days of payment. If you don't, we may cancel the order and refund the buyer, and your seller fee still applies.</li>
+          <li><strong>Getting paid.</strong> You're paid 3 days after the carrier shows delivery, or sooner if the buyer confirms it arrived. We may hold a payout while a problem or card dispute is open.</li>
+          <li><strong>Problems and disputes.</strong> If a buyer reports a problem within 3 days of delivery, we'll look at the tracking, photos, and messages and decide. If the item wasn't as described, wasn't shipped, or was swapped, we may refund the buyer and recover the refund and any card-dispute fees from your future payouts.</li>
+          <li><strong>Stay on the platform.</strong> Don't take a buyer you met here off-app to avoid fees, and use a buyer's address only to ship their order.</li>
+          <li><strong>Taxes.</strong> You're responsible for your own income taxes on what you sell. Stripe may send you a tax form (such as a 1099-K) if you pass IRS thresholds. Where the law requires a marketplace to collect sales tax, we'll add it at checkout.</li>
+          <li><strong>Ending or changing this.</strong> We can suspend selling or close your seller access for breaking this agreement or the Terms, and we may withhold amounts you owe. We may update this agreement; when we do, you'll be asked to accept the new version before you sell again.</li>
         </ul>
       </section>
 
@@ -1367,6 +1405,7 @@
             <h3 class="changelog-date">October 22, 2026</h3>
             <ul>
               <li class="changelog-gated"><strong>Real shipping labels for For Sale. 📦</strong> Sellers set the package size, weight, and which services they'll ship with. Buyers enter their address, pick from live USPS/FedEx rates, and pay exactly that. We print the label for the seller, tracking updates on its own, and the seller is paid automatically 3 days after delivery. Shipping is fee-free.</li>
+              <li class="changelog-gated"><strong>Seller Agreement.</strong> Selling now starts with a short Seller Agreement (Legal → Seller Agreement): real photos, ship with our label within 5 days, and the 5% seller fee is owed even if you cancel a paid order — the buyer always gets every cent back.</li>
               <li class="changelog-fixes">Misc bug fixes.</li>
             </ul>
           </div>
@@ -2263,18 +2302,18 @@
   <script src="./config.js?v=54"></script>
   <script src="./auth.js?v=66"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=125"></script>
+  <script src="./data.js?v=126"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=240"></script>
-  <script src="./app-catalog.js?v=240"></script>
-  <script src="./app-collection.js?v=240"></script>
-  <script src="./app-ui.js?v=240"></script>
-  <script src="./app-trade.js?v=240"></script>
-  <script src="./app-account.js?v=240"></script>
-  <script src="./app-admin.js?v=240"></script>
-  <script src="./app-admin-catalog.js?v=240"></script>
-  <script src="./app-social.js?v=240"></script>
+  <script src="./app-core.js?v=241"></script>
+  <script src="./app-catalog.js?v=241"></script>
+  <script src="./app-collection.js?v=241"></script>
+  <script src="./app-ui.js?v=241"></script>
+  <script src="./app-trade.js?v=241"></script>
+  <script src="./app-account.js?v=241"></script>
+  <script src="./app-admin.js?v=241"></script>
+  <script src="./app-admin-catalog.js?v=241"></script>
+  <script src="./app-social.js?v=241"></script>
 </body>
 </html>

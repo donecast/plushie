@@ -15,13 +15,15 @@
 //   { action: 'create', plushieId, priceCents, parcel, services[], notes?, extras?, photoPaths[] }
 //   { action: 'update', listingId, priceCents, parcel, services[], notes?, extras?, photoPaths[] }
 // parcel = { preset, weightOz }; services = shipping.mjs SHIP_SERVICES keys.
-// The seller must have saved a ship-from address (market_ship_from) first.
+// The seller must have accepted the current Seller Agreement (db/0109) and
+// saved a ship-from address (market_ship_from) first.
 // 'update' re-runs the PD check and un-pauses a restock-paused listing that
 // now passes.
 // Errors: { error: CODE, message, pdPriceCents? } with a 4xx/5xx status.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { decideListing, judgePdProduct, validateDetails, variantIdFromCatalogId } from "./rules.mjs";
+import { SELLER_TERMS_VERSION } from "./shipping.mjs";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -88,6 +90,10 @@ Deno.serve(async (req) => {
   };
   const invalid = validateDetails(uid, details);
   if (invalid) return fail(400, "INVALID", invalid);
+  const { data: terms, error: tErr } = await db.from("market_seller_terms").select("user_id")
+    .eq("user_id", uid).eq("version", SELLER_TERMS_VERSION).maybeSingle();
+  if (tErr) return fail(500, "DB", tErr.message);
+  if (!terms) return fail(403, "SELLER_TERMS", "Accept the Seller Agreement before listing.");
   const { data: shipFrom, error: sfErr } = await db.from("market_ship_from").select("user_id").eq("user_id", uid).maybeSingle();
   if (sfErr) return fail(500, "DB", sfErr.message);
   if (!shipFrom) return fail(400, "NO_SHIP_FROM", "Add the address you'll ship from first.");

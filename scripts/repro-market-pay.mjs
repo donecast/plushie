@@ -67,6 +67,9 @@ await page.evaluate(() => {
     PARCEL_PRESETS: [{ key: 'mailer', label: 'Poly mailer (10×13)' }, { key: 'small', label: 'Small box (8×6×4)' }],
     shipServiceLabel: (k) => ({ usps_ground: 'USPS Ground Advantage', usps_priority: 'USPS Priority Mail' }[k] || k),
     getMyShipFrom: async () => window._shipFrom ?? null,
+    hasAcceptedSellerTerms: async () => !!window._termsOk,
+    acceptSellerTerms: async () => { window._calls.push(['acceptTerms']); window._termsOk = true; },
+    getMySellerOwedCents: async () => window._owed || 0,
     saveMyShipFrom: async (a) => { window._calls.push(['shipFrom', a]); },
     uploadSocialPhoto: async () => { window._calls.push(['upload']); return `me/photo-${window._calls.length}.jpg`; },
     socialPhotoUrl: async (p) => p,
@@ -133,6 +136,8 @@ const out = await page.evaluate(async (soon) => {
       shipService: 'usps_priority', carrier: 'USPS', tracking: '9400222', trackingStatus: 'delivered' },
   ];
   window._payouts = { started: false, ready: false };
+  window._owed = 125;
+  window._termsOk = true;
   state.tab = 'trade'; state.ready.add('trade'); state.tradeSubTab = 'browse';
   await loadMarketData();          // consumes ?mkt=paid
   o.returnLanded = state.tradeSubTab === 'sale' && state.saleFilter === 'offers';
@@ -185,6 +190,16 @@ calls = await page.evaluate(() => window._calls);
 out.payCall = calls.filter((c) => c[0] === 'pay').at(-1)?.[1];
 await page.evaluate(() => closeMarketPayModal());
 
+// Seller cancel: the confirm names the seller fee that still applies.
+await page.evaluate(() => {
+  window._orders.find((o) => o.id === 'R-S').sellerFeeCents = 100;
+  window._confirmText = null;
+  window.confirm = (t) => { window._confirmText = t; return false; };
+});
+await page.click('#subtab-sale [data-action="mkt-refund"][data-id="R-S"]');
+out.refundConfirm = await page.evaluate(() => window._confirmText);
+await page.evaluate(() => { window.confirm = () => true; });
+
 // Seller whose label failed retries it.
 await page.click('#subtab-sale [data-action="mkt-label-retry"]');
 await page.waitForTimeout(150);
@@ -236,6 +251,8 @@ const checks = [
   ['label retry calls label_retry', out.retryCall?.action === 'label_retry' && out.retryCall?.orderId === 'R-S2'],
   ['pay-now sends confirm', out.confirmCall?.action === 'confirm' && out.confirmCall?.orderId === 'R-C'],
   ['My listings shows Set up payouts', /Set up payouts to get paid/.test(out.mineText)],
+  ['My listings shows seller fees owed', /You owe \$1\.25 in seller fees/.test(out.mineText)],
+  ['seller cancel warns the $1.00 seller fee still applies; buyer refunded in full', /refund the buyer in full/.test(out.refundConfirm || '') && /\$1\.00 seller fee still applies/.test(out.refundConfirm || '')],
   ['Set up payouts calls payouts_setup', out.payoutsCall?.action === 'payouts_setup'],
   ['ready seller sees the payouts dashboard link', out.readyBanner === 1],
   ['no page errors', pageErrors.length === 0],
