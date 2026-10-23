@@ -838,11 +838,12 @@ data.getPublicFeedback = async function (userId, limit = 8) {
 // be padded: fees apply to the item only, and the shipping money pays for the
 // label. Mirrors computeOrderTotals in supabase/functions/market-checkout/
 // rules.mjs — keep the two in sync.
-data.MARKET_FEES = { buyerPct: 5, sellerPct: 5 };
+// Seller fee has a $1 minimum (never more than the item).
+data.MARKET_FEES = { buyerPct: 5, sellerPct: 5, sellerMinCents: 100 };
 data.marketFeeCents = (priceCents, pct) => Math.round(priceCents * pct / 100);
 data.marketTotals = (itemCents, shippingCents) => {
   const buyerFee = data.marketFeeCents(itemCents, data.MARKET_FEES.buyerPct);
-  const sellerFee = data.marketFeeCents(itemCents, data.MARKET_FEES.sellerPct);
+  const sellerFee = Math.min(itemCents, Math.max(data.MARKET_FEES.sellerMinCents, data.marketFeeCents(itemCents, data.MARKET_FEES.sellerPct)));
   return { buyerFee, sellerFee, buyerTotal: itemCents + (shippingCents || 0) + buyerFee, sellerNet: itemCents - sellerFee };
 };
 // Shipping choices — keys/labels mirror supabase/functions/market-checkout/
@@ -864,7 +865,7 @@ data.shipServiceLabel = (key) => data.SHIP_SERVICES.find((s) => s.key === key)?.
 // Seller Agreement (db/0109). Mirrors SELLER_TERMS_VERSION in supabase/
 // functions/*/shipping.mjs (a test checks); bump both when the agreement text
 // in index.html changes, and everyone re-accepts.
-data.SELLER_TERMS_VERSION = '2026-10-22';
+data.SELLER_TERMS_VERSION = '2026-10-22.2';
 data.hasAcceptedSellerTerms = async function () {
   const { data: row, error } = await sb.from('market_seller_terms').select('accepted_at')
     .eq('user_id', window.currentUser.id).eq('version', data.SELLER_TERMS_VERSION).maybeSingle();

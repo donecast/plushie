@@ -61,7 +61,7 @@ await page.evaluate(() => {
     featureEnabled: (k) => (k === 'feature.market' ? window._marketOn : false),
     MARKET_FEES: { buyerPct: 5, sellerPct: 5 },
     marketFeeCents: (p, pct) => Math.round(p * pct / 100),
-    marketTotals: (i, s) => { const f = Math.round(i * 5 / 100); return { buyerFee: f, sellerFee: f, buyerTotal: i + (s || 0) + f, sellerNet: i - f }; },
+    marketTotals: (i, s) => { const f = Math.round(i * 5 / 100); const sf = Math.min(i, Math.max(100, f)); return { buyerFee: f, sellerFee: sf, buyerTotal: i + (s || 0) + f, sellerNet: i - sf }; },
     SHIP_SERVICES: [{ key: 'usps_ground', label: 'USPS Ground Advantage' }, { key: 'usps_priority', label: 'USPS Priority Mail' }, { key: 'usps_express', label: 'USPS Priority Mail Express' }, { key: 'fedex_ground', label: 'FedEx Ground' }],
     PARCEL_PRESETS: [{ key: 'mailer', label: 'Poly mailer (10×13)' }, { key: 'small', label: 'Small box (8×6×4)' }],
     shipServiceLabel: (k) => ({ usps_ground: 'USPS Ground Advantage', usps_priority: 'USPS Priority Mail' }[k] || k),

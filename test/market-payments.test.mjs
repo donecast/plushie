@@ -23,6 +23,15 @@ test("totals: rejects bad amounts", () => {
   assert.throws(() => computeOrderTotals(10.5, 0), /BAD_AMOUNTS/);
 });
 test("fee rounding", () => assert.equal(feeCents(1001, 5), 50));
+test("seller fee is 5% with a $1 minimum, never more than the item", async () => {
+  const { sellerFeeCents } = await import("../supabase/functions/market-checkout/rules.mjs");
+  assert.equal(sellerFeeCents(500), 100);     // $5 item: 25¢ → $1 minimum
+  assert.equal(sellerFeeCents(2000), 100);    // $20: exactly $1
+  assert.equal(sellerFeeCents(4000), 200);    // $40: 5%
+  assert.equal(sellerFeeCents(100), 100);     // $1 item: fee = the item
+  assert.equal(computeOrderTotals(500, 700).seller_payout_cents, 400);
+  assert.equal(computeOrderTotals(500, 700).buyer_fee_cents, 25);   // buyer fee stays a plain 5%
+});
 test("state machine", () => {
   assert.ok(canMove("awaiting_payment", "paid"));
   assert.ok(canMove("delivered", "released"));
