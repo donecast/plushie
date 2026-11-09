@@ -97,10 +97,10 @@ if (result.emailColsPerRow[1] !== '—') problems.push(`missing-email row should
 if (!/^Username,Email,/.test(result.csvHeader)) problems.push(`csv header: ${result.csvHeader}`);
 if (!result.csvRow1.includes('scott@donecast.com')) problems.push(`csv row missing email: ${result.csvRow1}`);
 if (!result.hasIncompleteHeading) problems.push('missing "Incomplete sign-ups" heading');
-if (result.incompleteHeaders.join(',') !== 'Email,Signed up,Last sign-in,Status,') problems.push(`incomplete headers: ${result.incompleteHeaders}`);
+if (result.incompleteHeaders.join(',') !== 'Email,Signed up,Status,Followed up,') problems.push(`incomplete headers: ${result.incompleteHeaders}`);
 if (result.incompleteRows.length !== 2) problems.push(`expected 2 incomplete rows; got ${result.incompleteRows.length}`);
-if (result.incompleteRows[0]?.[3] !== 'Never verified email') problems.push(`row0 status: ${result.incompleteRows[0]?.[3]}`);
-if (result.incompleteRows[1]?.[3] !== 'Signed in, never chose a username') problems.push(`row1 status: ${result.incompleteRows[1]?.[3]}`);
+if (!/^Never verified email/.test(result.incompleteRows[0]?.[2] || '')) problems.push(`row0 status: ${result.incompleteRows[0]?.[2]}`);
+if (!/^Signed in, never chose a username/.test(result.incompleteRows[1]?.[2] || '')) problems.push(`row1 status: ${result.incompleteRows[1]?.[2]}`);
 if (result.incompleteDeleteBtns.join(',') !== 'a1,a2') problems.push(`expected a Delete button per incomplete row wired to its uid; got ${JSON.stringify(result.incompleteDeleteBtns)}`);
 
 console.log(JSON.stringify(result, null, 2));

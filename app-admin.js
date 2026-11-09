@@ -127,19 +127,39 @@ function renderAdminUserList() {
   // scoped to the row map above, so re-derive a local formatter here.
   const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString() : '—';
   const incomplete = state.adminIncompleteSignups || [];
+  const fmtWhen = (iso) => iso ? new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : null;
+  const followupCell = (u) => {
+    if (!u.last_followup_at) return '<span class="dim">Never</span>';
+    const kind = u.last_followup_kind === 'resend' ? 'Re-sent sign-in email' : 'Emailed';
+    const more = u.followup_count > 1 ? ` <span class="dim">(×${u.followup_count})</span>` : '';
+    return `${escapeHtml(kind)}<br><span class="dim">${escapeHtml(fmtWhen(u.last_followup_at))}</span>${more}`;
+  };
+  const followupMailto = (u) => {
+    const subject = encodeURIComponent('Finishing your Plush Crypt sign-up 🖤');
+    const body = encodeURIComponent(
+      `Hi!\n\nYou started signing up for The Plush Crypt but the sign-in email may not have reached you (check Spam/Promotions for "The Plush Crypt").\n\nTo finish, just go to https://plushcrypt.com, enter this email address, and either tap the link in the email or type the 6-digit code it contains.\n\nIf it still doesn't arrive, reply here and we'll sort it out.\n\n— The Plush Crypt`);
+    return `mailto:${encodeURIComponent(u.email || '')}?subject=${subject}&body=${body}`;
+  };
   const incompleteRows = incomplete.map((u) => `
       <tr data-incomplete-uid="${u.id}">
         <td class="admin-email">${u.email ? `<a href="mailto:${escapeHtml(u.email)}">${escapeHtml(u.email)}</a>` : '<span class="dim">—</span>'}</td>
         <td class="dim">${fmtDate(u.created_at)}</td>
-        <td class="dim">${fmtDate(u.last_sign_in_at)}</td>
-        <td class="dim">${escapeHtml(signupStatusLabel(u))}</td>
-        <td><button class="btn-danger admin-purge-btn" data-admin-action="delete-incomplete-signup" data-uid="${u.id}" data-email="${escapeHtml(u.email || '')}">Delete</button></td>
+        <td class="dim">${escapeHtml(signupStatusLabel(u))}<br><span class="dim">Last email sent: ${escapeHtml(fmtWhen(u.confirmation_sent_at) || 'N/A')}</span></td>
+        <td class="admin-followup">${followupCell(u)}</td>
+        <td class="admin-signup-actions">
+          <button class="btn-primary" data-admin-action="resend-signup-email" data-uid="${u.id}" data-email="${escapeHtml(u.email || '')}" ${u.email ? '' : 'disabled'}>Resend sign-in email</button>
+          <a class="btn-ghost admin-followup-mail" href="${followupMailto(u)}" data-admin-action="email-incomplete-signup" data-uid="${u.id}" ${u.email ? '' : 'aria-disabled="true"'}>Email them</a>
+          <button class="btn-danger admin-purge-btn" data-admin-action="delete-incomplete-signup" data-uid="${u.id}" data-email="${escapeHtml(u.email || '')}">Delete</button>
+        </td>
       </tr>`).join('');
+  const incompleteEmails = incomplete.map((u) => u.email).filter(Boolean);
   const incompleteSection = `
-    <h2 class="trader-head"><span>Incomplete sign-ups</span>${incomplete.length ? ` <span class="badge badge-form">${incomplete.length}</span>` : ''}</h2>
-    <p class="dim admin-subnote">People who created an account but never became a member — they either never verified their email or signed in once and left before choosing a username. No profile exists for them yet. Delete removes the leftover auth account for good; a real member is never touched.</p>
-    ${incomplete.length ? `<table class="admin-table">
-      <thead><tr><th>Email</th><th>Signed up</th><th>Last sign-in</th><th>Status</th><th></th></tr></thead>
+    <h2 class="trader-head"><span>Incomplete sign-ups</span>${incomplete.length ? ` <span class="badge badge-form">${incomplete.length}</span>` : ''}
+      ${incompleteEmails.length ? `<button class="btn-ghost" data-admin-action="copy-incomplete-emails" data-emails="${escapeHtml(incompleteEmails.join(', '))}">Copy all emails</button>` : ''}
+    </h2>
+    <p class="dim admin-subnote">People who created an account but never became a member — they either never verified their email or signed in once and left before choosing a username. No profile exists for them yet. <strong>Resend sign-in email</strong> sends them the normal sign-in email again (link + 6-digit code). <strong>Email them</strong> opens a pre-written note in your mail app. Delete removes the leftover auth account for good; a real member is never touched.</p>
+    ${incomplete.length ? `<table class="admin-table admin-incomplete-table">
+      <thead><tr><th>Email</th><th>Signed up</th><th>Status</th><th>Followed up</th><th></th></tr></thead>
       <tbody>${incompleteRows}</tbody>
     </table>` : '<p class="dim">None — everyone who signed up finished setup. 🖤</p>'}`;
   const pendingPhotoBadge = (state.adminPendingPhotos || []).length
@@ -737,6 +757,44 @@ async function onAdminClick(e) {
     } catch (err) {
       console.error(err);
       toast('Purge failed: ' + (err.message || err));
+    }
+  } else if (action === 'resend-signup-email') {
+    const uid = btn.dataset.uid;
+    const email = btn.dataset.email;
+    if (!email) return;
+    if (!confirm(`Re-send the sign-in email to ${email}? They'll get the normal Plush Crypt sign-in email (link + 6-digit code).`)) return;
+    btn.disabled = true;
+    const label = btn.textContent;
+    btn.textContent = 'Sending…';
+    try {
+      await data.adminResendSignupEmail(uid, email);
+      toast(`Sign-in email re-sent to ${email}.`);
+      await loadAdminUsers();
+      renderAdmin();
+    } catch (err) {
+      console.error('resend-signup-email', err);
+      const msg = /rate limit/i.test(err.message || '')
+        ? 'Supabase rate limit — wait a minute before re-sending to the same address.'
+        : (err.message || err);
+      toast('Resend failed: ' + msg);
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  } else if (action === 'email-incomplete-signup') {
+    // The <a> opens the mail client itself; we just log that a follow-up
+    // went out so the table shows it. Logging failure must not block the
+    // mailto, so it's fire-and-forget with a visible error.
+    const uid = btn.dataset.uid;
+    if (!uid || btn.getAttribute('aria-disabled') === 'true') return;
+    data.adminLogSignupFollowup(uid, 'email')
+      .then(async () => { await loadAdminUsers(); renderAdmin(); })
+      .catch((err) => { console.error('email-incomplete-signup', err); toast('Could not record the follow-up: ' + (err.message || err)); });
+  } else if (action === 'copy-incomplete-emails') {
+    try {
+      await navigator.clipboard.writeText(btn.dataset.emails || '');
+      toast('Copied all incomplete sign-up emails.');
+    } catch (err) {
+      toast('Copy failed: ' + (err.message || err));
     }
   } else if (action === 'delete-incomplete-signup') {
     const uid = btn.dataset.uid;
