@@ -1821,7 +1821,9 @@ data.adminListUsers = async function () {
 // before choosing a username. Admin-only (db/0092, SECURITY DEFINER + is_admin
 // gate). Returns [] for non-admins — the RPC just yields nothing.
 data.adminListIncompleteSignups = async function () {
-  const { data: rows, error } = await sb.rpc('admin_incomplete_signups');
+  // db/0111 widened the shape under a _v2 name (Postgres can't change a
+  // function's return columns in place).
+  const { data: rows, error } = await sb.rpc('admin_incomplete_signups_v2');
   if (error) throw error;
   return (rows || []).map((r) => ({
     id: r.id,
@@ -1829,7 +1831,38 @@ data.adminListIncompleteSignups = async function () {
     created_at: r.created_at,
     last_sign_in_at: r.last_sign_in_at,
     confirmed: r.confirmed === true,
+    // db/0111: when Supabase last handed them an email, plus our own
+    // follow-up log. Older RPC shape just yields undefined here.
+    confirmation_sent_at: r.confirmation_sent_at || null,
+    last_followup_at: r.last_followup_at || null,
+    last_followup_kind: r.last_followup_kind || null,
+    followup_count: r.followup_count || 0,
   }));
+};
+
+// Re-send the sign-in email to an incomplete sign-up. This is the SAME call
+// the login form makes (signInWithOtp), so they get the normal magic-link +
+// 6-digit-code email; it only POSTs to /otp and never touches the admin's own
+// session. shouldCreateUser=false so a typo can't mint a new auth account.
+// Supabase rate-limits this per address (one every ~60s) — that error is
+// surfaced to the caller, not swallowed. Logs the nudge via db/0111.
+data.adminResendSignupEmail = async function (userId, email) {
+  if (!email) throw new Error('No email on this sign-up.');
+  const { error } = await sb.auth.signInWithOtp({
+    email,
+    options: {
+      shouldCreateUser: false,
+      emailRedirectTo: window.location.origin + window.location.pathname,
+    },
+  });
+  if (error) throw error;
+  await data.adminLogSignupFollowup(userId, 'resend');
+};
+
+// Record a manual follow-up (admin emailed them from their own mail client).
+data.adminLogSignupFollowup = async function (userId, kind) {
+  const { error } = await sb.rpc('admin_log_signup_followup', { target: userId, followup_kind: kind });
+  if (error) throw error;
 };
 
 // Blow away one incomplete sign-up: delete the auth.users row for an account
