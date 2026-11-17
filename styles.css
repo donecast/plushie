@@ -5548,3 +5548,40 @@ a.share-card:hover { border-color: var(--rose-1); }
 .admin-incomplete-table .admin-signup-actions .btn-danger { font-size: 0.8rem; padding: 0.35rem 0.6rem; text-align: center; }
 .admin-incomplete-table .admin-followup-mail[aria-disabled="true"] { opacity: 0.45; pointer-events: none; }
 .admin-incomplete-table .admin-followup { font-size: 0.85rem; }
+
+/* ─── For Sale: launch additions ─────────────────────────────────── */
+.mkt-load-failed .btn-primary { margin-top: 10px; }
+.mkt-problem { margin: 6px 0; font-weight: 600; }
+.mkt-sale-door {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  width: 100%; text-align: left;
+  margin: 0 0 16px; padding: 12px 14px;
+  border: 1px solid var(--border-rose-mild); border-radius: 12px;
+  background: var(--border-rose-mist); color: var(--ink);
+  font-family: var(--sans); font-size: 0.95rem; cursor: pointer;
+}
+.mkt-sale-door strong { font-weight: 800; }
+.mkt-sale-door .mkt-sale-door-go { color: var(--rose-1); font-weight: 800; white-space: nowrap; }
+.ms-payouts-nudge { margin: 8px 0; }
+.mp-us-only { margin: 0 0 8px; }
+.mpr-count { font-size: 0.8rem; margin: -4px 0 6px; text-align: right; }
+
+/* Admin → For Sale */
+.admin-market-btns { display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; }
+.admin-market-health { margin-top: 8px; }
+.admin-health-list { list-style: none; margin: 0 0 4px; padding: 0; font-family: var(--sans); font-size: 0.9rem; }
+.admin-health-list li { margin: 2px 0; }
+.admin-health-bad { color: var(--negative-text); font-weight: 700; }
+.admin-market-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; font-family: var(--sans); }
+.admin-market-scroll { overflow-x: auto; }
+.admin-market-table td { vertical-align: top; font-size: 0.85rem; }
+.admin-market-table p { margin: 4px 0 0; }
+.admin-market-attention td { background: var(--border-rose-mist); }
+.admin-market-attention td:first-child { box-shadow: inset 3px 0 0 var(--rose-1); }
+.admin-market-money { white-space: nowrap; }
+.admin-market-actions { min-width: 190px; }
+.admin-market-actions > * { margin-bottom: 6px; }
+.admin-market-action { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.admin-market-action input[type="text"] { width: 100%; }
+/* The orders table needs room: widen the shared admin queue modal just for it. */
+#admin-queue-modal .modal-card:has(.admin-market-table) { width: 96vw; max-width: 1240px; }

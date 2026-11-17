@@ -1900,9 +1900,24 @@ function handleNotificationHash() {
     history.replaceState(null, '', location.pathname + location.search);
     return;
   }
-  if (goToTab(raw.replace(/^#/, ''))) {
+  if (goToTabFromNotification(raw.replace(/^#/, ''))) {
     history.replaceState(null, '', location.pathname + location.search);
   }
+}
+
+// Trade notifications all point at ./#trade, but a For Sale one (an offer, a
+// payment, a shipment) is useless landing on Trade → Browse. So a notification
+// that opens Trade asks it to open on For Sale when something there is waiting
+// on you ('auto'); '#trade-sale' asks for For Sale outright. The Trade tab's
+// click handler reads state.tradeLanding once its data has loaded.
+function goToTabFromNotification(tab) {
+  if (tab === 'trade' || tab === 'trade-sale') {
+    state.tradeLanding = tab === 'trade-sale' ? 'sale' : 'auto';
+    const ok = goToTab('trade');
+    if (!ok) state.tradeLanding = null;
+    return ok;
+  }
+  return goToTab(tab);
 }
 
 // ─── Event wiring ────────────────────────────────────────────────────
@@ -1919,7 +1934,7 @@ function wireEvents() {
       // A post deep-link (from the tapped push banner) wins over the tab.
       const deep = e.data.url ? parseNotifDeepLink((e.data.url.split('#')[1] || '')) : null;
       if (deep && typeof openPostDeepLink === 'function') { openPostDeepLink(deep.postId, deep.commentId); return; }
-      if (e.data.tab) goToTab(e.data.tab);
+      if (e.data.tab) goToTabFromNotification(e.data.tab);
     });
   }
   // Rails navigation is delegated: rail buttons (nav, identity card, vitals
@@ -1987,7 +2002,14 @@ function wireEvents() {
       data.track?.('tab_view', { tab: state.tab });   // feature-engagement signal (db/0078)
       if (state.tab === 'trade') {
         state.tradeSubTab = 'browse';   // always land on Browse (item 21)
+        const landing = state.tradeLanding;   // set by a tapped notification
+        state.tradeLanding = null;
         await loadTradeData();          // refresh from server on enter
+        // …unless a notification brought us here and For Sale is what it's about.
+        if (landing && marketEnabled() && (landing === 'sale' || marketTurnCount() > 0)) {
+          state.tradeSubTab = 'sale';
+          if (marketTurnCount() > 0) state.saleFilter = 'offers';
+        }
       }
       if (state.tab === 'home') {
         state.socProfile = null;       // always land on the feed, not a stale profile
@@ -2456,6 +2478,11 @@ function wireEvents() {
   document.querySelector('#market-pay-modal .mp-address').addEventListener('input', clearMarketRates);
   document.getElementById('mp-pay').addEventListener('click', payMarketOrder);
   document.getElementById('ms-save').addEventListener('click', saveSellListing);
+  document.querySelectorAll('[data-close-mproblem]').forEach((el) =>
+    el.addEventListener('click', closeMarketProblemModal)
+  );
+  document.getElementById('mpr-note').addEventListener('input', renderMarketProblemCount);
+  document.getElementById('mpr-send').addEventListener('click', sendMarketProblem);
   document.querySelectorAll('[data-close-moffer]').forEach((el) =>
     el.addEventListener('click', closeMarketOfferModal)
   );

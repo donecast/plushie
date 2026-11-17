@@ -68,6 +68,31 @@ eventual wrap is painless:
   `ALWAYS_GRANTED_USERNAMES` allowlist). Pure refactors / infra / docs
   don't need an entry.
 
+## For Sale market (buy/sell) — how it's wired
+- **One gate:** `market_allowed(uid)` in Postgres (db/0112). True for admins,
+  `market_testers` rows (per-user early access) and everyone once app_settings
+  `feature.market` is `true`. The client asks it by rpc (`data.marketAllowed`);
+  RLS, the offer RPCs and both edge functions call it. Flip it from Admin →
+  For Sale — never hardcode a second copy of the rule.
+- **Money lives in `supabase/functions/market-checkout`** (Stripe Checkout →
+  platform, EasyPost label, payout by transfer after delivery). Pure rules are
+  in `rules.mjs` / `shipping.mjs` (unit-tested by `test/market-*.test.mjs`).
+  Every refund/payout claims the order's new status in the DB first, then
+  moves money with an idempotency key — keep that order.
+- **Edge functions do NOT deploy on merge.** After changing anything under
+  `supabase/functions/`, redeploy `market-checkout` (verify_jwt **off**) and
+  `market-listing` (verify_jwt **on**), then re-run the live harness.
+- **Sandbox vs live** is decided only by the `STRIPE_SECRET_KEY` and
+  `EASYPOST_API_KEY` function secrets. Admin → For Sale → "Check payments &
+  shipping" says TEST or LIVE. `market_sellers` rows hold Stripe account ids
+  from whichever mode created them — they don't carry over between modes.
+- **Live end-to-end harness:** `scripts/market-e2e/` (README there). It drives
+  the real backend and the real app (localhost + `dev_login`) with the
+  `e2e_seller` / `e2e_buyer` test accounts. Sandbox keys only.
+- The Stripe API version is pinned in `market-checkout/index.ts`
+  (`STRIPE_V1_VERSION`); an unpinned call once broke checkout after a Stripe
+  upgrade.
+
 ## Core rules & working style
 - **Don't guess — verify the layer I actually see.** Never claim something works
   or is fixed without proof from the running app (rendered UI, the DB row, the

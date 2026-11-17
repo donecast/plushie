@@ -77,6 +77,9 @@ export function orderStatusForTracking(status) {
   if (status === "delivered") return "delivered";
   return null;
 }
+// Tracker statuses a person needs to look at (the package isn't going to arrive).
+export const trackingNeedsAttention = (status) =>
+  ["return_to_sender", "failure", "error", "cancelled"].includes(status);
 
 // The Seller Agreement version sellers must have accepted (db/0109). Bump it
 // when the agreement text in index.html (Legal → Seller Agreement) changes;

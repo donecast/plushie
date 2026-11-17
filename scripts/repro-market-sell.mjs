@@ -214,6 +214,9 @@ await page.evaluate(async () => {
     fromRole: 'buyer', amountCents: 4000, message: 'Would you take 40?', status: 'pending', expiresAt: soon,
     listing: { name: 'Skelly Bun', priceCents: 5000, shippingCents: 0, status: 'paused' },
   }];
+  // Accepting needs payouts set up (the not-ready prompt is covered in
+  // repro-market-launch.mjs).
+  window._payouts = { started: true, ready: true };
   state.saleFilter = 'shop';
   state.tab = 'trade';
   await loadMarketData();

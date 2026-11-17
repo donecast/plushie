@@ -21,3 +21,10 @@ android/
 
 # Local Claude session state (worktrees from concurrent sessions, hooks)
 .claude/
+
+# For Sale live end-to-end harness: real test-account passwords + run state.
+scripts/market-e2e/creds.json
+scripts/market-e2e/*.url
+scripts/market-e2e/*.id
+scripts/market-e2e/*.png
+scripts/market-e2e/state.json

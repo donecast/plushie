@@ -42,7 +42,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./styles.css?v=173" />
+  <link rel="stylesheet" href="./styles.css?v=174" />
   <script>
     // Apply saved theme before paint so the initial render doesn't flash. The
     // v2 redesign flips defaults: light parchment is now the baseline, dark
@@ -840,6 +840,7 @@
         <span>Notes <span class="dim">— condition, tags, anything buyers should know</span></span>
         <textarea id="ms-notes" rows="2" maxlength="500" placeholder="e.g. Tag attached, never displayed"></textarea>
       </label>
+      <p id="ms-payouts-nudge" class="ms-payouts-nudge dim hidden">💸 Heads-up: buyers can't pay you until you set up payouts. You can list now and do it right after — Trade → For Sale → My listings → “Set up payouts”.</p>
       <p id="ms-error" class="auth-error hidden"></p>
       <div class="form-actions">
         <button type="button" class="btn-ghost" data-close-sell>Cancel</button>
@@ -874,6 +875,7 @@
       <button class="modal-close" data-close-mpay aria-label="Close">×</button>
       <h2>Checkout</h2>
       <p id="mp-sub" class="modal-name"></p>
+      <p class="mp-us-only dim">US addresses only for now.</p>
       <div class="mp-address">
         <label class="field"><span>Ship to (name)</span><input type="text" id="mp-name" autocomplete="shipping name" maxlength="80" /></label>
         <label class="field"><span>Street</span><input type="text" id="mp-street1" autocomplete="shipping address-line1" maxlength="100" /></label>
@@ -891,6 +893,28 @@
       <div class="form-actions">
         <button type="button" class="btn-ghost" data-close-mpay>Cancel</button>
         <button type="button" class="btn-primary" id="mp-pay" disabled>Pay</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- For Sale: a buyer reports a problem with a shipped/delivered order.
+       Pauses the seller's automatic payout until an admin settles it (db/0112). -->
+  <div id="market-problem-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close-mproblem></div>
+    <div class="modal-card">
+      <button class="modal-close" data-close-mproblem aria-label="Close">×</button>
+      <h2>Report a problem</h2>
+      <p id="mpr-sub" class="modal-name"></p>
+      <p class="dim">Tell us what's wrong — it didn't arrive, it's damaged, or it isn't what was listed. We'll pause the seller's payout and look into it. If it gets sorted out, tap “All good — pay the seller” on the order.</p>
+      <label class="field">
+        <span>What happened?</span>
+        <textarea id="mpr-note" rows="5" minlength="10" maxlength="1000" placeholder="e.g. The box arrived but the tote bag shown in the photos wasn't inside."></textarea>
+      </label>
+      <p id="mpr-count" class="dim mpr-count"></p>
+      <p id="mpr-error" class="auth-error hidden"></p>
+      <div class="form-actions">
+        <button type="button" class="btn-ghost" data-close-mproblem>Cancel</button>
+        <button type="button" class="btn-primary" id="mpr-send">Send report</button>
       </div>
     </div>
   </div>
@@ -1401,6 +1425,14 @@
         <p class="changelog-gated changelog-insider-note">🔒 Insider view: blue items are gated features only you and the allowlist can see — they're hidden from everyone else.</p>
 
         <div class="changelog">
+          <div class="changelog-day">
+            <h3 class="changelog-date">November 16, 2026</h3>
+            <ul>
+              <li class="changelog-gated"><strong>Report a problem with a For Sale order. 🚩</strong> If something you bought doesn't arrive, shows up damaged, or isn't what was listed, tap “Report a problem” on the order. The seller's payout is paused while we look into it — and if it gets sorted out, “All good — pay the seller” settles it.</li>
+              <li class="changelog-gated"><strong>For Sale admin tools.</strong> Admins can see every order, refund a buyer, pay a seller early, retry a shipping label, check that payments and shipping are healthy, and give individual collectors early access.</li>
+              <li class="changelog-fixes">Misc bug fixes.</li>
+            </ul>
+          </div>
           <div class="changelog-day">
             <h3 class="changelog-date">October 22, 2026</h3>
             <ul>
@@ -2302,18 +2334,18 @@
   <script src="./config.js?v=54"></script>
   <script src="./auth.js?v=66"></script>
   <script src="./db.js?v=51"></script>
-  <script src="./data.js?v=128"></script>
+  <script src="./data.js?v=129"></script>
   <!-- app.js was split into ordered, global-scope parts (see each file's
        header). They MUST load in this order: the final part (app-social.js)
        holds the bootstrap that runs once every prior part is defined. -->
-  <script src="./app-core.js?v=244"></script>
-  <script src="./app-catalog.js?v=244"></script>
-  <script src="./app-collection.js?v=244"></script>
-  <script src="./app-ui.js?v=244"></script>
-  <script src="./app-trade.js?v=244"></script>
-  <script src="./app-account.js?v=244"></script>
-  <script src="./app-admin.js?v=244"></script>
-  <script src="./app-admin-catalog.js?v=244"></script>
-  <script src="./app-social.js?v=244"></script>
+  <script src="./app-core.js?v=245"></script>
+  <script src="./app-catalog.js?v=245"></script>
+  <script src="./app-collection.js?v=245"></script>
+  <script src="./app-ui.js?v=245"></script>
+  <script src="./app-trade.js?v=245"></script>
+  <script src="./app-account.js?v=245"></script>
+  <script src="./app-admin.js?v=245"></script>
+  <script src="./app-admin-catalog.js?v=245"></script>
+  <script src="./app-social.js?v=245"></script>
 </body>
 </html>
