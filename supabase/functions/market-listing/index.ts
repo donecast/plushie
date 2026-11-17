@@ -116,13 +116,13 @@ Deno.serve(async (req) => {
     // deno-lint-ignore no-explicit-any
     if (!p || (p as any).collections?.owner_id !== uid) return fail(404, "NOT_OWNED", "That item isn't in your collection.");
     if (!p.catalog_id) return fail(400, "NOT_CATALOG", "Only catalog items can be sold.");
-    // One open listing per copy you own.
+    // One listing per copy you own — including copies already sold here.
     const { count, error: cErr } = await db.from("market_listings")
       .select("id", { count: "exact", head: true })
-      .eq("plushie_id", p.id).in("status", ["active", "paused", "reserved"]);
+      .eq("plushie_id", p.id).in("status", ["active", "paused", "reserved", "sold"]);   // a sold copy is gone
     if (cErr) return fail(500, "DB", cErr.message);
     if ((count ?? 0) >= (p.quantity ?? 1)) {
-      return fail(409, "ALREADY_LISTED", "Every copy you own of this is already listed.");
+      return fail(409, "ALREADY_LISTED", "Every copy you own of this is already listed or sold here.");
     }
     catalogId = p.catalog_id; handle = p.catalog_handle; name = p.name; plushieId = p.id;
   } else {

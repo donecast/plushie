@@ -38,20 +38,60 @@ const NEXT = {
   paid: ["shipped", "delivered", "refunded", "disputed"],
   shipped: ["delivered", "refunded", "disputed"],
   delivered: ["released", "refunded", "disputed"],
-  released: ["disputed"],
-  disputed: ["refunded", "released"],
+  // released → refunded is an admin refund after payout (the transfer is
+  // reversed first) or a lost card dispute.
+  released: ["disputed", "refunded"],
+  // A dispute we win puts the order back where it was.
+  disputed: ["refunded", "released", "delivered", "shipped", "paid"],
   refunded: [],
   cancelled: [],
 };
 export const canMove = (from, to) => (NEXT[from] || []).includes(to);
 
 // The seller's money is released only when delivery is confirmed AND either
-// the buyer confirmed it or the auto-release window has passed.
+// the buyer confirmed it or the auto-release window has passed. A problem the
+// buyer reported holds the payout until it's resolved (admin decision, or the
+// buyer saying it's fine after all).
+export const problemOpen = (order) => !!order.problem_reported_at && !order.problem_resolved_at;
 export function releaseDue(order, now = new Date(), autoDays = 3) {
   if (order.status !== "delivered" || !order.delivered_at) return false;
+  if (problemOpen(order)) return false;
   if (order.buyer_confirmed_at) return true;
   return now - new Date(order.delivered_at) >= autoDays * 86_400_000;
 }
+
+// Seller Agreement: ship within 5 days of payment. "Shipped" means the carrier
+// has scanned the package — a printed label alone doesn't count.
+export const SHIP_DEADLINE_DAYS = 5;
+export function shipDeadlinePassed(order, now = new Date(), days = SHIP_DEADLINE_DAYS) {
+  if (order.status !== "paid" || !order.paid_at) return false;
+  if (!["pre_transit", "unknown", null, undefined].includes(order.tracking_status)) return false;
+  return now - new Date(order.paid_at) >= days * 86_400_000;
+}
+
+// Where a disputed order goes back to when the card dispute is won.
+export function statusBeforeDispute(order) {
+  if (order.stripe_transfer_id || order.released_at) return "released";
+  if (order.delivered_at) return "delivered";
+  if (order.shipped_at) return "shipped";
+  return "paid";
+}
+
+// What a buyer writes when reporting a problem. Returns { note } or { error }.
+export function cleanProblemNote(raw) {
+  const note = String(raw ?? "").trim();
+  if (note.length < 10) return { error: "Tell us what's wrong (at least 10 characters)." };
+  if (note.length > 1000) return { error: "Keep it under 1,000 characters." };
+  return { note };
+}
+
+// Test or live keys? (Stripe: sk_test_/rk_test_; EasyPost: EZTK…)
+export const stripeKeyMode = (key) => (/^(sk|rk)_test_/.test(String(key)) ? "test" : "live");
+export const easypostKeyMode = (key) => (String(key).startsWith("EZTK") ? "test" : "live");
+
+// If the rate the buyer paid for has gone stale, we re-rate and take the same
+// service — but only absorb a small difference.
+export const MAX_LABEL_OVERAGE_CENTS = 300;
 
 // What a seller owes (from cancelled sales) comes out of their next payout
 // first. Returns how much to withhold and how much to actually transfer.

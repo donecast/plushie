@@ -1,5 +1,5 @@
 // Plushie Dreadfuls service worker — offline app shell.
-const CACHE = 'plushie-dreadful-v286';
+const CACHE = 'plushie-dreadful-v287';
 // Only precache the root + static assets that don't carry cache-buster query
 // strings. Versioned files (app.js?v=N, styles.css?v=N, catalog.json?v=N)
 // get fetched and cached on demand by the fetch handler — listing them here
@@ -83,8 +83,11 @@ self.addEventListener('push', (e) => {
 // Map a notification's tag to the app tab it should open. Tags are set by the
 // push triggers / local helpers (e.g. 'trade-<id>', 'friend-request',
 // 'like-<id>'); we only need the prefix to pick a destination. null = root.
-function tabForTag(tag) {
+function tabForTag(tag, url) {
   if (!tag) return null;
+  // For Sale pushes ('market-offer-…', 'market-hold-…', 'market-paused-…') open
+  // Trade → For Sale; the ones that alert admins carry './#admin' instead.
+  if (tag.startsWith('market-')) return /#admin\b/.test(url || '') ? 'admin' : 'trade-sale';
   if (tag.startsWith('dm-') || tag === 'dm-unread') return 'messages';   // 💬 surface
   if (tag.startsWith('gift-')) return 'crypt';                           // pending-gifts tray in My Crypt
   if (tag.startsWith('trade-') || tag.startsWith('feedback-') || tag === 'trade-action') return 'trade';
@@ -100,10 +103,10 @@ function tabForTag(tag) {
 
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
-  const tab = tabForTag(e.notification.tag);
   // A post deep-link ('./#post-<id>[_c_<id>]', set by _push_send) wins over the
   // coarse tab: the client parses it to scroll to + highlight the exact post.
   const url = (e.notification.data && e.notification.data.url) || '';
+  const tab = tabForTag(e.notification.tag, url);
   const isDeepLink = /#post-/.test(url);
   const target = isDeepLink ? url : (tab ? `./#${tab}` : (url || './'));
   e.waitUntil(

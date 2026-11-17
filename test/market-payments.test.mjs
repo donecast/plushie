@@ -35,7 +35,8 @@ test("seller fee is 5% with a $1 minimum, never more than the item", async () =>
 test("state machine", () => {
   assert.ok(canMove("awaiting_payment", "paid"));
   assert.ok(canMove("delivered", "released"));
-  assert.ok(!canMove("released", "refunded"));
+  assert.ok(canMove("released", "refunded"));   // admin refund after payout (transfer reversed) or a lost dispute
+  assert.ok(!canMove("shipped", "released"));
   assert.ok(!canMove("refunded", "paid"));
   assert.ok(!canMove("awaiting_payment", "released"));
 });
@@ -128,4 +129,50 @@ test("owed seller fees come out of the next payout first", () => {
 test("seller terms version is mirrored in data.js", () => {
   const dataJs = fs.readFileSync(new URL("../data.js", import.meta.url), "utf8");
   assert.ok(dataJs.includes(`data.SELLER_TERMS_VERSION = '${SELLER_TERMS_VERSION}'`));
+});
+
+import {
+  problemOpen, shipDeadlinePassed, statusBeforeDispute, cleanProblemNote, stripeKeyMode, easypostKeyMode,
+  trackingNeedsAttention,
+} from "../supabase/functions/market-checkout/rules.mjs";
+test("a reported problem holds the payout until it's resolved", () => {
+  const delivered = { status: "delivered", delivered_at: "2026-10-01T00:00:00Z" };
+  const later = new Date("2026-10-20T00:00:00Z");
+  assert.ok(releaseDue(delivered, later));
+  const open = { ...delivered, problem_reported_at: "2026-10-02T00:00:00Z" };
+  assert.ok(problemOpen(open));
+  assert.equal(releaseDue(open, later), false);
+  assert.equal(releaseDue({ ...open, buyer_confirmed_at: "2026-10-03T00:00:00Z" }, later), false);
+  assert.ok(releaseDue({ ...open, problem_resolved_at: "2026-10-04T00:00:00Z" }, later));
+});
+test("unshipped orders pass the 5-day deadline only without a carrier scan", () => {
+  const now = new Date("2026-10-10T00:00:00Z");
+  const paid = { status: "paid", paid_at: "2026-10-04T00:00:00Z", tracking_status: "pre_transit" };
+  assert.ok(shipDeadlinePassed(paid, now));
+  assert.ok(shipDeadlinePassed({ ...paid, tracking_status: null }, now));
+  assert.equal(shipDeadlinePassed({ ...paid, paid_at: "2026-10-06T00:00:00Z" }, now), false);
+  assert.equal(shipDeadlinePassed({ ...paid, tracking_status: "in_transit" }, now), false);
+  assert.equal(shipDeadlinePassed({ ...paid, status: "shipped" }, now), false);
+});
+test("a won dispute puts the order back where it was", () => {
+  assert.equal(statusBeforeDispute({ stripe_transfer_id: "tr_1" }), "released");
+  assert.equal(statusBeforeDispute({ delivered_at: "x", shipped_at: "x" }), "delivered");
+  assert.equal(statusBeforeDispute({ shipped_at: "x" }), "shipped");
+  assert.equal(statusBeforeDispute({}), "paid");
+  for (const to of ["released", "delivered", "shipped", "paid", "refunded"]) assert.ok(canMove("disputed", to));
+  assert.ok(canMove("released", "refunded"));
+  assert.equal(canMove("refunded", "released"), false);
+  assert.equal(canMove("cancelled", "paid"), false);
+});
+test("problem notes, key modes and exception tracking", () => {
+  assert.match(cleanProblemNote("bad").error, /10 characters/);
+  assert.match(cleanProblemNote("x".repeat(1001)).error, /1,000/);
+  assert.equal(cleanProblemNote("  The box arrived empty.  ").note, "The box arrived empty.");
+  assert.equal(stripeKeyMode("sk_test_abc"), "test");
+  assert.equal(stripeKeyMode("rk_test_abc"), "test");
+  assert.equal(stripeKeyMode("sk_live_abc"), "live");
+  assert.equal(easypostKeyMode("EZTKabc"), "test");
+  assert.equal(easypostKeyMode("EZAKabc"), "live");
+  assert.ok(trackingNeedsAttention("return_to_sender"));
+  assert.equal(trackingNeedsAttention("in_transit"), false);
 });

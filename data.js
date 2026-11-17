@@ -831,7 +831,8 @@ data.getPublicFeedback = async function (userId, limit = 8) {
 // Listings are written ONLY by the `market-listing` edge function, which
 // checks Plushie Dreadfuls live (you can't list what PD sells right now; a PD
 // restock caps your price at PD's). Offers move through SECURITY DEFINER
-// RPCs. Insider-gated (feature.market) until payments ship.
+// RPCs. Gated by feature.market, which asks the server (market_allowed,
+// db/0112): admins, early-access testers, or everyone once it's switched on.
 
 // Fees, in percent, settled 2026-10-19: buyer pays +5% at checkout, seller
 // gives up 5%. Shipping is the real label rate we buy (db/0108), so it can't
@@ -906,12 +907,21 @@ data.saveMyShipFrom = async function (a) {
 data.marketListingCall = async function (body) {
   const { data: out, error } = await sb.functions.invoke('market-listing', { body });
   if (!error) return out;
+  const err = await data._marketFnError(error, 'Listing failed.');
+  throw err;
+};
+// Turn a functions.invoke failure into an Error carrying the server's code,
+// message and HTTP status. A request that never reached the function (offline,
+// DNS, CORS) has no response body — that's code NETWORK.
+data._marketFnError = async function (error, fallback) {
   let payload = null;
   try { payload = await error.context?.json(); } catch { /* not JSON */ }
-  const err = new Error(payload?.message || error.message || 'Listing failed.');
-  err.code = payload?.error || 'UNKNOWN';
+  const err = new Error(payload?.message || error.message || fallback);
+  const unreachable = !payload && (error.name === 'FunctionsFetchError' || /Failed to send a request to the Edge Function/i.test(error.message || ''));
+  err.code = payload?.error || (unreachable ? 'NETWORK' : 'UNKNOWN');
+  err.status = typeof error.context?.status === 'number' ? error.context.status : null;
   err.pdPriceCents = payload?.pdPriceCents ?? null;
-  throw err;
+  return err;
 };
 
 data._attachListingPhotos = async function (listings) {
@@ -988,15 +998,28 @@ data.listMyListings = async function () {
   return data._attachListingPhotos(rows.map(data._listingFromRow));
 };
 
-// Every offer I'm part of — as buyer, or on my listings (RLS scopes it).
+// Every offer I'm part of — as buyer, or on my listings. RLS also lets an
+// admin read everyone's offers (for the admin tools), so this asks for MY two
+// sides explicitly instead of leaning on RLS — otherwise an admin's own Offers
+// view fills up with other people's deals.
 // Joined to its listing so the thread can show what it's for.
 data.listMarketOffers = async function () {
-  const { data: rows, error } = await sb
-    .from('market_offers')
-    .select('id, listing_id, buyer_id, from_role, amount_cents, message, status, parent_offer_id, expires_at, responded_at, created_at, listing:market_listings(id, seller_id, name, price_cents, shipping_cents, ship_services, status, reserved_until, reserved_offer_id, cover_path)')
-    .order('created_at', { ascending: false })
-    .limit(200);
-  if (error) throw error;
+  const uid = window.currentUser.id;
+  const cols = 'id, listing_id, buyer_id, from_role, amount_cents, message, status, parent_offer_id, expires_at, responded_at, created_at';
+  const listingCols = 'id, seller_id, name, price_cents, shipping_cents, ship_services, status, reserved_until, reserved_offer_id, cover_path';
+  const [asBuyer, asSeller] = await Promise.all([
+    sb.from('market_offers').select(`${cols}, listing:market_listings(${listingCols})`)
+      .eq('buyer_id', uid).order('created_at', { ascending: false }).limit(200),
+    sb.from('market_offers').select(`${cols}, listing:market_listings!inner(${listingCols})`)
+      .eq('listing.seller_id', uid).order('created_at', { ascending: false }).limit(200),
+  ]);
+  if (asBuyer.error) throw asBuyer.error;
+  if (asSeller.error) throw asSeller.error;
+  const seen = new Set();
+  const rows = [...asBuyer.data, ...asSeller.data]
+    .filter((r) => (seen.has(r.id) ? false : seen.add(r.id)))
+    .filter((r) => r.buyer_id === uid || r.listing?.seller_id === uid)
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
   const profs = await data._resolveProfiles(rows.flatMap((r) => [r.buyer_id, r.listing?.seller_id]));
   return Promise.all(rows.map(async (r) => ({
     id: r.id,
@@ -1042,41 +1065,80 @@ data.removeMarketListing = (listingId) => data._marketRpc('market_remove_listing
 data.marketPayCall = async function (body) {
   const { data: out, error } = await sb.functions.invoke('market-checkout', { body });
   if (!error) return out;
-  let payload = null;
-  try { payload = await error.context?.json(); } catch { /* not JSON */ }
-  const err = new Error(payload?.message || error.message || 'Payment step failed.');
-  err.code = payload?.error || 'UNKNOWN';
-  throw err;
+  throw await data._marketFnError(error, 'Payment step failed.');
 };
 // Where Stripe sends people back: this page, wherever the app is served from.
 data.marketReturnBase = () => window.location.origin + window.location.pathname;
 
 // My seller payouts row (null = never started). RLS: own row only.
+// "Ready" matches the server's sellerReady (market-checkout): the account can
+// both take the transfer (charges_enabled) AND pay out to the bank.
 data.getMyPayouts = async function () {
   const { data: row, error } = await sb.from('market_sellers')
-    .select('payouts_enabled, details_submitted')
+    .select('charges_enabled, payouts_enabled, details_submitted')
     .eq('user_id', window.currentUser.id).maybeSingle();
   if (error) throw error;
-  return row ? { started: true, ready: row.payouts_enabled, detailsSubmitted: row.details_submitted } : { started: false, ready: false };
+  return row
+    ? { started: true, ready: row.charges_enabled === true && row.payouts_enabled === true, detailsSubmitted: row.details_submitted }
+    : { started: false, ready: false };
 };
 
-// Orders I'm the buyer or seller on (RLS scopes it).
+data._MARKET_ORDER_COLS = 'id, listing_id, offer_id, buyer_id, seller_id, item_cents, shipping_cents, buyer_fee_cents, seller_fee_cents, total_cents, seller_payout_cents, status, ship_to, ship_service, label_url, label_error, tracking_carrier, tracking_number, tracking_status, paid_at, shipped_at, delivered_at, released_at, refunded_at, created_at, problem_reported_at, problem_note, problem_resolved_at, payout_withheld_cents';
+data._marketOrderFromRow = (r) => ({
+  id: r.id, listingId: r.listing_id, offerId: r.offer_id, buyerId: r.buyer_id, sellerId: r.seller_id,
+  itemCents: r.item_cents, shippingCents: r.shipping_cents, buyerFeeCents: r.buyer_fee_cents,
+  sellerFeeCents: r.seller_fee_cents, totalCents: r.total_cents, sellerPayoutCents: r.seller_payout_cents,
+  status: r.status, shipTo: r.ship_to, shipService: r.ship_service, labelUrl: r.label_url,
+  labelError: r.label_error, carrier: r.tracking_carrier, tracking: r.tracking_number,
+  trackingStatus: r.tracking_status,
+  paidAt: r.paid_at, shippedAt: r.shipped_at, deliveredAt: r.delivered_at,
+  releasedAt: r.released_at, refundedAt: r.refunded_at, createdAt: r.created_at,
+  // db/0112: a buyer's problem report pauses the automatic payout.
+  problemReportedAt: r.problem_reported_at, problemNote: r.problem_note, problemResolvedAt: r.problem_resolved_at,
+  payoutWithheldCents: r.payout_withheld_cents,   // null until paid out
+});
+
+// Orders I'm the buyer or seller on. Filtered here, not just by RLS: RLS also
+// lets an admin read every order (admin tools), and those aren't "mine".
 data.listMarketOrders = async function () {
+  const uid = window.currentUser.id;
   const { data: rows, error } = await sb.from('market_orders')
-    .select('id, listing_id, offer_id, buyer_id, seller_id, item_cents, shipping_cents, buyer_fee_cents, seller_fee_cents, total_cents, seller_payout_cents, status, ship_to, ship_service, label_url, label_error, tracking_carrier, tracking_number, tracking_status, paid_at, shipped_at, delivered_at, released_at, refunded_at, created_at')
+    .select(data._MARKET_ORDER_COLS)
+    .or(`buyer_id.eq.${uid},seller_id.eq.${uid}`)
     .order('created_at', { ascending: false })
     .limit(200);
   if (error) throw error;
+  return rows.filter((r) => r.buyer_id === uid || r.seller_id === uid).map(data._marketOrderFromRow);
+};
+
+// ─── For Sale admin (db/0112) ──────────────────────────────────────
+// Every order, newest first, with who and what. Admin-only by RLS.
+data.adminListMarketOrders = async function () {
+  const { data: rows, error } = await sb.from('market_orders')
+    .select(`${data._MARKET_ORDER_COLS}, listing:market_listings(name)`)
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (error) throw error;
+  const profs = await data._resolveProfiles(rows.flatMap((r) => [r.buyer_id, r.seller_id]));
   return rows.map((r) => ({
-    id: r.id, listingId: r.listing_id, offerId: r.offer_id, buyerId: r.buyer_id, sellerId: r.seller_id,
-    itemCents: r.item_cents, shippingCents: r.shipping_cents, buyerFeeCents: r.buyer_fee_cents,
-    sellerFeeCents: r.seller_fee_cents, totalCents: r.total_cents, sellerPayoutCents: r.seller_payout_cents,
-    status: r.status, shipTo: r.ship_to, shipService: r.ship_service, labelUrl: r.label_url,
-    labelError: r.label_error, carrier: r.tracking_carrier, tracking: r.tracking_number,
-    trackingStatus: r.tracking_status,
-    paidAt: r.paid_at, shippedAt: r.shipped_at, deliveredAt: r.delivered_at,
-    releasedAt: r.released_at, refundedAt: r.refunded_at,
+    ...data._marketOrderFromRow(r),
+    itemName: r.listing?.name ?? null,
+    buyerUsername: profs.get(r.buyer_id)?.username ?? null,
+    sellerUsername: profs.get(r.seller_id)?.username ?? null,
   }));
+};
+// Early access for one person: a row in market_testers (admin-only RLS).
+data.isMarketTester = async function (userId) {
+  const { data: row, error } = await sb.from('market_testers').select('user_id').eq('user_id', userId).maybeSingle();
+  if (error) throw error;
+  return !!row;
+};
+data.setMarketTester = async function (userId, on) {
+  const q = on
+    ? sb.from('market_testers').upsert({ user_id: userId, granted_by: window.currentUser.id })
+    : sb.from('market_testers').delete().eq('user_id', userId);
+  const { error } = await q;
+  if (error) throw error;
 };
 
 // ─── Trades ────────────────────────────────────────────────────────
@@ -3145,13 +3207,33 @@ data.loadAppSettings = async function () {
     console.warn('app settings load failed', e);
     data.appSettings = {};
   }
+  await data.loadMarketAllowed();
+};
+
+// For Sale gate (db/0112). The server's market_allowed() is the one source of
+// truth — admins, early-access testers, or everyone once 'feature.market' is
+// switched on — so the app asks it rather than keeping its own copy of the
+// rule. Fails CLOSED: if we can't ask, the market stays hidden.
+data.marketAllowed = false;
+data.loadMarketAllowed = async function () {
+  const uid = window.currentUser?.id;
+  if (!uid) { data.marketAllowed = false; return false; }
+  try {
+    const { data: allowed, error } = await sb.rpc('market_allowed', { p_uid: uid });
+    if (error) throw error;
+    data.marketAllowed = allowed === true;
+  } catch (e) {
+    console.warn('market_allowed check failed — For Sale stays hidden', e);
+    data.marketAllowed = false;
+  }
+  return data.marketAllowed;
 };
 
 // Usernames (lowercase) that are always granted gated features
 // regardless of their per-user flag — alongside admins. Kept tiny and
 // explicit; add a name here to comp someone before billing exists.
-// NB: market_allowed() in db/0106 hardcodes this list for the server-side
-// For Sale gate — keep the two in sync.
+// NB: the For Sale gate does NOT read this list — it asks the server
+// (market_allowed, db/0112; see data.loadMarketAllowed).
 data.ALWAYS_GRANTED_USERNAMES = ['redrambler'];
 
 // ─── Demo mode ───────────────────────────────────────────────────────
@@ -3217,14 +3299,13 @@ data.featureEnabled = function (key, defaultValue = true) {
   }
   // Insider prototype: the experimental 3-zone "rails" layout (left nav rail +
   // right contextual rail). Admin + allowlist only for now — no public toggle.
-  // For Sale market (db/0106): insiders only until payments ship. Demo mode
-  // hides it like any other not-yet-public feature. The server enforces the
-  // same gate (market_allowed) — this only decides what the UI shows.
+  // For Sale market: whatever the server's market_allowed() said at boot
+  // (db/0112 — data.loadMarketAllowed). Demo mode hides it while it isn't open
+  // to everyone yet. This only decides what the UI shows; RLS, the RPCs and
+  // both edge functions enforce the same gate.
   if (key === 'feature.market') {
     if (data.isDemoMode()) return false;
-    if (window.currentUser?.isAdmin) return true;
-    const uname = (window.currentUser?.username || '').toLowerCase();
-    return data.ALWAYS_GRANTED_USERNAMES.includes(uname);
+    return data.marketAllowed === true;
   }
   if (key === 'feature.side_rails') {
     if (window.currentUser?.isAdmin) return true;

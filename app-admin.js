@@ -38,6 +38,9 @@ async function loadAdminUsers() {
     if (reports.status === 'fulfilled') state.adminOpenReports = reports.value;
     if (dels.status === 'fulfilled') state.adminDeletionRequests = dels.value;
     if (incomplete.status === 'fulfilled') state.adminIncompleteSignups = incomplete.value;
+    // For Sale orders, for the "needs attention" badge. Non-fatal, same as above.
+    try { state.adminMarketOrders = await data.adminListMarketOrders(); }
+    catch (err) { console.error('adminListMarketOrders', err); state.adminMarketOrders = null; }
   } catch (err) {
     console.error('adminListUsers', err);
     toast('Could not load users.');
@@ -178,6 +181,8 @@ function renderAdminUserList() {
         </div>
         <button class="${(data.appSettings || {})['maintenance.enabled'] === true ? 'btn-primary' : 'btn-ghost'}" data-admin-action="toggle-maintenance">${(data.appSettings || {})['maintenance.enabled'] === true ? 'Turn off' : 'Turn on'}</button>
       </div>
+
+      ${adminMarketToolHtml()}
 
       <div class="admin-tool">
         <div>
@@ -483,7 +488,217 @@ function adminPermissionsHtml(user) {
         </label>`;
         })()}
       </div>
+      ${adminMarketTesterHtml(user)}
     </section>`;
+}
+
+// Per-user For Sale early access: a row in market_testers (db/0112). Admins
+// and the server's built-in allowlist are always in; everyone is once the
+// market is open to all.
+function adminMarketTesterHtml(user) {
+  const tester = state.adminUserView?.marketTester;   // true | false | null (couldn't load)
+  const alwaysOn = user.is_admin || (data.ALWAYS_GRANTED_USERNAMES || []).includes((user.username || '').toLowerCase());
+  const openToAll = (data.appSettings || {})['feature.market'] === true;
+  const label = alwaysOn ? `Always on (${user.is_admin ? 'admin' : 'allowlist'})`
+    : tester === null ? 'Couldn’t load'
+    : tester ? 'Early access' : 'Off';
+  return `
+      <div class="admin-tool">
+        <div>
+          <strong>For Sale early access</strong>
+          <p class="dim">Lets this collector use the For Sale market (list, make offers, pay) before it's open to everyone.${openToAll ? ' <strong>For Sale is currently open to everyone</strong>, so this only matters if you close it again.' : ''}</p>
+        </div>
+        <label class="checkbox" style="white-space:nowrap;">
+          <input type="checkbox" data-admin-toggle="market-tester" data-user-id="${user.id}" ${tester === true ? 'checked' : ''} ${alwaysOn ? 'disabled title="Always allowed"' : (tester === null ? 'disabled title="Could not load — reopen this user"' : '')} />
+          <span>${label}</span>
+        </label>
+      </div>`;
+}
+
+async function onToggleMarketTesterForUser(e) {
+  const cb = e.target;
+  const userId = cb.dataset.userId;
+  const next = cb.checked;
+  cb.disabled = true;
+  try {
+    await data.setMarketTester(userId, next);
+    if (state.adminUserView?.user?.id === userId) state.adminUserView.marketTester = next;
+    toast(next ? 'For Sale early access granted.' : 'For Sale early access removed.');
+    renderAdmin();
+  } catch (err) {
+    console.error('setMarketTester', err);
+    cb.checked = !next;
+    cb.disabled = false;
+    toast('Could not save: ' + (err.message || err));
+  }
+}
+
+// ─── Admin: For Sale (db/0112) ────────────────────────────────────
+// The on/off switch (app_settings 'feature.market'), a health check of the
+// payment + shipping keys, and every order with the actions support needs.
+const MARKET_ORDER_STATUSES = ['awaiting_payment', 'paid', 'shipped', 'delivered', 'released', 'refunded', 'disputed', 'cancelled'];
+
+function adminMarketToolHtml() {
+  const open = (data.appSettings || {})['feature.market'] === true;
+  const orders = state.adminMarketOrders;
+  const attention = orders ? orders.filter(marketOrderNeedsAttention).length : 0;
+  return `
+      <div class="admin-tool admin-market${open ? ' admin-maint-on' : ''}">
+        <div>
+          <strong>For Sale ${open ? '<span class="badge badge-oos">OPEN TO EVERYONE</span>' : '<span class="badge badge-form">Early access only</span>'}
+            ${attention ? `<span class="badge badge-oos">${attention} need${attention === 1 ? 's' : ''} attention</span>` : ''}</strong>
+          <p class="dim">${open
+            ? 'Every member can list, make offers and pay.'
+            : 'Only admins and collectors you’ve given early access (on their user page) can see For Sale.'} Check payments &amp; shipping before you open it — it tells you whether real money is moving.</p>
+          <div id="admin-market-health" class="admin-market-health">${adminMarketHealthHtml()}</div>
+        </div>
+        <div class="admin-market-btns">
+          <button class="${open ? 'btn-ghost' : 'btn-primary'}" data-admin-action="market-toggle-open">${open ? 'Close For Sale (early access only)' : 'Open For Sale to everyone'}</button>
+          <button data-admin-action="market-health">Check payments &amp; shipping</button>
+          <button data-admin-action="market-orders">Orders</button>
+        </div>
+      </div>`;
+}
+
+function adminMarketHealthHtml() {
+  const h = state.adminMarketHealth;
+  if (!h) return '';
+  if (h.error) return `<p class="trade-proof-warning">Health check failed: ${escapeHtml(h.error)}</p>`;
+  const line = (name, part, withMode) => {
+    if (!part) return `<li class="admin-health-bad">✗ ${name}: no answer from the server</li>`;
+    const mode = withMode ? (part.mode === 'live' ? ' <span class="badge badge-oos">LIVE</span>' : part.mode === 'test' ? ' <span class="badge badge-form">TEST</span>' : ' <span class="badge">mode N/A</span>') : '';
+    return `<li class="${part.ok ? 'admin-health-ok' : 'admin-health-bad'}">${part.ok ? '✓' : '✗'} ${name}${mode}${part.ok ? ' — OK' : ' — FAILED'}${part.message ? `: ${escapeHtml(part.message)}` : ''}</li>`;
+  };
+  return `<ul class="admin-health-list">
+      ${line('Stripe (payments)', h.result.stripe, true)}
+      ${line('EasyPost (shipping labels)', h.result.easypost, true)}
+      ${line('Webhooks', h.result.webhook, false)}
+    </ul><p class="dim">Checked ${new Date(h.at).toLocaleTimeString()}</p>`;
+}
+
+// An order someone has to look at: a buyer reported a problem, the label
+// couldn't be bought, or the card company opened a dispute.
+function marketOrderNeedsAttention(o) {
+  return (!!o.problemReportedAt && !o.problemResolvedAt)
+    || (!!o.labelError && !o.labelUrl && o.status === 'paid')
+    || o.status === 'disputed';
+}
+
+async function openMarketOrdersModal() {
+  document.getElementById('aq-title').textContent = 'For Sale orders';
+  document.getElementById('aq-body').innerHTML = '<p class="dim">Loading…</p>';
+  showEl('admin-queue-modal');
+  await reloadAdminMarketOrders();
+}
+
+async function reloadAdminMarketOrders() {
+  try {
+    state.adminMarketOrders = await data.adminListMarketOrders();
+    state.adminMarketOrdersError = null;
+  } catch (err) {
+    console.error('adminListMarketOrders', err);
+    state.adminMarketOrdersError = err.message || String(err);
+  }
+  renderAdminMarketOrders();
+}
+
+function renderAdminMarketOrders() {
+  const body = document.getElementById('aq-body');
+  if (!body) return;
+  if (state.adminMarketOrdersError) {
+    body.innerHTML = `<p class="trade-proof-warning">Couldn't load orders: ${escapeHtml(state.adminMarketOrdersError)}</p>
+      <button class="btn-primary" data-admin-action="market-orders-reload">Try again</button>`;
+    return;
+  }
+  const all = state.adminMarketOrders || [];
+  const f = state.adminMarketFilter || 'all';
+  const shown = all
+    .filter((o) => f === 'all' || (f === 'attention' ? marketOrderNeedsAttention(o) : o.status === f))
+    // Needs-attention first; within each group the server's newest-first order holds.
+    .map((o, i) => ({ o, i }))
+    .sort((a, b) => (marketOrderNeedsAttention(b.o) ? 1 : 0) - (marketOrderNeedsAttention(a.o) ? 1 : 0) || a.i - b.i)
+    .map((x) => x.o);
+  const attention = all.filter(marketOrderNeedsAttention).length;
+  const opt = (v, label) => `<option value="${v}" ${f === v ? 'selected' : ''}>${label}</option>`;
+  body.innerHTML = `
+    <div class="admin-market-bar">
+      <label>Show
+        <select id="admin-market-filter">
+          ${opt('all', `All orders (${all.length})`)}
+          ${opt('attention', `Needs attention (${attention})`)}
+          ${MARKET_ORDER_STATUSES.map((st) => opt(st, `${capitalize(st.replace(/_/g, ' '))} (${all.filter((o) => o.status === st).length})`)).join('')}
+        </select>
+      </label>
+      <button class="btn-ghost" data-admin-action="market-orders-reload">↻ Refresh</button>
+    </div>
+    ${shown.length ? `<div class="admin-market-scroll"><table class="admin-table admin-market-table">
+      <thead><tr><th>Ordered</th><th>Item</th><th>Buyer → Seller</th><th>Money</th><th>Status</th><th>Shipping</th><th>Actions</th></tr></thead>
+      <tbody>${shown.map(adminMarketOrderRowHtml).join('')}</tbody>
+    </table></div>` : `<p class="dim">${all.length ? 'No orders match that filter.' : 'No orders yet.'}</p>`}`;
+  document.getElementById('admin-market-filter').addEventListener('change', (e) => {
+    state.adminMarketFilter = e.target.value;
+    renderAdminMarketOrders();
+  });
+}
+
+function adminMarketOrderRowHtml(o) {
+  const attention = marketOrderNeedsAttention(o);
+  const who = (name) => (name ? `@${escapeHtml(name)}` : '<span class="dim">unknown</span>');
+  const problem = o.problemReportedAt
+    ? `<p class="${o.problemResolvedAt ? 'dim' : 'trade-proof-warning'}"><strong>Buyer reported a problem</strong> ${new Date(o.problemReportedAt).toLocaleString()}${o.problemResolvedAt ? ` (resolved ${new Date(o.problemResolvedAt).toLocaleString()})` : ''}:<br/>${escapeHtml(o.problemNote || 'No note saved')}</p>`
+    : '';
+  const labelErr = o.labelError && !o.labelUrl ? `<p class="trade-proof-warning"><strong>Label error:</strong> ${escapeHtml(o.labelError)}</p>` : '';
+  const tracking = o.tracking
+    ? `${escapeHtml(o.carrier || '')} ${escapeHtml(o.tracking)}${o.trackingStatus ? `<br/><span class="dim">${escapeHtml(o.trackingStatus.replace(/_/g, ' '))}</span>` : ''}`
+    : (o.labelUrl ? '<span class="dim">Label bought, no scan yet</span>' : '<span class="dim">No tracking</span>');
+  const withheld = o.payoutWithheldCents > 0 ? ` (−${money(o.payoutWithheldCents)} withheld)` : '';
+  const id = escapeHtml(o.id);
+  const actions = [];
+  if (['paid', 'shipped', 'delivered', 'released'].includes(o.status)) {
+    actions.push(`<div class="admin-market-action">
+        <label class="checkbox"><input type="checkbox" data-market-fault="${id}" /> <span>Seller at fault — charge their fee</span></label>
+        <button class="btn-danger" data-admin-action="market-refund" data-id="${id}">Refund buyer</button>
+      </div>`);
+  }
+  if (o.status === 'shipped' || o.status === 'delivered') {
+    actions.push(`<button class="btn-primary" data-admin-action="market-release" data-id="${id}">Pay seller now</button>`);
+  }
+  if (o.status === 'paid') {
+    if (!o.labelUrl) actions.push(`<button data-admin-action="market-label-retry" data-id="${id}">Retry label</button>`);
+    actions.push(`<div class="admin-market-action">
+        <input type="text" data-market-carrier="${id}" placeholder="Carrier (USPS)" maxlength="40" aria-label="Carrier" />
+        <input type="text" data-market-tracking="${id}" placeholder="Tracking number" maxlength="80" aria-label="Tracking number" />
+        <button data-admin-action="market-ship" data-id="${id}">Mark shipped</button>
+      </div>`);
+  }
+  return `
+    <tr class="${attention ? 'admin-market-attention' : ''}" data-order-id="${id}">
+      <td>${o.createdAt ? new Date(o.createdAt).toLocaleString() : 'N/A'}</td>
+      <td>${escapeHtml(stripOutfitWord(o.itemName || 'Unknown item'))}</td>
+      <td>${who(o.buyerUsername)} → ${who(o.sellerUsername)}</td>
+      <td class="admin-market-money">Buyer paid ${money(o.totalCents)}<br/>
+        <span class="dim">item ${money(o.itemCents)} · ship ${money(o.shippingCents)} · fees ${money(o.buyerFeeCents)} + ${money(o.sellerFeeCents)}</span><br/>
+        Seller gets ${money(o.sellerPayoutCents)}${withheld}</td>
+      <td>${attention ? '<span class="badge badge-oos">Needs attention</span><br/>' : ''}${escapeHtml(capitalize(o.status.replace(/_/g, ' ')))}${problem}${labelErr}</td>
+      <td>${tracking}</td>
+      <td class="admin-market-actions">${actions.join('') || '<span class="dim">—</span>'}</td>
+    </tr>`;
+}
+
+// One admin money/shipping move on an order. Fails loudly (the server's own
+// message — this is the admin, they need the real reason), then reloads.
+async function adminMarketOrderAction(btn, body, doneText) {
+  btn.disabled = true;
+  try {
+    await data.marketPayCall(body);
+    toast(doneText);
+  } catch (err) {
+    console.error(`market ${body.action}`, err);
+    toast(`${capitalize(body.action.replace(/_/g, ' '))} failed: ${err.message || err}${err.code ? ` (${err.code})` : ''}`);
+    btn.disabled = false;
+    return;
+  }
+  await reloadAdminMarketOrders();
 }
 
 function adminModerationHtml(user, snapshot) {
@@ -634,6 +849,8 @@ function renderAdminUserView() {
     ?.addEventListener('change', onToggleGhostForUser);
   document.querySelector('[data-admin-toggle="moderator"]')
     ?.addEventListener('change', onToggleModeratorForUser);
+  document.querySelector('[data-admin-toggle="market-tester"]')
+    ?.addEventListener('change', onToggleMarketTesterForUser);
 }
 
 // Read-only detail for an item in the admin collection/wishlist view —
@@ -693,7 +910,12 @@ async function onAdminClick(e) {
     document.getElementById('admin-content').innerHTML = '<p class="dim">Loading…</p>';
     try {
       const snapshot = await data.adminUserSnapshot(uid);
-      state.adminUserView = { user, snapshot };
+      // For Sale early access (market_testers). A failed read shows as
+      // "couldn't load" on the toggle rather than a made-up Off.
+      let marketTester = null;
+      try { marketTester = await data.isMarketTester(uid); }
+      catch (err) { console.error('isMarketTester', err); }
+      state.adminUserView = { user, snapshot, marketTester };
       renderAdmin();
     } catch (err) {
       console.error(err);
@@ -716,6 +938,60 @@ async function onAdminClick(e) {
       toast('Could not change maintenance mode.');
       btn.disabled = false;
     }
+  } else if (action === 'market-toggle-open') {
+    const turningOn = (data.appSettings || {})['feature.market'] !== true;
+    const ask = turningOn
+      ? 'Open For Sale to EVERY member?\n\nAnyone signed in will be able to list, make offers and pay. Run "Check payments & shipping" first — if Stripe says LIVE, real money moves.'
+      : 'Close For Sale to everyone except admins and early-access collectors?\n\nEveryone else loses the For Sale tab right away — including anyone in the middle of a deal. Automatic payouts and refunds keep running.';
+    if (!confirm(ask)) return;
+    btn.disabled = true;
+    try {
+      await data.adminSetSetting('feature.market', turningOn);
+      toast(turningOn ? 'For Sale is now open to everyone.' : 'For Sale is back to early access only.');
+      renderAdmin();
+    } catch (err) {
+      console.error('market-toggle-open', err);
+      toast('Could not change it: ' + (err.message || err));
+      btn.disabled = false;
+    }
+  } else if (action === 'market-health') {
+    btn.disabled = true;
+    btn.textContent = 'Checking…';
+    try {
+      state.adminMarketHealth = { at: Date.now(), result: await data.marketPayCall({ action: 'health' }) };
+    } catch (err) {
+      console.error('market-health', err);
+      state.adminMarketHealth = { at: Date.now(), error: `${err.message || err}${err.code ? ` (${err.code})` : ''}` };
+    }
+    renderAdmin();
+  } else if (action === 'market-orders') {
+    await openMarketOrdersModal();
+  } else if (action === 'market-orders-reload') {
+    btn.disabled = true;
+    await reloadAdminMarketOrders();
+  } else if (action === 'market-refund') {
+    const o = (state.adminMarketOrders || []).find((x) => x.id === btn.dataset.id);
+    if (!o) return;
+    const sellerAtFault = !!btn.closest('tr')?.querySelector('[data-market-fault]')?.checked;
+    const paidOut = o.status === 'released' ? '\n\nThe seller has ALREADY been paid for this order.' : '';
+    if (!confirm(`Refund @${o.buyerUsername || 'buyer'} ${money(o.totalCents)} in full for ${stripOutfitWord(o.itemName || 'this order')}?${paidOut}\n\n${sellerAtFault
+      ? `Seller at fault: @${o.sellerUsername || 'seller'} is still charged their ${money(o.sellerFeeCents)} seller fee.`
+      : 'The seller is NOT charged their fee.'}\n\nThis can't be undone.`)) return;
+    await adminMarketOrderAction(btn, { action: 'refund', orderId: o.id, sellerAtFault }, 'Refunded.');
+  } else if (action === 'market-release') {
+    const o = (state.adminMarketOrders || []).find((x) => x.id === btn.dataset.id);
+    if (!o) return;
+    const open = !!o.problemReportedAt && !o.problemResolvedAt;
+    if (!confirm(`Pay @${o.sellerUsername || 'seller'} ${money(o.sellerPayoutCents)} now for ${stripOutfitWord(o.itemName || 'this order')}?${open ? '\n\nThis closes the buyer’s problem report in the seller’s favour.' : ''}\n\nThis can't be undone.`)) return;
+    await adminMarketOrderAction(btn, { action: 'release', orderId: o.id }, 'Seller paid.');
+  } else if (action === 'market-label-retry') {
+    await adminMarketOrderAction(btn, { action: 'label_retry', orderId: btn.dataset.id }, 'Label bought.');
+  } else if (action === 'market-ship') {
+    const row = btn.closest('tr');
+    const carrier = (row?.querySelector('[data-market-carrier]')?.value || '').trim();
+    const tracking = (row?.querySelector('[data-market-tracking]')?.value || '').trim();
+    if (!carrier || !tracking) { toast('Enter the carrier and the tracking number.'); return; }
+    await adminMarketOrderAction(btn, { action: 'ship', orderId: btn.dataset.id, carrier, tracking }, 'Marked shipped.');
   } else if (action === 'back') {
     state.adminUserView = null;
     renderAdmin();

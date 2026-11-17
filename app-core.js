@@ -82,6 +82,14 @@ const state = {
   sellerTermsNext: null,      // what to resume after accepting
   myOwedCents: 0,             // seller fees owed from cancelled sales
   marketPayDraft: null,       // checkout modal: { offerId, shipmentId, options, rateId }
+  marketLoadError: null,      // friendly text when the market reads failed (shows Retry, not empty states)
+  marketTestMode: null,       // true = payments on sandbox keys (server config); null = not known yet
+  marketProblemDraft: null,   // report-a-problem modal: { orderId, busy }
+  tradeLanding: null,         // 'auto' | 'sale' — a notification asked Trade to open on For Sale
+  adminMarketOrders: null,    // admin: every For Sale order (null = not loaded)
+  adminMarketFilter: 'all',   // 'all' | 'attention' | an order status
+  adminMarketOrdersError: null,
+  adminMarketHealth: null,    // admin: last health-check result
   trades: [],
   myFeedback: { good_count: 0, meh_count: 0, bad_count: 0, net_score: 0, total_count: 0 },
   partnerFeedback: new Map(), // userId → summary (cache shared by rep badges + ship-first banner)

@@ -6,8 +6,9 @@
 // account. That's the payout hold; a refund before release needs no transfer
 // reversal.
 //
-// One function, two kinds of caller:
+// One function, three kinds of caller:
 //   • Signed-in users (Authorization: Bearer <user JWT>), body { action, ... }:
+//       config         {}                      → { testMode }  are we on sandbox keys?
 //       payouts_setup  { returnBase }          → { url }  Stripe onboarding for the seller (Accounts v2)
 //       payouts_status {}                      → { ready, detailsSubmitted, ... }
 //       payouts_dashboard {}                   → { url }  seller's Stripe Express dashboard
@@ -15,13 +16,22 @@
 //       checkout       { offerId, shipmentId, rateId, returnBase } → { url }  Stripe Checkout
 //       label_retry    { orderId }                         seller/admin: buy the label again
 //       confirm        { orderId }                         buyer: it arrived → seller is paid now
-//       refund         { orderId }                         seller before shipping, or an admin
+//       report_problem { orderId, note }                   buyer: holds the payout for an admin
+//       refund         { orderId, sellerAtFault? }         seller before shipping, or an admin (any time)
+//       release        { orderId }                         admin: pay the seller now
 //       ship           { orderId, carrier, tracking }      admin-only fallback (no label)
+//       health         {}                                  admin: are Stripe/EasyPost/webhooks OK?
 //   • Stripe (?hook=stripe) and EasyPost (?hook=easypost). No signing
 //     secrets: we re-fetch each event/tracker by id with our own key, so a
 //     forged body can't do anything.
-//   • The hourly pg_cron job (?cron=release, db/0108) pays out orders
-//     delivered 3+ days ago. Auth: Bearer SEND_PUSH_KEY.
+//   • The hourly pg_cron job (?cron=release, db/0108 + db/0113). Auth: Bearer
+//     SEND_PUSH_KEY. It retries failed labels, re-reads tracking, refunds
+//     orders the seller never shipped (5 days), and pays out orders delivered
+//     3+ days ago.
+//
+// MONEY SAFETY. Every refund and payout first claims the order's new status in
+// the database (compare-and-swap), THEN moves money with an idempotency key,
+// and puts the status back if Stripe says no. Two callers can never both win.
 //
 // SHIPPING. The buyer enters their address, sees live EasyPost rates for the
 // services the seller allows, and pays exactly that rate. After payment we
@@ -38,9 +48,10 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
-  canMove, checkoutLineItems, cleanAddress, cleanReturnBase, computeOrderTotals, easypostParcel,
-  orderStatusForTracking, pickRates, releaseDue, SELLER_TERMS_VERSION, serviceForRate, sessionExpiresAt,
-  splitPayout, stripeForm,
+  canMove, checkoutLineItems, cleanAddress, cleanProblemNote, cleanReturnBase, computeOrderTotals,
+  easypostKeyMode, easypostParcel, MAX_LABEL_OVERAGE_CENTS, orderStatusForTracking, pickRates, problemOpen,
+  releaseDue, SELLER_TERMS_VERSION, SHIP_DEADLINE_DAYS, shipDeadlinePassed, sessionExpiresAt, splitPayout,
+  statusBeforeDispute, stripeForm, stripeKeyMode, trackingNeedsAttention,
 } from "./rules.mjs";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -50,9 +61,11 @@ const STRIPE_KEY = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
 const EASYPOST_KEY = Deno.env.get("EASYPOST_API_KEY") ?? "";
 const WEBHOOK_EVENTS = [
   "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
   "checkout.session.expired",
   "charge.refunded",
   "charge.dispute.created",
+  "charge.dispute.closed",
 ];
 
 const CORS = {
@@ -69,8 +82,13 @@ class StripeError extends Error {
 }
 
 // Thin Stripe REST client. Idempotency keys make retried money moves safe.
+// The API version is pinned: an unpinned call follows the account's default,
+// and a Stripe upgrade once broke checkout that way (payment_method_types was
+// removed in 2026-09-30.endive). Bump deliberately, then re-run the sandbox
+// end-to-end checks.
+const STRIPE_V1_VERSION = "2026-09-30.endive";
 async function stripe(method: "GET" | "POST", path: string, params?: Record<string, unknown>, idem?: string) {
-  const headers: Record<string, string> = { Authorization: `Bearer ${STRIPE_KEY}` };
+  const headers: Record<string, string> = { Authorization: `Bearer ${STRIPE_KEY}`, "Stripe-Version": STRIPE_V1_VERSION };
   let url = `https://api.stripe.com/v1/${path}`;
   let body: string | undefined;
   if (params && method === "GET") url += `?${stripeForm(params)}`;
@@ -137,6 +155,12 @@ async function push(target: string, body: string, actor: string | null, tag: str
   });
   if (error) console.error("push failed", error.message);   // a missed ping never blocks a payment step
 }
+// Things a person has to look at go to every admin's inbox + phone.
+async function alertAdmins(body: string, orderId: string) {
+  console.error("ADMIN ALERT", orderId, body);
+  const { error } = await db.rpc("_market_alert_admins", { p_body: body, p_tag: `market-admin-${orderId}` });
+  if (error) console.error("admin alert failed", error.message);
+}
 async function handle(uid: string) {
   const { data } = await db.rpc("_push_handle", { uid });
   return (data as string) || "Someone";
@@ -185,76 +209,117 @@ async function sellerOwes(sellerId: string) {
   return (data ?? []).reduce((sum: number, r: any) => sum + r.amount_cents, 0);
 }
 
-// Pay the seller, minus anything they owe. The withholding is recorded once
-// per order (so a retried release transfers the same amount, which Stripe's
-// idempotency key requires). The transfer is tied to the buyer's charge
-// (source_transaction), so it works even before those funds settle.
+// Pay the seller, minus anything they owe. The amount is fixed ONCE per order
+// (payout_withheld_cents) so a retried release always asks Stripe for the same
+// transfer. The order is claimed as "released" before any money moves; if the
+// transfer fails the claim is undone. The transfer is tied to the buyer's
+// charge (source_transaction), so it works even before those funds settle.
 async function release(order: any) {
+  if (order.status !== "delivered") return null;
   const { data: seller } = await db.from("market_sellers").select("stripe_account_id").eq("user_id", order.seller_id).single();
-  const { data: prior } = await db.from("market_seller_ledger").select("amount_cents")
-    .eq("order_id", order.id).eq("kind", "withheld_from_payout").maybeSingle();
-  let withheld = prior ? -prior.amount_cents : 0;
-  if (!prior) {
-    withheld = splitPayout(order.seller_payout_cents, await sellerOwes(order.seller_id)).withheld;
-    if (withheld > 0) {
-      const { error } = await db.from("market_seller_ledger").insert({
-        seller_id: order.seller_id, order_id: order.id, amount_cents: -withheld, kind: "withheld_from_payout",
-        note: "Seller fees owed from a cancelled sale",
-      });
-      if (error) throw new Error(error.message);
+  let withheld: number | null = order.payout_withheld_cents;
+  if (withheld == null) {
+    const want = splitPayout(order.seller_payout_cents, await sellerOwes(order.seller_id)).withheld;
+    const { data: fixed } = await db.from("market_orders").update({ payout_withheld_cents: want })
+      .eq("id", order.id).is("payout_withheld_cents", null).select("payout_withheld_cents").maybeSingle();
+    if (fixed) {
+      withheld = want;
+      if (want > 0) {
+        const { error } = await db.from("market_seller_ledger").insert({
+          seller_id: order.seller_id, order_id: order.id, amount_cents: -want, kind: "withheld_from_payout",
+          note: "Seller fees owed from a cancelled sale",
+        });
+        if (error && error.code !== "23505") throw new Error(error.message);
+      }
+    } else {
+      withheld = (await getOrder(order.id))?.payout_withheld_cents ?? 0;
     }
   }
-  const amount = order.seller_payout_cents - withheld;
-  let transferId: string | null = null;
-  if (amount > 0) {
-    const transfer = await stripe("POST", "transfers", {
-      amount,
-      currency: "usd",
-      destination: seller.stripe_account_id,
-      source_transaction: order.stripe_charge_id,
-      transfer_group: order.id,
-      metadata: { order_id: order.id, withheld_cents: String(withheld) },
-    }, `release-${order.id}`);
-    transferId = transfer.id;
-  }
   const moved = await moveOrder(order, "released", {
-    stripe_transfer_id: transferId, released_at: new Date().toISOString(),
+    released_at: new Date().toISOString(),
+    ...(problemOpen(order) ? { problem_resolved_at: new Date().toISOString() } : {}),
   });
-  if (moved) {
-    const name = await listingName(order.listing_id);
-    await push(order.seller_id, withheld
-      ? `💸 ${dollars(amount)} is on its way to your bank for ${name} (${dollars(withheld)} covered seller fees you owed from a cancelled sale)`
-      : `💸 ${dollars(amount)} is on its way to your bank for ${name}`, order.buyer_id, `market-order-${order.id}`);
+  if (!moved) return null;
+  const amount = order.seller_payout_cents - (withheld ?? 0);
+  try {
+    await sendPayout(moved, seller.stripe_account_id, amount, withheld ?? 0);
+  } catch (e) {
+    await db.from("market_orders").update({ status: "delivered", released_at: null, updated_at: new Date().toISOString() })
+      .eq("id", order.id).eq("status", "released").is("stripe_transfer_id", null);
+    throw e;
   }
+  const name = await listingName(order.listing_id);
+  await push(order.seller_id, withheld
+    ? `💸 ${dollars(amount)} is on its way to your bank for ${name} (${dollars(withheld)} covered seller fees you owed from a cancelled sale)`
+    : `💸 ${dollars(amount)} is on its way to your bank for ${name}`, order.buyer_id, `market-order-${order.id}`);
   return moved;
 }
+async function sendPayout(order: any, account: string, amount: number, withheld: number) {
+  if (amount <= 0) return;
+  const transfer = await stripe("POST", "transfers", {
+    amount,
+    currency: "usd",
+    destination: account,
+    source_transaction: order.stripe_charge_id,
+    transfer_group: order.id,
+    metadata: { order_id: order.id, withheld_cents: String(withheld) },
+  }, `release-${order.id}`);
+  const { error } = await db.from("market_orders").update({ stripe_transfer_id: transfer.id }).eq("id", order.id);
+  if (error) throw new Error(error.message);
+}
 
-// Refund the buyer in full. When the SELLER cancels, their seller fee is still
-// owed (Seller Agreement): it's recorded and withheld from their next payout.
+// Refund the buyer in full. The order is claimed as "refunded" first; if
+// Stripe refuses, the claim is undone. A seller who was already paid has that
+// transfer reversed first. When the SELLER cancels (or never ships), their
+// seller fee is still owed (Seller Agreement): it's recorded and withheld from
+// their next payout.
 async function refund(order: any, why: string) {
+  const moved = await moveOrder(order, "refunded", {
+    refunded_at: new Date().toISOString(),
+    ...(problemOpen(order) ? { problem_resolved_at: new Date().toISOString() } : {}),
+  });
+  if (!moved) return null;
+  try {
+    if (order.stripe_transfer_id) {
+      await stripe("POST", `transfers/${order.stripe_transfer_id}/reversals`, { metadata: { order_id: order.id } }, `reverse-${order.id}`);
+    }
+    await stripe("POST", "refunds", { payment_intent: order.stripe_payment_intent, metadata: { order_id: order.id } }, `refund-${order.id}`);
+  } catch (e) {
+    const already = e instanceof StripeError && e.stripe?.error?.code === "charge_already_refunded";
+    if (!already) {
+      await db.from("market_orders").update({ status: order.status, refunded_at: null, updated_at: new Date().toISOString() })
+        .eq("id", order.id).eq("status", "refunded");
+      throw e;
+    }
+  }
   // An unused label gets its postage back (only before the carrier scans it).
   if (order.label_url && !order.label_refunded && order.status === "paid") {
     try {
       await easypost("POST", `shipments/${order.easypost_shipment_id}/refund`);
       await db.from("market_orders").update({ label_refunded: true }).eq("id", order.id);
-    } catch (e) { console.error("label refund failed", order.id, e); }
+    } catch (e) {
+      console.error("label refund failed", order.id, e);
+      await alertAdmins(`Couldn't get the postage back for a refunded order's unused label — void it in EasyPost.`, order.id);
+    }
   }
-  await stripe("POST", "refunds", {
-    payment_intent: order.stripe_payment_intent,
-    metadata: { order_id: order.id, why },
-  }, `refund-${order.id}`);
-  const moved = await moveOrder(order, "refunded", { refunded_at: new Date().toISOString() });
   if (why === "seller_cancelled" && order.seller_fee_cents > 0) {
     const { error } = await db.from("market_seller_ledger").insert({
       seller_id: order.seller_id, order_id: order.id, amount_cents: order.seller_fee_cents, kind: "cancel_fee",
       note: "Seller fee on a sale the seller cancelled",
     });
-    if (error && !/duplicate/i.test(error.message)) console.error("cancel fee not recorded", order.id, error.message);
+    if (error && error.code !== "23505") console.error("cancel fee not recorded", order.id, error.message);
   }
-  // The listing comes down: the seller decides whether to relist.
+  // The listing comes down (the seller decides whether to relist) — but only
+  // if it's still tied to THIS deal, never one that has moved on to someone else.
   await db.from("market_listings").update({ status: "removed", reserved_offer_id: null, reserved_until: null, updated_at: new Date().toISOString() })
-    .eq("id", order.listing_id).in("status", ["sold", "reserved"]);
+    .eq("id", order.listing_id).eq("reserved_offer_id", order.offer_id).in("status", ["sold", "reserved"]);
   return moved;
+}
+
+// Money that arrived for something we can't honour (a stale checkout page, a
+// cancelled order): send that payment straight back without touching any order.
+async function refundPayment(paymentIntent: string, sessionId: string) {
+  await stripe("POST", "refunds", { payment_intent: paymentIntent, metadata: { why: "unmatched_payment" } }, `refund-session-${sessionId}`);
 }
 
 async function listingName(listingId: string) {
@@ -267,15 +332,9 @@ async function onStripeEvent(req: Request) {
   let claimed: any;
   try { claimed = await req.json(); } catch { return fail(400, "BODY", "Bad body."); }
   if (typeof claimed?.id !== "string" || !claimed.id.startsWith("evt_")) return fail(400, "BODY", "Not an event.");
-  // Events that belong to a connected account carry its id; fetch them there.
-  const acctHeader = typeof claimed.account === "string" ? claimed.account : null;
   let event: any;
   try {
-    event = acctHeader
-      ? await fetch(`https://api.stripe.com/v1/events/${claimed.id}`, {
-          headers: { Authorization: `Bearer ${STRIPE_KEY}`, "Stripe-Account": acctHeader },
-        }).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`Stripe ${r.status}`))))
-      : await stripe("GET", `events/${claimed.id}`);
+    event = await stripe("GET", `events/${claimed.id}`);
   } catch {
     return fail(400, "UNKNOWN_EVENT", "Stripe doesn't know this event.");
   }
@@ -283,74 +342,147 @@ async function onStripeEvent(req: Request) {
   // Seen it already? (Stripe retries.) Insert first so two deliveries racing
   // can't both act; on failure we delete the marker so the retry runs again.
   const { error: dupErr } = await db.from("stripe_events").insert({ id: event.id, type: event.type });
-  if (dupErr) return reply(200, { ok: true, duplicate: true });
+  if (dupErr) {
+    // Only a primary-key clash means "seen it". Any other failure must make
+    // Stripe retry, or a paid order would be lost.
+    if (dupErr.code === "23505") return reply(200, { ok: true, duplicate: true });
+    console.error("stripe_events insert failed", dupErr.message);
+    return fail(500, "DB", "Try again.");
+  }
 
   try {
     const obj = event.data.object;
-    if (event.type === "checkout.session.completed" && obj.payment_status === "paid") {
+    const paidEvent = event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded";
+    if (paidEvent && obj.payment_status === "paid") {
       await onPaid(obj);
-    } else if (event.type === "checkout.session.expired") {
-      // Nothing to undo: the order stays awaiting_payment and the buyer can
-      // start a fresh checkout while the hold lasts.
     } else if (event.type === "charge.refunded") {
+      // A refund made outside the app (Stripe dashboard). Ours are already recorded.
       const order = await orderByIntent(obj.payment_intent);
-      if (order && obj.refunded && order.status !== "refunded") {
-        await moveOrder(order, "refunded", { refunded_at: new Date().toISOString() });
+      if (order && order.status !== "refunded") {
+        if (obj.refunded && await moveOrder(order, "refunded", { refunded_at: new Date().toISOString() })) {
+          await alertAdmins(order.stripe_transfer_id
+            ? "An order was refunded from the Stripe dashboard AFTER the seller was paid — the seller's transfer was not reversed."
+            : "An order was refunded from the Stripe dashboard.", order.id);
+        } else if (!obj.refunded) {
+          await alertAdmins(`A partial refund (${dollars(obj.amount_refunded)}) was made in the Stripe dashboard. The seller's payout is unchanged.`, order.id);
+        }
       }
     } else if (event.type === "charge.dispute.created") {
       const order = await orderByIntent(obj.payment_intent);
-      if (order) await moveOrder(order, "disputed");
+      if (order && await moveOrder(order, "disputed")) {
+        await alertAdmins(`A buyer's bank opened a card dispute (${obj.reason}). The payout is on hold — respond in Stripe before the deadline.`, order.id);
+        await push(order.seller_id, `⚠️ The buyer's bank opened a dispute on ${await listingName(order.listing_id)}. Your payout is on hold while it's reviewed.`, null, `market-order-${order.id}`);
+      }
+    } else if (event.type === "charge.dispute.closed") {
+      const order = await orderByIntent(obj.payment_intent);
+      if (order?.status === "disputed") {
+        if (obj.status === "won" || obj.status === "warning_closed") {
+          await moveOrder(order, statusBeforeDispute(order));
+          await alertAdmins("A card dispute was closed in our favour. The order is back on its normal path.", order.id);
+        } else if (obj.status === "lost") {
+          // The bank took the money back from the platform.
+          await moveOrder(order, "refunded", { refunded_at: new Date().toISOString() });
+          let reversed = false;
+          if (order.stripe_transfer_id) {
+            try {
+              await stripe("POST", `transfers/${order.stripe_transfer_id}/reversals`, { metadata: { order_id: order.id } }, `reverse-${order.id}`);
+              reversed = true;
+            } catch (e) { console.error("reversal after lost dispute failed", order.id, e); }
+          }
+          await alertAdmins(!order.stripe_transfer_id
+            ? "A card dispute was LOST. The buyer has their money back; the seller was never paid."
+            : reversed ? "A card dispute was LOST. The seller's payout was taken back."
+            : "A card dispute was LOST and the seller's payout could NOT be taken back — recover it from the seller.", order.id);
+        }
+      }
     }
+    // checkout.session.expired: nothing to undo — the order stays
+    // awaiting_payment and the buyer can start a fresh checkout while the hold lasts.
   } catch (e) {
     await db.from("stripe_events").delete().eq("id", event.id);
     console.error("webhook failed", event.type, e);
-    return fail(500, "HANDLER", String((e as Error).message || e));
+    return fail(500, "HANDLER", "Try again.");
   }
   return reply(200, { ok: true });
 }
 
+// The order a Stripe charge belongs to. Normally found by the payment intent we
+// stored when it was paid; if that hasn't been recorded yet (events can arrive
+// out of order), fall back to the order id we stamped on the payment itself.
 async function orderByIntent(pi: unknown) {
   if (typeof pi !== "string") return null;
   const { data } = await db.from("market_orders").select("*").eq("stripe_payment_intent", pi).maybeSingle();
-  return data;
+  if (data) return data;
+  const intent = await stripe("GET", `payment_intents/${pi}`);
+  const order = await getOrder(intent.metadata?.order_id);
+  if (!order) return null;
+  // The order was paid by a DIFFERENT payment: this one is a stray (an
+  // out-of-date checkout page we already refunded) and must not touch it.
+  if (order.stripe_payment_intent && order.stripe_payment_intent !== pi) return null;
+  // Paid at Stripe but not recorded here yet: fail this delivery so Stripe
+  // sends the event again once the payment has been recorded.
+  if (order.status === "awaiting_payment") {
+    const session = order.stripe_session_id ? await stripe("GET", `checkout/sessions/${order.stripe_session_id}`) : null;
+    if (session?.payment_intent === pi) throw new Error("payment not recorded yet — retry");
+    return null;   // a stray payment on an order that's still waiting for its real one
+  }
+  return order;
 }
 
 async function onPaid(session: any) {
-  const order = await getOrder(session.metadata?.order_id);
-  if (!order || order.status !== "awaiting_payment") return;
-  const pi = await stripe("GET", `payment_intents/${session.payment_intent}`);
-  // ship_to was set at checkout from the verified EasyPost address.
-  const paid = await moveOrder(order, "paid", {
-    stripe_session_id: session.id,
-    stripe_payment_intent: session.payment_intent,
-    stripe_charge_id: pi.latest_charge,
-    paid_at: new Date().toISOString(),
-  });
-  if (!paid) return;
+  let order = await getOrder(session.metadata?.order_id);
+  if (!order) return;
+  // Only the checkout page we last issued, for exactly what the order costs,
+  // can pay for it. Anything else (an older page left open with a different
+  // shipping choice, a payment that lands after the hold was cancelled) goes
+  // straight back to the buyer.
+  const sameSession = order.stripe_session_id === session.id;
+  if (sameSession && !["awaiting_payment", "paid", "cancelled"].includes(order.status)) return;   // handled long ago
+  if (!sameSession || order.total_cents !== session.amount_total || order.status === "cancelled") {
+    await refundPayment(session.payment_intent, session.id);
+    await push(order.buyer_id, "That checkout page was out of date, so your payment was refunded in full. If the item is still available you can check out again.", null, `market-order-${order.id}`);
+    await alertAdmins("A payment arrived on an out-of-date checkout page and was refunded automatically.", order.id);
+    return;
+  }
+  if (order.status === "awaiting_payment") {
+    const pi = await stripe("GET", `payment_intents/${session.payment_intent}`);
+    // ship_to was set at checkout from the verified EasyPost address.
+    order = await moveOrder(order, "paid", {
+      stripe_payment_intent: session.payment_intent,
+      stripe_charge_id: pi.latest_charge,
+      paid_at: new Date().toISOString(),
+    }) ?? await getOrder(order.id);
+  }
+  // From here on every step is safe to repeat, so a retried webhook finishes
+  // whatever an earlier attempt didn't.
+  if (order.status !== "paid") return;
 
   // Mark the listing sold — but only if it's still held for THIS deal. If the
   // hold somehow went to someone else, the buyer gets their money back.
-  const { data: sold } = await db.from("market_listings")
-    .update({ status: "sold", updated_at: new Date().toISOString() })
-    .eq("id", order.listing_id).eq("status", "reserved").eq("reserved_offer_id", order.offer_id)
-    .select("id, name").maybeSingle();
-  if (!sold) {
-    await refund(paid, "listing_no_longer_held");
+  const { data: listing } = await db.from("market_listings").select("id, name, status, reserved_offer_id").eq("id", order.listing_id).single();
+  const mine = listing.reserved_offer_id === order.offer_id;
+  if (mine && listing.status === "reserved") {
+    await db.from("market_listings").update({ status: "sold", updated_at: new Date().toISOString() })
+      .eq("id", listing.id).eq("status", "reserved").eq("reserved_offer_id", order.offer_id);
+  } else if (!(mine && listing.status === "sold")) {
+    await refund(order, "listing_no_longer_held");
     await push(order.buyer_id, "That item was no longer available, so your payment was refunded in full.", null, `market-order-${order.id}`);
     return;
   }
   // Close any other pending offers on it.
   await db.from("market_offers").update({ status: "declined", responded_at: new Date().toISOString() })
     .eq("listing_id", order.listing_id).eq("status", "pending");
-  const labelled = await buyLabel(paid);
+  const labelled = await buyLabel(order);
   await push(order.seller_id, labelled
-    ? `💰 ${await handle(order.buyer_id)} paid for ${sold.name} — your shipping label is ready to print`
-    : `💰 ${await handle(order.buyer_id)} paid for ${sold.name} — we're getting your shipping label`, order.buyer_id, `market-order-${order.id}`);
+    ? `💰 ${await handle(order.buyer_id)} paid for ${listing.name} — your shipping label is ready to print. Ship within ${SHIP_DEADLINE_DAYS} days.`
+    : `💰 ${await handle(order.buyer_id)} paid for ${listing.name} — we're getting your shipping label`, order.buyer_id, `market-order-${order.id}`);
 }
 
-// Buy the label the buyer paid for. If that exact rate has gone stale, re-rate
-// and take the same service (the platform absorbs a small difference). On
-// failure the error is kept on the order; the seller can retry from the app.
+// Buy the label the buyer paid for. If a purchase already went through (a
+// retry after a half-finished attempt) we adopt that label. If that exact rate
+// has gone stale, re-rate and take the same service (the platform absorbs a
+// small difference). On failure the error is kept on the order, an admin is
+// told the first time, and the hourly job keeps retrying.
 async function buyLabel(order: any): Promise<boolean> {
   if (order.label_url) return true;
   try {
@@ -359,12 +491,17 @@ async function buyLabel(order: any): Promise<boolean> {
       bought = await easypost("POST", `shipments/${order.easypost_shipment_id}/buy`, { rate: { id: order.easypost_rate_id } });
     } catch (e) {
       if (!(e instanceof EasyPostError) || e.status >= 500) throw e;
-      const rerated = await easypost("POST", `shipments/${order.easypost_shipment_id}/rerate`);
-      const same = pickRates(rerated.rates, [order.ship_service])[0];
-      if (!same) throw e;
-      bought = await easypost("POST", `shipments/${order.easypost_shipment_id}/buy`, { rate: { id: same.rateId } });
+      const current = await easypost("GET", `shipments/${order.easypost_shipment_id}`);
+      if (current.postage_label?.label_url) {
+        bought = current;
+      } else {
+        const rerated = await easypost("POST", `shipments/${order.easypost_shipment_id}/rerate`);
+        const same = pickRates(rerated.rates, [order.ship_service])[0];
+        if (!same || same.cents > order.shipping_cents + MAX_LABEL_OVERAGE_CENTS) throw e;
+        bought = await easypost("POST", `shipments/${order.easypost_shipment_id}/buy`, { rate: { id: same.rateId } });
+      }
     }
-    await db.from("market_orders").update({
+    const { error } = await db.from("market_orders").update({
       label_url: bought.postage_label?.label_url ?? null,
       tracking_number: bought.tracking_code ?? null,
       tracking_carrier: bought.selected_rate?.carrier ?? null,
@@ -373,10 +510,13 @@ async function buyLabel(order: any): Promise<boolean> {
       label_error: null,
       updated_at: new Date().toISOString(),
     }).eq("id", order.id);
-    return true;
+    if (error) throw new Error(error.message);
+    return !!bought.postage_label?.label_url;
   } catch (e) {
     console.error("label purchase failed", order.id, e);
-    await db.from("market_orders").update({ label_error: String((e as Error).message || e).slice(0, 300) }).eq("id", order.id);
+    const message = String((e as Error).message || e).slice(0, 300);
+    await db.from("market_orders").update({ label_error: message }).eq("id", order.id);
+    if (!order.label_error) await alertAdmins(`Couldn't buy the shipping label for a paid order: ${message}`, order.id);
     return false;
   }
 }
@@ -400,6 +540,9 @@ async function applyTracking(order: any, status: string) {
   if (order.tracking_status !== status) {
     await db.from("market_orders").update({ tracking_status: status, updated_at: new Date().toISOString() }).eq("id", order.id);
     order = { ...order, tracking_status: status };
+    if (trackingNeedsAttention(status)) {
+      await alertAdmins(`The carrier reports "${status.replaceAll("_", " ")}" for an order's package. The payout won't happen on its own — refund the buyer or pay the seller.`, order.id);
+    }
   }
   const to = orderStatusForTracking(status);
   const now = new Date().toISOString();
@@ -415,15 +558,66 @@ async function applyTracking(order: any, status: string) {
   }
 }
 
-// Pay out every order whose 3-day window after delivery has passed.
-async function releaseSweep() {
-  const { data: due } = await db.from("market_orders").select("*").eq("status", "delivered");
-  let released = 0;
-  for (const o of due ?? []) {
-    if (!releaseDue(o)) continue;
-    try { if (await release(o)) released++; } catch (e) { console.error("auto-release failed", o.id, e); }
-  }
-  return released;
+// The hourly job. Each order is handled on its own so one failure can't block
+// the rest.
+async function sweep() {
+  const out = { labels: 0, tracked: 0, unshipped_refunded: 0, released: 0, repaired: 0, failed: 0 };
+  const each = async (rows: any[] | null, what: string, fn: (o: any) => Promise<void>) => {
+    for (const o of rows ?? []) {
+      try { await fn(o); } catch (e) { out.failed++; console.error(`${what} failed`, o.id, e); }
+    }
+  };
+
+  // 1. Paid orders: get a label if one is missing; refund if the seller never shipped.
+  const { data: paid } = await db.from("market_orders").select("*").eq("status", "paid");
+  await each(paid, "paid sweep", async (o) => {
+    // Finish a payment whose webhook died half-way: the listing must read sold.
+    await db.from("market_listings").update({ status: "sold", updated_at: new Date().toISOString() })
+      .eq("id", o.listing_id).eq("status", "reserved").eq("reserved_offer_id", o.offer_id);
+    if (!o.label_url) {
+      if (await buyLabel(o)) {
+        out.labels++;
+        await push(o.seller_id, `🏷️ Your shipping label for ${await listingName(o.listing_id)} is ready to print.`, null, `market-order-${o.id}`);
+        return;
+      }
+    }
+    if (shipDeadlinePassed(o)) {
+      // No label through our own fault is never the seller's fee.
+      if (await refund(o, o.label_url ? "seller_cancelled" : "label_failed")) {
+        out.unshipped_refunded++;
+        const name = await listingName(o.listing_id);
+        await push(o.buyer_id, `${name} wasn't shipped within ${SHIP_DEADLINE_DAYS} days, so your payment was refunded in full.`, null, `market-order-${o.id}`);
+        await push(o.seller_id, o.label_url
+          ? `${name} wasn't shipped within ${SHIP_DEADLINE_DAYS} days, so the sale was cancelled and the buyer refunded. Your seller fee still applies.`
+          : `The sale of ${name} was cancelled and the buyer refunded because we couldn't get a shipping label. You owe nothing.`, null, `market-order-${o.id}`);
+      }
+    }
+  });
+
+  // 2. Tracking we may have missed (webhooks aren't guaranteed).
+  const { data: moving } = await db.from("market_orders").select("*").in("status", ["paid", "shipped"]).not("easypost_tracker_id", "is", null);
+  await each(moving, "tracking sweep", async (o) => {
+    const tracker = await easypost("GET", `trackers/${o.easypost_tracker_id}`);
+    if (tracker.status && tracker.status !== o.tracking_status) { await applyTracking(o, tracker.status); out.tracked++; }
+  });
+
+  // 3. Pay out every order whose 3-day window after delivery has passed.
+  const { data: delivered } = await db.from("market_orders").select("*").eq("status", "delivered");
+  await each(delivered, "auto-release", async (o) => {
+    if (releaseDue(o) && await release(o)) out.released++;
+  });
+
+  // 4. A payout that was claimed but never sent (the function died mid-way).
+  const { data: unsent } = await db.from("market_orders").select("*").eq("status", "released").is("stripe_transfer_id", null);
+  await each(unsent, "payout repair", async (o) => {
+    const amount = o.seller_payout_cents - (o.payout_withheld_cents ?? 0);
+    if (amount <= 0) return;
+    const { data: seller } = await db.from("market_sellers").select("stripe_account_id").eq("user_id", o.seller_id).single();
+    await sendPayout(o, seller.stripe_account_id, amount, o.payout_withheld_cents ?? 0);
+    out.repaired++;
+  });
+  if (out.failed) console.error("sweep had failures", JSON.stringify(out));
+  return out;
 }
 
 // Make sure Stripe knows where to send payment events. Idempotent; runs once
@@ -440,8 +634,11 @@ function ensureWebhooks() {
       { description: "Plush Crypt market: payments", enabled_events: WEBHOOK_EVENTS },
     ];
     for (const w of wanted) {
-      if (existing.some((e: any) => e.description === w.description)) continue;
-      await stripe("POST", "webhook_endpoints", { url: HOOK_URL, ...w });
+      const have = existing.find((e: any) => e.description === w.description);
+      if (!have) await stripe("POST", "webhook_endpoints", { url: HOOK_URL, ...w });
+      else if (w.enabled_events.some((ev) => !have.enabled_events.includes(ev))) {
+        await stripe("POST", `webhook_endpoints/${have.id}`, { enabled_events: w.enabled_events });
+      }
     }
     const epUrl = `${SUPABASE_URL}/functions/v1/market-checkout?hook=easypost`;
     const epHooks = (await easypost("GET", "webhooks")).webhooks ?? [];
@@ -460,40 +657,10 @@ Deno.serve(async (req) => {
   if (!EASYPOST_KEY) return fail(503, "NO_EASYPOST_KEY", "Shipping isn't configured (EASYPOST_API_KEY missing).");
 
   try {
-    // Health checks (no auth, nothing sensitive returned):
-    //   ?probe=v2   can our key use Accounts v2?
-    //   ?probe=link can we mint an onboarding link for the newest seller? (the
-    //               link itself is thrown away) + that seller's capability states
-    const probe = new URL(req.url).searchParams.get("probe");
-    if (probe) {
-      try {
-        if (probe === "v2") { await stripeV2("GET", "core/accounts?limit=1"); return reply(200, { ok: true }); }
-        if (probe === "easypost") {
-          // Rate a sample parcel between two real addresses; return service names only.
-          const sh = await easypost("POST", "shipments", { shipment: {
-            from_address: { name: "Probe", street1: "417 Montgomery St", city: "San Francisco", state: "CA", zip: "94104", country: "US" },
-            to_address: { name: "Probe", street1: "1 Salem Green", city: "Salem", state: "MA", zip: "01970", country: "US" },
-            parcel: easypostParcel({ preset: "small", weightOz: 12 }),
-          } });
-          return reply(200, { ok: true, mode: EASYPOST_KEY.startsWith("EZTK") ? "test" : "live",
-            rates: sh.rates.map((r: any) => `${r.carrier}/${r.service} $${r.rate}${serviceForRate(r) ? " ✓" : ""}`) });
-        }
-        if (probe === "link") {
-          const { data: s } = await db.from("market_sellers").select("stripe_account_id").order("updated_at", { ascending: false }).limit(1).maybeSingle();
-          if (!s) return reply(200, { ok: false, message: "no sellers yet" });
-          await onboardingLink(s.stripe_account_id, "https://plushcrypt.com/");
-          const caps = (await getAccount(s.stripe_account_id)).configuration?.recipient?.capabilities?.stripe_balance ?? {};
-          return reply(200, { ok: true, transfers: caps.stripe_transfers?.status ?? null, payouts: caps.payouts?.status ?? null });
-        }
-        return reply(400, { ok: false, message: "unknown probe" });
-      } catch (e) {
-        return reply(200, { ok: false, status: (e as any).status, code: (e as any).stripe?.error?.code, message: (e as Error).message });
-      }
-    }
     const params = new URL(req.url).searchParams;
     if (params.get("cron") === "release") {
       if ((req.headers.get("Authorization") || "") !== `Bearer ${SECRET_KEY}`) return fail(401, "AUTH", "Nope.");
-      return reply(200, { ok: true, released: await releaseSweep() });
+      return reply(200, { ok: true, ...(await sweep()) });
     }
     await ensureWebhooks();
     if (params.get("hook") === "stripe") return await onStripeEvent(req);
@@ -547,7 +714,32 @@ async function onUser(req: Request) {
   let body: Record<string, any>;
   try { body = await req.json(); } catch { return fail(400, "BODY", "Bad request body."); }
 
+  const isAdmin = async () => !!(await db.from("profiles").select("is_admin").eq("id", uid).single()).data?.is_admin;
+
   switch (body.action) {
+    case "config":
+      return reply(200, { testMode: stripeKeyMode(STRIPE_KEY) === "test" || easypostKeyMode(EASYPOST_KEY) === "test" });
+
+    case "health": {
+      if (!(await isAdmin())) return fail(403, "ADMIN", "Admins only.");
+      const check = async (fn: () => Promise<unknown>) => {
+        try { await fn(); return { ok: true }; } catch (e) { return { ok: false, message: String((e as Error).message || e).slice(0, 200) }; }
+      };
+      const [s, ep, hook] = await Promise.all([
+        check(() => stripeV2("GET", "core/accounts?limit=1")),
+        check(() => easypost("GET", "webhooks")),
+        check(async () => {
+          const hooks = (await stripe("GET", "webhook_endpoints", { limit: 100 })).data;
+          if (!hooks.some((w: any) => w.url === HOOK_URL && w.status === "enabled")) throw new Error("Stripe isn't set to notify us of payments.");
+        }),
+      ]);
+      return reply(200, {
+        stripe: { ...s, mode: stripeKeyMode(STRIPE_KEY) },
+        easypost: { ...ep, mode: easypostKeyMode(EASYPOST_KEY) },
+        webhook: hook,
+      });
+    }
+
     case "payouts_setup": {
       const base = cleanReturnBase(body.returnBase);
       if (!base) return fail(400, "RETURN_URL", "Bad return address.");
@@ -666,7 +858,9 @@ async function onUser(req: Request) {
       const expiresAt = sessionExpiresAt(listing.reserved_until);
       const session = await stripe("POST", "checkout/sessions", {
         mode: "payment",
-        payment_method_types: ["card"],
+        // Cards only (incl. Apple/Google Pay). Bank debits take days to clear —
+        // longer than the hold on the item — so they're not offered.
+        allowed_payment_method_types: ["card"],
         line_items: checkoutLineItems({ ...order, shipping_label: choice.label }, listing.name),
         customer_email: user.email,
         client_reference_id: order.id,
@@ -688,19 +882,17 @@ async function onUser(req: Request) {
     case "label_retry": {
       const order = await getOrder(body.orderId);
       if (!order) return fail(404, "ORDER", "Order not found.");
-      const { data: me } = await db.from("profiles").select("is_admin").eq("id", uid).single();
-      if (order.seller_id !== uid && !me?.is_admin) return fail(403, "ORDER", "Not your order.");
+      if (order.seller_id !== uid && !(await isAdmin())) return fail(403, "ORDER", "Not your order.");
       if (order.status !== "paid") return fail(409, "ORDER_STATE", "This order doesn't need a label.");
       const ok = await buyLabel(order);
-      return ok ? reply(200, { ok: true }) : fail(502, "SHIPPING", "The label still couldn't be bought. We'll keep an eye on it.");
+      return ok ? reply(200, { ok: true }) : fail(502, "SHIPPING", "The label still couldn't be bought. We've been told and will sort it out.");
     }
 
     case "ship": {
       // Admin-only fallback for an order that shipped without our label.
       const order = await getOrder(body.orderId);
       if (!order) return fail(404, "ORDER", "Order not found.");
-      const { data: shipAdmin } = await db.from("profiles").select("is_admin").eq("id", uid).single();
-      if (!shipAdmin?.is_admin) return fail(403, "ADMIN", "Shipping is marked automatically from the label's tracking.");
+      if (!(await isAdmin())) return fail(403, "ADMIN", "Shipping is marked automatically from the label's tracking.");
       const carrier = String(body.carrier ?? "").trim().slice(0, 40);
       const tracking = String(body.tracking ?? "").trim().slice(0, 80);
       if (!carrier || !tracking) return fail(400, "TRACKING", "Add the carrier and tracking number.");
@@ -713,36 +905,77 @@ async function onUser(req: Request) {
     }
 
     case "confirm": {
-      const order = await getOrder(body.orderId);
+      // The buyer says it arrived and it's fine: the seller is paid now. This
+      // also closes any problem the buyer had reported.
+      let order = await getOrder(body.orderId);
       if (!order || order.buyer_id !== uid) return fail(404, "ORDER", "Order not found.");
       const now = new Date().toISOString();
-      // Already delivered (tracking said so, or a transfer that failed last
-      // time): the buyer's OK pays the seller now instead of in 3 days.
-      if (order.status === "delivered") {
-        if (!order.buyer_confirmed_at) {
-          await db.from("market_orders").update({ buyer_confirmed_at: now }).eq("id", order.id);
-        }
-        await release({ ...order, buyer_confirmed_at: order.buyer_confirmed_at ?? now });
-        return reply(200, { ok: true });
+      if (order.status === "shipped" || order.status === "paid") {
+        order = await moveOrder(order, "delivered", { delivered_at: now, shipped_at: order.shipped_at ?? now });
+        if (!order) return fail(409, "ORDER_STATE", "This order can't be confirmed right now.");
       }
-      const delivered = await moveOrder(order, "delivered", { delivered_at: now, buyer_confirmed_at: now });
-      if (!delivered) return fail(409, "ORDER_STATE", "This order can't be confirmed right now.");
-      await release(delivered);
+      if (order.status !== "delivered") return fail(409, "ORDER_STATE", "This order can't be confirmed right now.");
+      const stamp: Record<string, string> = {};
+      if (!order.buyer_confirmed_at) stamp.buyer_confirmed_at = now;
+      if (problemOpen(order)) stamp.problem_resolved_at = now;
+      if (Object.keys(stamp).length) {
+        const { error } = await db.from("market_orders").update(stamp).eq("id", order.id);
+        if (error) return fail(500, "DB", error.message);
+        order = { ...order, ...stamp };
+      }
+      await release(order);
+      return reply(200, { ok: true });
+    }
+
+    case "report_problem": {
+      const order = await getOrder(body.orderId);
+      if (!order || order.buyer_id !== uid) return fail(404, "ORDER", "Order not found.");
+      if (!["shipped", "delivered"].includes(order.status)) {
+        return fail(409, "ORDER_STATE", order.status === "released"
+          ? "The seller has already been paid for this order. Message us and we'll help."
+          : "You can report a problem once the item has shipped.");
+      }
+      const cleaned = cleanProblemNote(body.note);
+      if (cleaned.error) return fail(400, "INVALID", cleaned.error);
+      // Only lands if the order is still unpaid-out, so it can't race a payout.
+      const { data: held } = await db.from("market_orders")
+        .update({ problem_reported_at: new Date().toISOString(), problem_note: cleaned.note, problem_resolved_at: null, updated_at: new Date().toISOString() })
+        .eq("id", order.id).in("status", ["shipped", "delivered"]).select("id").maybeSingle();
+      if (!held) return fail(409, "ORDER_STATE", "The seller has already been paid for this order. Message us and we'll help.");
+      const name = await listingName(order.listing_id);
+      await alertAdmins(`${await handle(uid)} reported a problem with ${name}: "${cleaned.note!.slice(0, 140)}". The payout is on hold until you refund the buyer or pay the seller.`, order.id);
+      await push(order.seller_id, `⚠️ The buyer reported a problem with ${name}. Your payout is on hold while we look into it.`, uid, `market-order-${order.id}`);
+      return reply(200, { ok: true });
+    }
+
+    case "release": {
+      // Admin: pay the seller now (settles a reported problem in their favour).
+      if (!(await isAdmin())) return fail(403, "ADMIN", "Admins only.");
+      let order = await getOrder(body.orderId);
+      if (!order) return fail(404, "ORDER", "Order not found.");
+      const now = new Date().toISOString();
+      if (order.status === "shipped") order = await moveOrder(order, "delivered", { delivered_at: now });
+      if (!order || order.status !== "delivered") return fail(409, "ORDER_STATE", "Only a shipped or delivered order can be paid out.");
+      const paid = await release(order);
+      if (!paid) return fail(409, "ORDER_STATE", "This order was just changed by something else — reload and check it.");
+      if (problemOpen(order)) await push(order.buyer_id, `We reviewed the problem you reported with ${await listingName(order.listing_id)} and released the payment to the seller.`, uid, `market-order-${order.id}`);
       return reply(200, { ok: true });
     }
 
     case "refund": {
       const order = await getOrder(body.orderId);
       if (!order) return fail(404, "ORDER", "Order not found.");
-      const { data: isAdmin } = await db.from("profiles").select("is_admin").eq("id", uid).single();
+      const admin = await isAdmin();
       const sellerCanRefund = order.seller_id === uid && order.status === "paid";
-      const adminCanRefund = !!isAdmin?.is_admin && canMove(order.status, "refunded");
+      const adminCanRefund = admin && canMove(order.status, "refunded");
       if (!sellerCanRefund && !adminCanRefund) return fail(403, "REFUND", "You can't refund this order.");
       // An admin refund only charges the seller's fee when the admin says the
       // seller was at fault (body.sellerAtFault).
       const why = order.seller_id === uid || (adminCanRefund && body.sellerAtFault === true) ? "seller_cancelled" : "admin";
-      await refund(order, why);
+      const done = await refund(order, why);
+      if (!done) return fail(409, "ORDER_STATE", "This order was just changed by something else — reload and check it.");
       await push(order.buyer_id, `Your payment for ${await listingName(order.listing_id)} was refunded in full.`, uid, `market-order-${order.id}`);
+      if (order.seller_id !== uid) await push(order.seller_id, `The sale of ${await listingName(order.listing_id)} was refunded to the buyer.`, uid, `market-order-${order.id}`);
       return reply(200, { ok: true });
     }
 

@@ -158,7 +158,7 @@ function tradeCountLabel() {
       return `Offering ${off} · Seeking ${seek}`;
     }
     case 'sale': {
-      const live = state.myListings.filter((l) => l.status === 'active').length;
+      const live = state.myListings.filter(listingIsLive).length;
       return `${state.marketBrowse.length} for sale · ${marketTurnCount()} offer${marketTurnCount() === 1 ? '' : 's'} awaiting you · ${live} of yours live`;
     }
   }
@@ -315,7 +315,7 @@ function renderBrowse() {
     return;
   }
   if (list.length === 0) {
-    document.getElementById('subtab-browse').innerHTML = `
+    document.getElementById('subtab-browse').innerHTML = `${saleDoorHtml()}
       <div class="empty"><div class="ghost">🕯</div>
       <p>No active offerings from other collectors right now.</p></div>`;
     return;
@@ -343,7 +343,24 @@ function renderBrowse() {
       </ul>
     </section>
   `; }).join('');
-  document.getElementById('subtab-browse').innerHTML = groups;
+  document.getElementById('subtab-browse').innerHTML = saleDoorHtml() + groups;
+}
+
+// The way into For Sale from where Trade lands (Browse). On a phone the For
+// Sale sub-tab is the 4th in a strip that scrolls sideways, so it can't be the
+// only entry — this one is in the content. Empty for anyone the market isn't
+// open to.
+function saleDoorHtml() {
+  if (!marketEnabled()) return '';
+  const turn = marketTurnCount();
+  // No counts while the market couldn't load — they'd be stale or made up.
+  const line = state.marketLoadError ? 'Buy and sell with other collectors'
+    : turn > 0 ? `${turn} waiting on you`
+    : `${state.marketBrowse.length} for sale from other collectors`;
+  return `<button type="button" class="mkt-sale-door" data-action="mkt-open-sale">
+      <span><strong>💸 For Sale</strong> · ${line}</span>
+      <span class="mkt-sale-door-go">Open For Sale →</span>
+    </button>`;
 }
 
 // Resolve a trade item's category (plush/mini/clothing/accessory/bundle/other)
@@ -1555,11 +1572,15 @@ function capitalize(s) { return s ? s[0].toUpperCase() + s.slice(1) : s; }
 // Dreadfuls isn't selling right now; if PD restocks it later, the listing
 // stays up only at or below PD's price (a restock pauses anything priced
 // above). Listings are written by the `market-listing` edge function, which
-// checks PD live — the client never decides stock. Offers go through RPCs.
-// Insider-gated (feature.market) until payments ship in phase 2, so an
-// accepted offer holds the item 48h but checkout isn't wired yet.
+// checks PD live — the client never decides stock. Offers go through RPCs;
+// an accepted offer holds the item 48h for the buyer to check out (Stripe +
+// a real shipping label, market-checkout). Who sees any of it is the server's
+// call: feature.market mirrors market_allowed() (db/0112).
 // ════════════════════════════════════════════════════════════════════
 const MARKET_MAX_PHOTOS = 5;
+const MARKET_LABEL_WAIT_MS = 2 * 60 * 1000;   // how long "Getting your label…" is believable
+const MARKET_PROBLEM_MIN = 10;                // report-a-problem note length (server enforces the same)
+const MARKET_PROBLEM_MAX = 1000;
 
 function marketEnabled() {
   return !!window.currentUser && data.featureEnabled('feature.market', false);
@@ -1574,6 +1595,20 @@ function dollarsToCents(v) {
 // A hold from an accepted offer only counts until its window lapses.
 function listingOnHold(l) {
   return l.status === 'reserved' && l.reservedUntil && new Date(l.reservedUntil) > new Date();
+}
+// A hold whose window passed without payment. The server puts the listing back
+// to 'active' on an hourly job; until then the row still says 'reserved', so
+// the UI treats it as live again instead of dead-ending both sides.
+function listingHoldLapsed(l) {
+  return l.status === 'reserved' && !listingOnHold(l);
+}
+function listingIsLive(l) {
+  return l.status === 'active' || listingHoldLapsed(l);
+}
+// A buyer's problem report that an admin hasn't settled yet (db/0112) — the
+// automatic payout is paused while it's open.
+function orderProblemOpen(order) {
+  return !!order.problemReportedAt && !order.problemResolvedAt;
 }
 function offerIsLive(o) {
   return o.status === 'pending' && new Date(o.expiresAt) > new Date();
@@ -1600,35 +1635,69 @@ function marketOrderTurnCount() {
   return toShip + toConfirm + toPay;
 }
 
+// Never throws. If any read fails the market shows a "couldn't load" state
+// with a retry (state.marketLoadError) — never an empty "nothing for sale",
+// which would be a lie. What was loaded before stays in place for the badges.
 async function loadMarketData() {
-  const [browse, mine, offers, orders, payouts, termsOk, owed] = await Promise.all([
-    data.browseListings(),
-    data.listMyListings(),
-    data.listMarketOffers(),
-    data.listMarketOrders(),
-    data.getMyPayouts(),
-    data.hasAcceptedSellerTerms(),
-    data.getMySellerOwedCents(),
+  // First, before any read can fail: if we're coming back from Stripe, say so.
+  const returned = await consumeMarketReturn();
+  const reads = [
+    ['browseListings', () => data.browseListings()],
+    ['listMyListings', () => data.listMyListings()],
+    ['listMarketOffers', () => data.listMarketOffers()],
+    ['listMarketOrders', () => data.listMarketOrders()],
+    ['getMyPayouts', () => data.getMyPayouts()],
+    ['hasAcceptedSellerTerms', () => data.hasAcceptedSellerTerms()],
+    ['getMySellerOwedCents', () => data.getMySellerOwedCents()],
+  ];
+  const [results] = await Promise.all([
+    Promise.allSettled(reads.map(([, fn]) => fn())),
+    loadMarketConfig(),
   ]);
+  const failed = results.map((r, i) => ({ r, label: reads[i][0] })).filter((x) => x.r.status === 'rejected');
+  if (failed.length) {
+    for (const f of failed) console.error(`loadMarketData:${f.label}`, f.r.reason);
+    state.marketLoadError = marketErrorText(failed[0].r.reason);
+    return;
+  }
+  const [browse, mine, offers, orders, payouts, termsOk, owed] = results.map((r) => r.value);
+  state.marketLoadError = null;
   state.sellerTermsOk = termsOk;
   state.myOwedCents = owed;
   state.marketBrowse = browse;
   state.myListings = mine;
   state.marketOffers = offers;
   state.marketOrders = orders;
-  state.myPayouts = payouts;
-  await consumeMarketReturn();
+  // Stripe's own answer (just fetched on the way back from onboarding) is
+  // fresher than our stored row.
+  state.myPayouts = returned?.payouts || payouts;
+}
+
+// Are payments running on sandbox keys? Asked once per session (it only
+// changes when the keys do). Unknown (null) shows no banner and is retried on
+// the next load.
+async function loadMarketConfig() {
+  if (typeof state.marketTestMode === 'boolean') return;
+  try {
+    const cfg = await data.marketPayCall({ action: 'config' });
+    state.marketTestMode = cfg?.testMode === true;
+  } catch (err) {
+    console.warn('market config', err);
+    state.marketTestMode = null;
+  }
 }
 
 // Coming back from Stripe (?mkt=…): land on the right For Sale view, say what
-// happened, and strip the marker so a reload doesn't repeat it.
+// happened, and strip the marker so a reload doesn't repeat it. Returns
+// { payouts } when Stripe was just asked for the seller's payout status.
 async function consumeMarketReturn() {
   const params = new URLSearchParams(window.location.search);
   const mkt = params.get('mkt');
-  if (!mkt) return;
+  if (!mkt) return null;
   params.delete('mkt');
   const qs = params.toString();
   history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
+  state.tab = 'trade';
   state.tradeSubTab = 'sale';
   if (mkt === 'paid') {
     state.saleFilter = 'offers';
@@ -1641,18 +1710,36 @@ async function consumeMarketReturn() {
   } else if (mkt === 'payouts_done' || mkt === 'payouts_retry') {
     state.saleFilter = 'mine';
     try {
-      state.myPayouts = await data.marketPayCall({ action: 'payouts_status' });
-      toast(state.myPayouts.ready ? 'Payouts are set up — buyers can pay you now.' : 'Stripe still needs a few details before you can be paid.');
+      const payouts = await data.marketPayCall({ action: 'payouts_status' });
+      state.myPayouts = payouts;
+      toast(payouts.ready ? 'Payouts are set up — buyers can pay you now.' : 'Stripe still needs a few details before you can be paid.');
+      return { payouts };
     } catch (err) {
       console.error('payouts_status', err);
-      toast(err.message);
+      toast(marketErrorText(err));
     }
   }
+  return null;
 }
 
-// Friendly text for the RPCs' raised codes.
+// Plain-language text for what the server raises: the RPCs' MARKET_* codes
+// (in the message) and the edge functions' error codes (err.code). Anything
+// not listed already carries a message written for people (address problems,
+// PD stock refusals…) and is shown as sent.
+const MARKET_TRY_AGAIN = 'Please try again in a minute.';
 const MARKET_ERRORS = {
-  MARKET_NOT_ENABLED: "Selling isn't open to your account yet.",
+  NETWORK: "We couldn't reach the server. Check your connection and try again.",
+  STRIPE: `The payment service had a problem. ${MARKET_TRY_AGAIN}`,
+  SHIPPING: `The shipping service had a problem. ${MARKET_TRY_AGAIN}`,
+  SERVER: `Something went wrong on our end. ${MARKET_TRY_AGAIN}`,
+  DB: `We couldn't save or load that just now. ${MARKET_TRY_AGAIN}`,
+  GATE: `We couldn't check your access just now. ${MARKET_TRY_AGAIN}`,
+  NO_STRIPE_KEY: "Payments aren't available right now — we're on it. Please try again later.",
+  NO_EASYPOST_KEY: "Shipping isn't available right now — we're on it. Please try again later.",
+  MARKET_OFFER_NOT_FOUND: 'That offer is gone.',
+  MARKET_BAD_ACTION: "That can't be done with this offer.",
+  MARKET_PAYOUTS_NOT_READY: "The seller hasn't finished setting up payouts yet, so this can't be accepted. Try again once they have.",
+  MARKET_NOT_ENABLED: "For Sale isn't open to your account yet.",
   MARKET_LISTING_NOT_FOUND: 'That listing is gone.',
   MARKET_LISTING_UNAVAILABLE: "That listing isn't taking offers right now.",
   MARKET_OWN_LISTING: "That's your own listing.",
@@ -1665,8 +1752,18 @@ const MARKET_ERRORS = {
   MARKET_LISTING_SOLD: 'That one already sold.',
 };
 function marketErrorText(err) {
-  const code = /MARKET_[A-Z_]+/.exec(err?.message || '')?.[0];
-  return MARKET_ERRORS[code] || err?.message || 'Something went wrong.';
+  const raw = err?.message || '';
+  const rpcCode = /MARKET_[A-Z_]+/.exec(raw)?.[0];
+  const code = err?.code;
+  let text = MARKET_ERRORS[rpcCode];
+  // SHIPPING doubles as "you picked a bad option" (a 4xx with a message for
+  // the buyer) and "EasyPost failed" (a 5xx carrying the carrier's raw error).
+  if (!text && code === 'SHIPPING' && err.status != null && err.status < 500) text = raw;
+  if (!text && typeof code === 'string') text = MARKET_ERRORS[code];
+  if (!text && /Failed to send a request to the Edge Function|Failed to fetch|NetworkError|Load failed/i.test(raw)) text = MARKET_ERRORS.NETWORK;
+  // The raw server text never reaches the user when we swap it — keep it findable.
+  if (text && text !== raw) console.error('market error', code || rpcCode || '', raw);
+  return text || raw || 'Something went wrong.';
 }
 
 function pdStateLine(l) {
@@ -1690,6 +1787,17 @@ function renderSale() {
   const el = document.getElementById('subtab-sale');
   if (!el) return;
   if (!state.ready.has('trade')) { el.innerHTML = loadingPlaceholder('Summoning the market…'); return; }
+  if (state.marketLoadError) {
+    // Never an empty "nothing for sale" when the truth is "we couldn't ask".
+    el.innerHTML = `
+      <div class="empty mkt-load-failed" role="alert">
+        <div class="ghost">🕯</div>
+        <p><strong>For Sale couldn’t load.</strong></p>
+        <p class="dim">${escapeHtml(state.marketLoadError)}</p>
+        <button class="btn-primary" data-action="mkt-retry">Try again</button>
+      </div>`;
+    return;
+  }
   const f = state.saleFilter || 'shop';
   const turn = marketTurnCount();
   const pill = (key, label, count) =>
@@ -1698,8 +1806,12 @@ function renderSale() {
   if (f === 'offers') body = renderSaleOffers();
   else if (f === 'mine') body = renderSaleMine();
   else body = renderSaleShop();
+  // Only while the server says payments run on sandbox keys (config.testMode).
+  const testBanner = state.marketTestMode === true
+    ? `<div class="mkt-preview-banner">🕯 Insider preview — payments run in Stripe <strong>test mode</strong>: no real money moves. Pay with card 4242 4242 4242 4242, any future date, any CVC. An accepted offer holds the item for 48 hours.</div>`
+    : '';
   el.innerHTML = `
-    <div class="mkt-preview-banner">🕯 Insider preview — payments run in Stripe <strong>test mode</strong>: no real money moves. Pay with card 4242 4242 4242 4242, any future date, any CVC. An accepted offer holds the item for 48 hours.</div>
+    ${testBanner}
     <div class="filters trade-filters">
       ${pill('shop', 'Shop', state.marketBrowse.length)}
       ${pill('offers', 'Offers', turn)}
@@ -1760,7 +1872,16 @@ function renderDealBlock(o, iAmSeller) {
   const until = held ? new Date(o.listing.reservedUntil).toLocaleString() : '';
 
   if (!order || order.status === 'awaiting_payment') {
-    if (!held) return `<div class="ship-first-banner">Deal at ${money(o.amountCents)} — the hold ended before it was paid.</div>`;
+    if (!held) {
+      // The 48 hours ran out unpaid: the deal is off and the listing is open again.
+      if (iAmSeller) {
+        return `<div class="ship-first-banner">Deal at ${money(o.amountCents)} — the hold ended before the buyer paid, so the deal is off.${o.listing && listingIsLive(o.listing) ? ' Your listing is live again (My listings).' : ''}</div>`;
+      }
+      const again = o.listing && listingIsLive(o.listing)
+        ? `<div class="card-actions"><button class="btn-primary" data-action="mkt-reoffer" data-listing="${o.listingId}">Make a new offer</button></div>`
+        : '';
+      return `<div class="ship-first-banner mkt-deal"><p>Deal at ${money(o.amountCents)} — the hold ended before it was paid.${again ? ' Still want it? Make a new offer.' : ''}</p>${again}</div>`;
+    }
     const fee = data.marketTotals(o.amountCents, 0).buyerFee;
     if (iAmSeller) {
       const nudge = state.myPayouts?.ready ? ''
@@ -1783,13 +1904,25 @@ function renderDealBlock(o, iAmSeller) {
     failure: 'carrier problem', error: 'carrier problem',
   }[order.trackingStatus] || '';
   const trackLine = tracking ? `<p class="dim">${svc}: ${tracking}${statusWord ? ` · ${statusWord}` : ''}</p>` : '';
+  const problemOpen = orderProblemOpen(order);
+  const problemLine = problemOpen
+    ? `<p class="trade-proof-warning mkt-problem">Problem reported — payout is paused while we look into it.</p>` : '';
+  const reportBtn = problemOpen ? ''
+    : `<button class="btn-ghost" data-action="mkt-report-problem" data-id="${order.id}">Report a problem</button>`;
   switch (order.status) {
     case 'paid':
       if (iAmSeller) {
+        // The label is normally bought within seconds of payment. If it isn't
+        // here after a couple of minutes — error recorded or not — let the
+        // seller ask again rather than stare at "Getting your label…".
+        const waitedMs = order.paidAt ? Date.now() - new Date(order.paidAt).getTime() : 0;
+        const stuck = !!order.labelError || waitedMs > MARKET_LABEL_WAIT_MS;
         const label = order.labelUrl
           ? `<a class="btn-primary" href="${escapeHtml(order.labelUrl)}" target="_blank" rel="noopener">🖨 Print shipping label</a>`
-          : order.labelError
-            ? `<p class="trade-proof-warning">We couldn't buy the label yet.</p><button class="btn-primary" data-action="mkt-label-retry" data-id="${order.id}">Try the label again</button>`
+          : stuck
+            ? `<p class="trade-proof-warning">${order.labelError
+                ? `We couldn't buy the label yet: ${escapeHtml(order.labelError)}`
+                : 'The label is taking longer than it should.'}</p><button class="btn-primary" data-action="mkt-label-retry" data-id="${order.id}">Try the label again</button>`
             : `<p class="dim">Getting your label…</p>`;
         return `<div class="ship-first-banner mkt-deal">
             <p><strong>Paid ${money(order.totalCents)}.</strong> Print the label, tape it on, and drop it off — tracking updates the buyer automatically.</p>
@@ -1802,21 +1935,39 @@ function renderDealBlock(o, iAmSeller) {
       }
       return `<div class="ship-first-banner mkt-deal"><p>Paid ${money(order.totalCents)} — waiting for the seller to drop it off.</p>${trackLine}</div>`;
     case 'shipped':
-      if (iAmSeller) return `<div class="ship-first-banner">On its way. ${trackLine}You’re paid ${money(order.sellerPayoutCents)} 3 days after delivery.</div>`;
+      if (iAmSeller) {
+        return `<div class="ship-first-banner mkt-deal"><p>On its way.</p>${trackLine}${problemOpen
+          ? problemLine
+          : `<p class="dim">You’re paid ${money(order.sellerPayoutCents)} 3 days after delivery.</p>`}</div>`;
+      }
       return `<div class="ship-first-banner mkt-deal">
-          <p>On its way!</p>${trackLine}
-          <div class="card-actions"><button class="btn-primary" data-action="mkt-arrived" data-id="${order.id}">It arrived</button></div>
-          <p class="dim">Tapping this pays the seller right away. Otherwise they’re paid 3 days after delivery.</p>
+          <p>On its way!</p>${trackLine}${problemLine}
+          <div class="card-actions"><button class="btn-primary" data-action="mkt-arrived" data-id="${order.id}">It arrived</button>${reportBtn}</div>
+          <p class="dim">${problemOpen
+            ? 'Sorted out? Tapping “It arrived” closes your report and pays the seller.'
+            : 'Tapping “It arrived” pays the seller right away. Otherwise they’re paid 3 days after delivery.'}</p>
         </div>`;
     case 'delivered':
-      if (iAmSeller) return `<div class="ship-first-banner">Delivered. You’re paid ${money(order.sellerPayoutCents)} 3 days after delivery, or sooner if the buyer confirms.</div>`;
+      if (iAmSeller) {
+        return `<div class="ship-first-banner mkt-deal"><p>Delivered.</p>${problemOpen
+          ? problemLine
+          : `<p class="dim">You’re paid ${money(order.sellerPayoutCents)} 3 days after delivery, or sooner if the buyer confirms.</p>`}</div>`;
+      }
       return `<div class="ship-first-banner mkt-deal">
-          <p>Delivered 📬</p>${trackLine}
-          <div class="card-actions"><button class="btn-primary" data-action="mkt-arrived" data-id="${order.id}">All good — pay the seller</button></div>
-          <p class="dim">Something wrong with it? Tell us within 3 days of delivery, before the seller is paid.</p>
+          <p>Delivered 📬</p>${trackLine}${problemLine}
+          <div class="card-actions"><button class="btn-primary" data-action="mkt-arrived" data-id="${order.id}">All good — pay the seller</button>${reportBtn}</div>
+          <p class="dim">${problemOpen
+            ? 'Sorted out? “All good” closes your report and pays the seller.'
+            : 'Something wrong with it? Report a problem within 3 days of delivery, before the seller is paid.'}</p>
         </div>`;
-    case 'released':
-      return `<div class="ship-first-banner">Done ✓ ${iAmSeller ? `${money(order.sellerPayoutCents)} sent to your payouts.` : 'The seller has been paid.'}</div>`;
+    case 'released': {
+      if (!iAmSeller) return `<div class="ship-first-banner">Done ✓ The seller has been paid.</div>`;
+      // Seller fees owed from an earlier cancelled sale come out of the payout.
+      const withheld = order.payoutWithheldCents > 0 ? order.payoutWithheldCents : 0;
+      const sent = order.sellerPayoutCents - withheld;
+      return `<div class="ship-first-banner">Done ✓ ${money(sent)} sent to your payouts.${withheld
+        ? ` <span class="dim">That’s ${money(order.sellerPayoutCents)} for this sale minus ${money(withheld)} in seller fees you owed.</span>` : ''}</div>`;
+    }
     case 'refunded':
       return `<div class="ship-first-banner">Refunded — ${iAmSeller ? 'the buyer got their money back.' : `${money(order.totalCents)} is back on your card.`}</div>`;
     case 'disputed':
@@ -1903,13 +2054,14 @@ function renderSaleMine() {
       return `<p class="trade-proof-warning">⏸ Paused — Plushie Dreadfuls ${l.pauseReason === 'pd_price_drop' ? 'dropped its price' : 'restocked this'}. Edit it to ${l.pdPriceCents != null ? money(l.pdPriceCents) : 'PD’s price'} or lower to relist.</p>`;
     }
     if (listingOnHold(l)) return `<p class="dim">On hold for a buyer until ${new Date(l.reservedUntil).toLocaleString()}</p>`;
+    if (listingHoldLapsed(l)) return `<p class="dim">Live again — the buyer’s hold ended without payment</p>`;
     if (l.status === 'sold') return `<p class="dim">Sold</p>`;
     return `<p class="dim">Live · checked against PD ${shortDate(l.pdCheckedAt)}</p>`;
   };
   return `${renderPayoutsBanner()}<div class="grid grid-tight">${list.map((l) => {
     const src = l.photo || catalogImageFor(l.catalogId);
     const photo = src ? `<img src="${escapeHtml(src)}" loading="lazy" />` : `<span class="no-photo">🖤</span>`;
-    const editable = l.status === 'active' || l.status === 'paused';
+    const editable = l.status === 'active' || l.status === 'paused' || listingHoldLapsed(l);
     return `
       <article class="card card-small">
         <div class="card-photo">${photo}</div>
@@ -1967,6 +2119,8 @@ function openSellModal(colItem, listing) {
   document.getElementById('ms-notes').value = listing?.notes || '';
   document.getElementById('ms-save').textContent = listing ? 'Save & re-check' : 'List for sale';
   hideEl('ms-error');
+  // Listing doesn't need payouts, but nobody can pay you without them — say so.
+  document.getElementById('ms-payouts-nudge')?.classList.toggle('hidden', !!state.myPayouts?.ready);
   renderSellFees();
   renderSellExtras();
   renderSellPhotos();
@@ -2179,13 +2333,17 @@ async function saveSellListing() {
     };
     if (d.listing) await data.marketListingCall({ action: 'update', listingId: d.listing.id, ...body });
     else await data.marketListingCall({ action: 'create', plushieId: d.colItem.id, ...body });
-    toast(d.listing ? 'Listing updated.' : 'Listed for sale.');
+    toast((d.listing ? 'Listing updated.' : 'Listed for sale.')
+      + (state.myPayouts?.ready ? '' : ' Next: set up payouts so buyers can pay you.'));
     closeSellModal();
     state.saleFilter = 'mine';
     await refreshMarket();
   } catch (err) {
     console.error('saveSellListing', err);
-    msError(err.message || 'Could not save the listing.');
+    // The server keeps a just-lapsed hold locked until its hourly sweep.
+    msError(err.code === 'LOCKED' && d.listing && listingHoldLapsed(d.listing)
+      ? 'The buyer’s hold on this only just ended — it unlocks for editing within the hour. Try again shortly.'
+      : marketErrorText(err));
   } finally {
     if (state.sellDraft === d) {
       d.saving = false;
@@ -2335,7 +2493,7 @@ async function fetchMarketRates() {
     renderMarketRates();
   } catch (err) {
     console.error('quote', err);
-    mpError(err.message);
+    mpError(marketErrorText(err));
   } finally {
     d.busy = false; btn.disabled = false; btn.textContent = 'Get shipping options';
   }
@@ -2381,16 +2539,100 @@ async function payMarketOrder() {
     window.location.assign(out.url);
   } catch (err) {
     console.error('checkout', err);
-    mpError(err.message);
+    const text = marketErrorText(err);
     d.busy = false;
+    if (err.code === 'HOLD_ENDED' || err.code === 'ALREADY_PAID') {
+      // Nothing left to do in this modal — close it and say why where it'll be seen.
+      closeMarketPayModal();
+      toast(text);
+      await refreshMarket();
+      return;
+    }
+    mpError(text);
     renderMarketPayTotal();
-    if (err.code === 'HOLD_ENDED' || err.code === 'ALREADY_PAID') { closeMarketPayModal(); await refreshMarket(); }
   }
 }
 
-async function marketRespond(offerId, action) {
+// ─── For Sale: report a problem (buyer, shipped/delivered) ───────────
+// Pauses the automatic payout until an admin looks at it (db/0112).
+function openMarketProblemModal(orderId) {
+  const order = (state.marketOrders || []).find((x) => x.id === orderId);
+  if (!order) return;
+  const offer = (state.marketOffers || []).find((x) => x.id === order.offerId);
+  state.marketProblemDraft = { orderId, busy: false };
+  document.getElementById('mpr-sub').textContent = stripOutfitWord(offer?.listing?.name || 'Your order');
+  const note = document.getElementById('mpr-note');
+  note.value = '';
+  note.minLength = MARKET_PROBLEM_MIN;
+  note.maxLength = MARKET_PROBLEM_MAX;
+  hideEl('mpr-error');
+  renderMarketProblemCount();
+  showEl('market-problem-modal');
+  note.focus();
+}
+function renderMarketProblemCount() {
+  const n = document.getElementById('mpr-note').value.trim().length;
+  document.getElementById('mpr-count').textContent = n < MARKET_PROBLEM_MIN
+    ? `${n} / ${MARKET_PROBLEM_MAX} — at least ${MARKET_PROBLEM_MIN} characters`
+    : `${n} / ${MARKET_PROBLEM_MAX}`;
+}
+// Cancel / × / backdrop. What they typed is never thrown away silently.
+function closeMarketProblemModal() {
+  const typed = document.getElementById('mpr-note').value.trim();
+  if (typed && !confirm('Throw away what you wrote?')) return;
+  hideEl('market-problem-modal');
+  state.marketProblemDraft = null;
+}
+async function sendMarketProblem() {
+  const d = state.marketProblemDraft;
+  if (!d || d.busy) return;
+  const errEl = document.getElementById('mpr-error');
+  const show = (m) => { errEl.textContent = m; showEl('mpr-error'); };
+  const note = document.getElementById('mpr-note').value.trim();
+  if (note.length < MARKET_PROBLEM_MIN) { show(`Tell us a little more — at least ${MARKET_PROBLEM_MIN} characters.`); return; }
+  if (note.length > MARKET_PROBLEM_MAX) { show(`Keep it under ${MARKET_PROBLEM_MAX} characters.`); return; }
+  const btn = document.getElementById('mpr-send');
+  d.busy = true; btn.disabled = true;
+  try {
+    await data.marketPayCall({ action: 'report_problem', orderId: d.orderId, note });
+  } catch (err) {
+    console.error('report_problem', err);
+    show(marketErrorText(err));   // modal stays open; their note is untouched
+    d.busy = false; btn.disabled = false;
+    return;
+  }
+  btn.disabled = false;
+  hideEl('market-problem-modal');
+  state.marketProblemDraft = null;
+  toast('Reported — the seller’s payout is paused while we look into it.');
+  await refreshMarket();
+}
+
+// A seller can't be paid — so can't take a deal — until Stripe payouts are set up.
+function promptPayoutsSetup(btn) {
+  if (!confirm('Before you can accept an offer, set up payouts so the buyer can pay you. Stripe handles it and it takes a few minutes. Set up payouts now?')) return;
+  startPayoutsSetup(btn);
+}
+async function startPayoutsSetup(btn) {
+  if (!state.sellerTermsOk) { requireSellerTerms(() => startPayoutsSetup(btn)); return; }
+  if (btn) btn.disabled = true;
+  try {
+    const out = await data.marketPayCall({ action: 'payouts_setup', returnBase: data.marketReturnBase() });
+    if (!out?.url) throw new Error('Stripe didn’t give us a setup link. Please try again.');
+    window.location.assign(out.url);
+  } catch (err) {
+    console.error('mkt-payouts', err);
+    toast(marketErrorText(err));
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function marketRespond(offerId, action, btn) {
   const o = state.marketOffers.find((x) => x.id === offerId);
   if (!o) return;
+  const iAmSeller = o.sellerId === window.currentUser.id;
+  // Accepting holds the item for a buyer who then can't pay an unready seller.
+  if (action === 'accept' && iAmSeller && !state.myPayouts?.ready) { promptPayoutsSetup(btn); return; }
   if (action === 'accept' && !confirm(`Accept ${money(o.amountCents)} for ${stripOutfitWord(o.listing?.name || 'this')}? It’s held for the buyer for 48 hours.`)) return;
   if (action === 'decline' && !confirm('Decline this offer?')) return;
   try {
@@ -2399,6 +2641,12 @@ async function marketRespond(offerId, action) {
     toast({ accept: 'Offer accepted.', decline: 'Offer declined.', withdraw: 'Offer withdrawn.' }[action]);
   } catch (err) {
     console.error('marketRespond', action, err);
+    // The server's view of payouts wins over our cached one.
+    if (iAmSeller && /MARKET_PAYOUTS_NOT_READY/.test(err?.message || '')) {
+      await refreshMarket();
+      promptPayoutsSetup(btn);
+      return;
+    }
     toast(marketErrorText(err));
   }
   await refreshMarket();
@@ -2406,6 +2654,20 @@ async function marketRespond(offerId, action) {
 
 Object.assign(TRADE_ACTIONS, {
   'mkt-filter': (b) => { state.saleFilter = b.dataset.filter; renderSale(); },
+  'mkt-retry': async (b) => {
+    b.disabled = true;
+    b.textContent = 'Trying…';
+    await refreshMarket();
+  },
+  // Trade → Browse's doorway into For Sale (the sub-tab can sit off-screen on a phone).
+  'mkt-open-sale': () => setTradeSubTab('sale'),
+  'mkt-report-problem': (b) => openMarketProblemModal(b.dataset.id),
+  // A deal whose hold lapsed: straight back to an offer on the same listing.
+  'mkt-reoffer': (b) => {
+    const l = state.marketBrowse.find((x) => x.id === b.dataset.listing);
+    if (!l || listingOnHold(l)) { toast('That one isn’t taking offers right now.'); return; }
+    openMarketOfferModal({ mode: 'offer', listingId: l.id, name: l.name, askCents: l.priceCents, shippingCents: l.shippingCents });
+  },
   'mkt-offer': (b) => {
     const l = state.marketBrowse.find((x) => x.id === b.dataset.id);
     if (!l) return;
@@ -2423,21 +2685,10 @@ Object.assign(TRADE_ACTIONS, {
     try {
       await data.marketPayCall({ action: 'label_retry', orderId: b.dataset.id });
       toast('Label ready — print it from the order.');
-    } catch (err) { toast(err.message); }
+    } catch (err) { console.error('label_retry', err); toast(marketErrorText(err)); }
     await refreshMarket();
   },
-  'mkt-payouts': async (b) => {
-    if (!state.sellerTermsOk) { requireSellerTerms(() => TRADE_ACTIONS['mkt-payouts'](b)); return; }
-    b.disabled = true;
-    try {
-      const out = await data.marketPayCall({ action: 'payouts_setup', returnBase: data.marketReturnBase() });
-      window.location.assign(out.url);
-    } catch (err) {
-      console.error('mkt-payouts', err);
-      toast(err.message);
-      b.disabled = false;
-    }
-  },
+  'mkt-payouts': (b) => startPayoutsSetup(b),
   'mkt-payouts-dash': async (b) => {
     // Open the tab synchronously so popup blockers allow it, then point it at Stripe.
     const win = window.open('', '_blank');
@@ -2446,7 +2697,8 @@ Object.assign(TRADE_ACTIONS, {
       if (win) win.location.href = out.url; else window.location.assign(out.url);
     } catch (err) {
       win?.close();
-      toast(err.message);
+      console.error('payouts_dashboard', err);
+      toast(marketErrorText(err));
     }
   },
   'mkt-arrived': async (b) => {
@@ -2455,7 +2707,7 @@ Object.assign(TRADE_ACTIONS, {
     try {
       await data.marketPayCall({ action: 'confirm', orderId: b.dataset.id });
       toast('Thanks — the seller has been paid.');
-    } catch (err) { toast(err.message); }
+    } catch (err) { console.error('confirm', err); toast(marketErrorText(err)); }
     await refreshMarket();
   },
   'mkt-refund': async (b) => {
@@ -2466,10 +2718,10 @@ Object.assign(TRADE_ACTIONS, {
     try {
       await data.marketPayCall({ action: 'refund', orderId: b.dataset.id });
       toast('Refunded.');
-    } catch (err) { toast(err.message); }
+    } catch (err) { console.error('refund', err); toast(marketErrorText(err)); }
     await refreshMarket();
   },
-  'mkt-accept':   (b) => marketRespond(b.dataset.id, 'accept'),
+  'mkt-accept':   (b) => marketRespond(b.dataset.id, 'accept', b),
   'mkt-decline':  (b) => marketRespond(b.dataset.id, 'decline'),
   'mkt-withdraw': (b) => marketRespond(b.dataset.id, 'withdraw'),
   'mkt-edit': (b) => {
@@ -2479,7 +2731,7 @@ Object.assign(TRADE_ACTIONS, {
   'mkt-remove': async (b) => {
     if (!confirm('Take this listing down? Any pending offers on it are declined.')) return;
     try { await data.removeMarketListing(b.dataset.id); toast('Listing removed.'); }
-    catch (err) { toast(marketErrorText(err)); }
+    catch (err) { console.error('removeMarketListing', err); toast(marketErrorText(err)); }
     await refreshMarket();
   },
 });
