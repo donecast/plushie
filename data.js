@@ -3210,6 +3210,34 @@ data.loadAppSettings = async function () {
   await data.loadMarketAllowed();
 };
 
+// ─── Bits (db/0114) ─────────────────────────────────────────────────
+// Points + leaderboard. Every award is made by the database (triggers and
+// bits_checkin), never by the client — these are reads plus the once-a-day
+// check-in. Spending is off for now (app_settings 'bits.config').
+data.bitsCheckin = async function () {
+  const { data: r, error } = await sb.rpc('bits_checkin');
+  if (error) throw error;
+  return { earned: r?.earned || 0, streak: r?.streak || 0 };
+};
+data.bitsMe = async function () {
+  const { data: r, error } = await sb.rpc('bits_me');
+  if (error) throw error;
+  return r;
+};
+data.bitsLeaderboard = async function (period = 'all') {
+  const { data: rows, error } = await sb.rpc('bits_leaderboard', { p_period: period, p_limit: 100 });
+  if (error) throw error;
+  return Promise.all((rows || []).map(async (r) => ({
+    rank: Number(r.rank), userId: r.user_id, username: r.username, bits: Number(r.bits),
+    avatarUrl: r.avatar_path ? await data.socialPhotoUrl(r.avatar_path) : null,
+  })));
+};
+data.bitsRules = async function () {
+  const { data: rows, error } = await sb.from('bits_rules').select('key, bits, label, sort').order('sort');
+  if (error) throw error;
+  return rows || [];
+};
+
 // For Sale gate (db/0112). The server's market_allowed() is the one source of
 // truth — admins, early-access testers, or everyone once 'feature.market' is
 // switched on — so the app asks it rather than keeping its own copy of the

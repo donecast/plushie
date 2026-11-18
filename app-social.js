@@ -173,6 +173,180 @@ function setSocSubTab(name) {
   renderSocial();
 }
 
+// ─── Bits + leaderboard (db/0114) ────────────────────────────────────
+// Members earn Bits for showing up, being active, contributing photos and
+// finishing deals; the database makes every award. For now Bits are only a
+// leaderboard — nothing can be spent. Entry points: a card at the top of the
+// Home feed (where everyone lands) → the full leaderboard view.
+const BITS_REASON_LABELS = {
+  login: 'Daily visit', streak_7: '7-day streak bonus', streak_30: '30-day streak bonus',
+  add_item: 'Added to your Crypt', post: 'Posted', comment: 'Commented',
+  feedback: 'Left trade feedback', photo: 'Photo approved', photo_cover: 'Photo became the cover',
+  trade: 'Completed a trade', purchase: 'Bought something', sale: 'Sold something',
+  first_deal: 'First-ever deal bonus', reversed: 'Deal refunded',
+};
+const fmtBits = (n) => Number(n || 0).toLocaleString();
+
+// Once per app open (and again when the app comes back to the foreground on a
+// new day): the server decides whether today's visit already counted.
+async function bitsDailyCheckin() {
+  try {
+    const r = await data.bitsCheckin();
+    if (r.earned > 0) {
+      toast(r.streak > 1
+        ? `+${r.earned} Bits · 🔥 ${r.streak}-day streak`
+        : `+${r.earned} Bits for stopping by today 🦇`);
+    }
+    await loadBitsMe();
+  } catch (e) {
+    console.warn('bits check-in failed', e);
+  }
+}
+if (!window._bitsVisHooked) {
+  window._bitsVisHooked = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && window.currentUser) bitsDailyCheckin();
+  });
+}
+
+async function loadBitsMe() {
+  state.bitsMe = await data.bitsMe();
+  if (state.tab === 'home' && !state.socProfile) {
+    if (state.socSubTab === 'feed') {
+      const slot = document.getElementById('bits-home-card');
+      if (slot) slot.outerHTML = bitsHomeCardHtml();
+    } else if (state.socSubTab === 'bits') renderBits();
+  }
+}
+
+function bitsHomeCardHtml() {
+  const me = state.bitsMe;
+  if (!me) return '<div id="bits-home-card"></div>';
+  const streak = me.streak > 0 ? `<span class="bits-chip">🔥 ${me.streak}-day streak</span>` : '';
+  const rank = me.total > 0 && me.on_board !== false ? `<span class="bits-chip">#${me.rank} of ${me.members}</span>` : '';
+  return `
+    <button id="bits-home-card" class="bits-home-card" data-soc-action="open-bits">
+      <span class="bits-home-coin">🪙</span>
+      <span class="bits-home-main">
+        <span class="bits-home-total">${fmtBits(me.total)} Bits</span>
+        <span class="bits-home-sub">${rank}${streak}</span>
+      </span>
+      <span class="bits-home-cta">Leaderboard ›</span>
+    </button>`;
+}
+
+async function openBits() {
+  state.socProfile = null;
+  state.bitsPeriod = state.bitsPeriod || 'all';
+  setSocSubTab('bits');
+  window.scrollTo?.(0, 0);
+  try {
+    const [me, rules, board] = await Promise.all([
+      data.bitsMe(), data.bitsRules(), data.bitsLeaderboard(state.bitsPeriod),
+    ]);
+    state.bitsMe = me;
+    state.bitsRules = rules;
+    state.bitsBoard = { period: state.bitsPeriod, rows: board };
+    state.bitsError = null;
+  } catch (e) {
+    console.error('bits load', e);
+    state.bitsError = e.message || String(e);
+  }
+  if (state.socSubTab === 'bits') renderBits();
+}
+
+async function setBitsPeriod(period) {
+  if (!period || period === state.bitsPeriod) return;
+  state.bitsPeriod = period;
+  state.bitsBoard = null;
+  renderBits();
+  try {
+    state.bitsBoard = { period, rows: await data.bitsLeaderboard(period) };
+    state.bitsError = null;
+  } catch (e) {
+    console.error('bits board', e);
+    state.bitsError = e.message || String(e);
+  }
+  if (state.socSubTab === 'bits') renderBits();
+}
+
+function renderBits() {
+  const el = document.getElementById('soc-bits');
+  if (!el) return;
+  const me = state.bitsMe;
+  const myId = window.currentUser?.id;
+  const period = state.bitsPeriod || 'all';
+  const back = `<button class="linklike soc-back" data-soc-action="bits-back">← Home</button>`;
+
+  if (state.bitsError) {
+    el.innerHTML = `<section class="soc-section">${back}
+      <p class="empty-note">Couldn't load the leaderboard: ${escapeHtml(state.bitsError)}</p></section>`;
+    return;
+  }
+
+  const ranked = !!me && me.total > 0 && me.on_board !== false;
+  const stats = me ? `
+    <div class="bits-stats">
+      <div class="bits-stat"><span class="bits-stat-num">${fmtBits(me.total)}</span><span class="bits-stat-label">Bits earned</span></div>
+      <div class="bits-stat"><span class="bits-stat-num">${ranked ? '#' + me.rank : 'N/A'}</span><span class="bits-stat-label">${ranked ? `of ${me.members}` : (me.on_board === false ? 'Hidden from the board' : 'Not ranked yet')}</span></div>
+      <div class="bits-stat"><span class="bits-stat-num">🔥 ${me.streak}</span><span class="bits-stat-label">day streak (best ${me.best_streak})</span></div>
+      <div class="bits-stat"><span class="bits-stat-num">${fmtBits(me.month)}</span><span class="bits-stat-label">this month</span></div>
+    </div>
+    <p class="bits-cap-note dim">Activity today: ${me.activity_today} / ${me.activity_cap} Bits (items, posts, comments and feedback share a daily limit).</p>`
+    : loadingPlaceholder('Counting your Bits…');
+
+  const toggle = `
+    <div class="bits-period" role="tablist">
+      <button class="bits-period-btn ${period === 'all' ? 'active' : ''}" data-soc-action="bits-period" data-period="all">All time</button>
+      <button class="bits-period-btn ${period === 'month' ? 'active' : ''}" data-soc-action="bits-period" data-period="month">This month</button>
+    </div>`;
+
+  const board = state.bitsBoard && state.bitsBoard.period === period ? state.bitsBoard.rows : null;
+  const medal = (r) => (r === 1 ? '🥇' : r === 2 ? '🥈' : r === 3 ? '🥉' : `#${r}`);
+  const list = !board
+    ? loadingPlaceholder('Summoning the leaderboard…')
+    : board.length
+    ? `<ol class="bits-board">${board.map((r) => `
+        <li class="bits-row ${r.userId === myId ? 'bits-row-me' : ''}">
+          <span class="bits-rank">${medal(r.rank)}</span>
+          <button class="soc-userlink bits-user" data-soc-action="view-profile" data-uid="${r.userId}">
+            ${socAvatar(r.avatarUrl, r.username)} <span>@${escapeHtml(r.username)}</span>
+          </button>
+          <span class="bits-amt">${fmtBits(r.bits)}</span>
+        </li>`).join('')}</ol>`
+    : `<p class="empty-note">No one has earned Bits ${period === 'month' ? 'this month' : ''} yet. Be the first!</p>`;
+
+  const rules = (state.bitsRules || []).filter((r) => r.key !== 'activity_daily_cap');
+  const earn = rules.length ? `
+    <details class="bits-earn" open>
+      <summary>How to earn Bits</summary>
+      <ul class="bits-earn-list">${rules.map((r) => `
+        <li><span>${escapeHtml(r.label)}</span><span class="bits-earn-amt">${r.key === 'sale_per_dollar' ? `${r.bits} per $1` : `+${r.bits}`}</span></li>`).join('')}
+      </ul>
+      <p class="dim">Photos count once a moderator approves them. Spending Bits is coming later.</p>
+    </details>` : '';
+
+  const recent = me && me.recent && me.recent.length ? `
+    <details class="bits-earn">
+      <summary>Your recent Bits</summary>
+      <ul class="bits-earn-list">${me.recent.map((r) => `
+        <li><span>${escapeHtml(BITS_REASON_LABELS[r.reason] || r.reason)} <span class="dim">· ${escapeHtml(socTimeAgo(r.created_at))}</span></span>
+            <span class="bits-earn-amt">${r.amount > 0 ? '+' : ''}${fmtBits(r.amount)}</span></li>`).join('')}
+      </ul>
+    </details>` : '';
+
+  el.innerHTML = `
+    <section class="soc-section bits-view">
+      ${back}
+      <h2 class="soc-section-head">🪙 Bits Leaderboard</h2>
+      ${stats}
+      ${toggle}
+      ${list}
+      ${earn}
+      ${recent}
+    </section>`;
+}
+
 // ─── Small presentational helpers ───────────────────────────────────
 function socTimeAgo(ts) {
   const d = typeof ts === 'number' ? ts : +new Date(ts);
@@ -249,6 +423,7 @@ function renderSocial() {
   document.getElementById('soc-friends').classList.toggle('hidden', onProfile || state.socSubTab !== 'friends');
   document.getElementById('soc-me').classList.toggle('hidden', onProfile || state.socSubTab !== 'me');
   document.getElementById('soc-messages')?.classList.toggle('hidden', onProfile || state.socSubTab !== 'messages');
+  document.getElementById('soc-bits')?.classList.toggle('hidden', onProfile || state.socSubTab !== 'bits');
   document.querySelectorAll('#social-view .subtab').forEach((s) =>
     s.classList.toggle('active', !onProfile && s.dataset.socSubtab === state.socSubTab));
 
@@ -260,6 +435,7 @@ function renderSocial() {
   else if (state.socSubTab === 'friends') renderFriends();
   else if (state.socSubTab === 'me') renderMyProfileTab();
   else if (state.socSubTab === 'messages') renderMessages();
+  else if (state.socSubTab === 'bits') renderBits();
   // Any of those may have painted a composer holding a multi-line draft.
   autoGrowAllComposers();
 }
@@ -570,7 +746,7 @@ function renderFeed() {
 
   // Phones have no left rail, so the Stirrings ticker rides at the top of Home
   // (CSS shows it only at ≤860px; empty unless the rails insider flag is on).
-  el.innerHTML = `<div id="home-stirrings" class="home-stirrings"></div>` + composer +
+  el.innerHTML = `<div id="home-stirrings" class="home-stirrings"></div>` + bitsHomeCardHtml() + composer +
     `<div class="soc-feed-list">${posts}</div>`;
   if (typeof renderRailStirrings === 'function') renderRailStirrings();
 }
@@ -2554,6 +2730,9 @@ async function onSocialClick(e) {
   switch (a) {
     case 'open-compose': openComposer(); break;
     case 'go-friends': setSocSubTab('friends'); break;
+    case 'open-bits': openBits(); break;
+    case 'bits-back': setSocSubTab('feed'); break;
+    case 'bits-period': setBitsPeriod(target.dataset.period); break;
     case 'gift-accept': await respondToGift(target.dataset.giftId, true); break;
     case 'gift-decline': await respondToGift(target.dataset.giftId, false); break;
     case 'gift-cancel': await cancelPendingGift(target.dataset.giftId); break;
@@ -3084,6 +3263,7 @@ async function boot() {
   subscribeNotificationStream();  // realtime: hear our notification rows instantly (db/0087)
   refreshNotifBell().catch((e) => console.warn('notif bell', e));  // 🔔 inbox badge
   data.claimTimeRelics?.();  // time-based relics (year-one) — fire-and-forget (db/0088)
+  bitsDailyCheckin();        // daily login Bits + streak (db/0114) — fire-and-forget
   updateNotifyButton();
   registerSW();
   // Notifications default to ON: subscribe now if the OS already permits it,
